@@ -1,5 +1,5 @@
 /* =============================================
-   Solo-OS — PhpStorm New Dark UI Theme
+   islam.walied — PhpStorm New Dark UI Theme
    ============================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -39,7 +39,7 @@
   --radius-md:     10px;
   --radius-lg:     14px;
 
-  --sidebar-w:     220px;
+  --sidebar-w:     260px;
   --transition:    all 0.2s ease;
 }
 
@@ -77,12 +77,14 @@ html, body {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 20px 12px;
   gap: 6px;
+  position: relative;
   z-index: 10;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
 }
 
 .sidebar-logo {
@@ -106,11 +108,29 @@ html, body {
   flex-shrink: 0;
 }
 
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .sidebar-logo span {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-logo small {
@@ -120,6 +140,9 @@ html, body {
   font-weight: 400;
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-label {
@@ -130,6 +153,7 @@ html, body {
   color: var(--text-muted);
   padding: 8px 10px 4px;
   margin-top: 6px;
+  text-align: right;
 }
 
 .nav-item {
@@ -162,10 +186,11 @@ html, body {
 .nav-item.active::before {
   content: '';
   position: absolute;
-  left: 0; top: 20%; bottom: 20%;
+  right: 0; left: auto;
+  top: 20%; bottom: 20%;
   width: 3px;
   background: var(--accent);
-  border-radius: 0 3px 3px 0;
+  border-radius: 3px 0 0 3px;
 }
 
 .nav-item.disabled {
@@ -189,13 +214,24 @@ html, body {
   margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .version-tag {
   font-size: 11px;
   color: var(--text-muted);
-  text-align: center;
-  padding: 6px;
 }
 
 /* ── Main Area ── */
@@ -314,26 +350,61 @@ html, body {
 .board-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
   flex-shrink: 0;
+  padding: 4px 0;
 }
 
+/* ── Expandable Search Box ── */
 .search-box {
   display: flex;
   align-items: center;
-  gap: 8px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  flex: 1;
-  max-width: 300px;
-  transition: var(--transition);
+  border-radius: 99px;
+  padding: 0;
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+  flex-shrink: 0;
 }
 
+/* Expanded state when focused or by active class */
+.search-box.expanded,
 .search-box:focus-within {
+  width: 260px;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-dim);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.search-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: var(--transition);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.search-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.search-icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--accent-dim);
 }
 
 .search-box input {
@@ -342,12 +413,67 @@ html, body {
   outline: none;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 13px;
-  width: 100%;
+  font-size: 13.5px;
+  width: 0;
+  opacity: 0;
+  padding: 0;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
+  pointer-events: none;
+  direction: rtl;
 }
 
-.search-box input::placeholder { color: var(--text-muted); }
-.search-box .search-icon { color: var(--text-muted); font-size: 14px; }
+/* Show input when expanded */
+.search-box.expanded input,
+.search-box:focus-within input {
+  width: 100%;
+  opacity: 1;
+  padding: 0 12px 0 4px;
+  pointer-events: auto;
+}
+
+.search-box input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ── Toolbar Add Button ── */
+.toolbar-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, var(--accent), #5E9BFF);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(53,116,240,0.25);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+}
+
+.toolbar-add-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  transition: transform 0.25s ease;
+}
+
+.toolbar-add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(53,116,240,0.4);
+  background: linear-gradient(135deg, var(--accent-hover), #70A7FF);
+}
+
+.toolbar-add-btn:hover svg {
+  transform: rotate(90deg);
+}
+
+.toolbar-add-btn:active {
+  transform: translateY(0);
+}
 
 #kanban {
   flex: 1;
@@ -548,9 +674,9 @@ html, body {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 2px;
+  height: 3px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  opacity: 0;
+  opacity: 0.5; /* Always visible for great scanning UX */
   transition: var(--transition);
 }
 
@@ -823,24 +949,31 @@ html, body {
    FIREBASE STATUS INDICATOR
    ============================================================ */
 
-.db-status {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 5px 10px;
-}
-
 .db-dot {
-  width: 6px; height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--text-muted);
   transition: var(--transition);
+  display: inline-block;
+  vertical-align: middle;
 }
 
-.db-dot.online  { background: var(--status-done); box-shadow: 0 0 6px var(--status-done); }
-.db-dot.offline { background: var(--danger); }
+.db-dot.online {
+  background: #3DB981;
+  box-shadow: 0 0 8px rgba(61,185,129,0.7);
+  animation: pulseGreen 2s infinite alternate;
+}
+
+.db-dot.offline {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(224,92,92,0.7);
+}
+
+@keyframes pulseGreen {
+  0% { transform: scale(1); box-shadow: 0 0 4px rgba(61,185,129,0.5); }
+  100% { transform: scale(1.15); box-shadow: 0 0 10px rgba(61,185,129,0.9); }
+}
 
 /* ============================================================
    RESPONSIVE (TABLET SUPPORT)
@@ -941,14 +1074,13 @@ html, body {
 
 /* ── View Toolbar ── */
 .view-toolbar {
-  padding: 12px 24px 0;
+  padding: 16px 24px 4px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
   flex-shrink: 0;
 }
-
-.view-toolbar .search-box { max-width: 340px; }
 
 /* ── Cards Grid ── */
 .cards-grid {
@@ -1104,6 +1236,28 @@ html, body {
 .entity-card:hover .card-del-btn { opacity: 1; }
 .card-del-btn:hover { background: rgba(224,92,92,0.15); color: var(--danger); }
 
+/* ── Edit Button on Cards ── */
+.card-edit-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  opacity: 0;
+  color: var(--text-muted);
+  position: relative;
+  z-index: 2;
+  line-height: 1;
+}
+
+.entity-card:hover .card-edit-btn { opacity: 1; }
+.card-edit-btn:hover { background: rgba(53,116,240,0.15); color: var(--accent); }
+.task-card:hover .card-edit-btn { opacity: 0.6; }
+.task-card .card-edit-btn:hover { opacity: 1; background: rgba(53,116,240,0.15); color: var(--accent); }
+
+
 /* ── Card top-right actions row ── */
 .card-top-actions {
   display: flex;
@@ -1199,4 +1353,465 @@ html, body {
   .cards-grid { grid-template-columns: 1fr; padding: 12px; }
   .view-toolbar { padding: 10px 12px 0; }
 }
+
+/* ============================================================
+   LOGIN SCREEN
+   ============================================================ */
+
+#login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+  overflow: hidden;
+}
+
+#login-screen.hidden { display: none; }
+
+/* Animated gradient blobs */
+.login-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.login-bg::before {
+  content: '';
+  position: absolute;
+  width: 700px; height: 700px;
+  background: radial-gradient(circle, rgba(53,116,240,0.18) 0%, transparent 65%);
+  top: -250px; right: -150px;
+  animation: blobPulse 7s ease-in-out infinite alternate;
+}
+
+.login-bg::after {
+  content: '';
+  position: absolute;
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(61,185,129,0.1) 0%, transparent 65%);
+  bottom: -200px; left: -100px;
+  animation: blobPulse 9s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes blobPulse {
+  from { transform: scale(1) rotate(0deg); }
+  to   { transform: scale(1.25) rotate(15deg); }
+}
+
+/* Login Content */
+.login-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  width: 100%;
+  max-width: 400px;
+  padding: 24px;
+  text-align: center;
+  animation: loginContentIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes loginContentIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Rocket */
+.login-rocket {
+  display: block;
+  font-size: 56px; /* Perfectly balanced size */
+  line-height: 1;
+  animation: logoFloat 3.5s ease-in-out infinite;
+  filter: drop-shadow(0 6px 20px rgba(53,116,240,0.35));
+  margin-bottom: 8px;
+}
+
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+
+/* Error box */
+.login-error {
+  background: rgba(224,92,92,0.1);
+  border: 1px solid rgba(224,92,92,0.3);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--danger);
+  text-align: center;
+  line-height: 1.5;
+  animation: shakeX 0.4s ease;
+}
+
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-6px); }
+  40%       { transform: translateX(6px); }
+  60%       { transform: translateX(-4px); }
+  80%       { transform: translateX(4px); }
+}
+
+.login-error.hidden { display: none; }
+
+
+
+/* Footer note */
+.login-footer-note {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 26px;
+  opacity: 0.65;
+  letter-spacing: 0.3px;
+}
+
+/* ── Sign Out Button (sidebar) ── */
+.btn-signout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(224, 92, 92, 0.05);
+  border: 1px solid rgba(224, 92, 92, 0.15);
+  color: rgba(224, 92, 92, 0.8);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 100%;
+}
+
+.btn-signout:hover {
+  color: #ff5c5c;
+  background: rgba(224, 92, 92, 0.12);
+  border-color: rgba(224, 92, 92, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(224, 92, 92, 0.15);
+}
+
+.btn-signout:active {
+  transform: translateY(0);
+}
+
+.btn-signout .signout-icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+
+/* Login responsive */
+@media (max-width: 480px) {
+  .login-card { padding: 32px 24px; margin: 16px; border-radius: 16px; }
+  .login-title { font-size: 24px; }
+  .logo-icon-lg { font-size: 44px; }
+}
+
+/* ============================================================
+   COLLAPSIBLE SIDEBAR
+   ============================================================ */
+
+.sidebar-toggle {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-right: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg-panel);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.sidebar-toggle .toggle-icon {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block;
+}
+
+/* Flips the chevron when sidebar is collapsed */
+#sidebar.collapsed .sidebar-toggle .toggle-icon {
+  transform: rotate(180deg);
+}
+
+/* Collapsed state */
+#sidebar.collapsed {
+  width: 68px;
+  min-width: 68px;
+  padding: 20px 8px;
+}
+
+#sidebar.collapsed .sidebar-logo {
+  justify-content: center;
+  padding: 8px 0 20px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#sidebar.collapsed .logo-text,
+#sidebar.collapsed .nav-label,
+#sidebar.collapsed .nav-item span:not(.nav-icon),
+#sidebar.collapsed .nav-badge {
+  display: none !important;
+}
+
+#sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
+}
+
+#sidebar.collapsed .sidebar-toggle {
+  margin-right: 0;
+  margin-top: 4px;
+}
+
+/* Collapsed footer styles */
+#sidebar.collapsed .sidebar-footer {
+  align-items: center;
+  gap: 12px;
+}
+
+#sidebar.collapsed .sidebar-status-row {
+  justify-content: center;
+  padding: 0;
+}
+
+#sidebar.collapsed #db-status-text,
+#sidebar.collapsed .version-tag {
+  display: none !important;
+}
+
+#sidebar.collapsed .btn-signout {
+  padding: 8px;
+  width: 38px;
+  height: 38px;
+  margin: 0 auto;
+  border-radius: 50%;
+  justify-content: center;
+}
+
+#sidebar.collapsed .btn-signout .signout-text {
+  display: none !important;
+}
+
+/* ============================================================
+   GOOGLE AUTH BUTTON
+   ============================================================ */
+
+.google-auth-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.btn-google-login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 20px;
+  background: #ffffff;
+  color: #1e1f22;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+}
+
+.btn-google-login:hover {
+  background: #f1f2f5;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+
+.btn-google-login:active {
+  transform: translateY(0);
+}
+
+.btn-google-login:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.google-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+
+
+/* ============================================================
+   COLUMN QUICK ADD TASK BUTTON
+   ============================================================ */
+
+.col-add-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  margin-right: auto;
+  flex-shrink: 0;
+}
+
+.col-add-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.col-add-btn:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ============================================================
+   QUICK ADD TASK — Inline Form in Kanban Column
+   ============================================================ */
+
+.quick-add-task {
+  background: var(--bg-app);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: cardIn 0.2s ease;
+  box-shadow: 0 0 0 3px var(--accent-dim);
+  margin-bottom: 4px;
+}
+
+.quick-add-task.hidden { display: none; }
+
+.quick-add-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  resize: none;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+}
+
+.quick-add-input::placeholder { color: var(--text-muted); }
+
+.quick-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-add-actions .btn-primary {
+  padding: 6px 14px;
+  font-size: 12.5px;
+}
+
+.quick-add-actions .btn-ghost {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+/* Shake animation for quick-add validation */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-6px); }
+  40%       { transform: translateX(6px); }
+  60%       { transform: translateX(-4px); }
+  80%       { transform: translateX(4px); }
+}
+
+.quick-add-input.shake {
+  animation: shake 0.4s ease;
+  border-bottom: 1px solid var(--danger);
+}
+
+/* Active state: col-add-btn glows when quick-add is open */
+.col-add-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ── Toolbar Back Button ── */
+.toolbar-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  width: 38px;
+  height: 38px;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.toolbar-back-btn:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateX(3px); /* Shift slightly to the right on hover in RTL */
+}
+
+.toolbar-back-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  transform: scaleX(-1); /* Point arrow to the right in RTL */
+}
+
+/* ── Drag & Drop Card Reordering Feedback ── */
+.entity-card.drag-over-card {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-dim) !important;
+  transform: translateY(-2px) scale(1.01);
+}
+
+.entity-card.dragging-card {
+  opacity: 0.4;
+  border-style: dashed !important;
+}
+
+
 

@@ -1,11 +1,18 @@
 // ================================================================
-//  Solo-OS v2.0 — app.js
+//  islam.walied v2.0 — app.js
 //  Hierarchy: Clients → Projects → Tasks (Kanban)
 //  Firebase Firestore subcollections + Drag & Drop
 // ================================================================
 
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, allowedEmail } from './firebase-config.js';
 import { initializeApp }  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore,
   collection,
@@ -24,6 +31,271 @@ import {
 // ── Init ───────────────────────────────────────────────────────
 const firebaseApp = initializeApp(firebaseConfig);
 const db          = getFirestore(firebaseApp);
+const auth        = getAuth(firebaseApp);
+const provider    = new GoogleAuthProvider();
+
+// ════════════════════════════════════════════════════════════════
+//  BOOT & AUTH
+// ════════════════════════════════════════════════════════════════
+
+let isBooted = false;
+
+onAuthStateChanged(auth, async (user) => {
+  const loginScreen = document.getElementById('login-screen');
+  const loadingOverlay = document.getElementById('loading-overlay');
+  
+  if (user) {
+    // Check if the authenticated user matches the allowed email
+    if (user.email === allowedEmail) {
+      if (loginScreen) loginScreen.classList.add('hidden');
+      if (loadingOverlay) loadingOverlay.classList.add('hidden');
+      
+      if (!isBooted) {
+        setupColumnDnD();
+        navigateTo('clients');
+        isBooted = true;
+      }
+    } else {
+      // Sign out and display error
+      await signOut(auth);
+      showLoginError('❌ عذراً، هذا الحساب غير مصرح له بالدخول. يرجى تسجيل الدخول بحساب المدير.');
+    }
+  } else {
+    isBooted = false;
+    // Clear Firestore listener on signout
+    if (state.unsubscribe) {
+      state.unsubscribe();
+      state.unsubscribe = null;
+    }
+    // Reset local data
+    state.clients = [];
+    state.projects = [];
+    state.tasks = [];
+    
+    // Hide main screen, show login screen
+    if (loginScreen) loginScreen.classList.remove('hidden');
+    hideLoading(); // Remove DB spinner if still there
+  }
+});
+
+function showLoginError(msg) {
+  const errBox = document.getElementById('login-error');
+  if (errBox) {
+    errBox.textContent = msg;
+    errBox.classList.remove('hidden');
+  }
+}
+
+// Bind Sign-In with Google button
+const googleLoginBtn = document.getElementById('google-login-btn');
+if (googleLoginBtn) {
+  googleLoginBtn.addEventListener('click', async () => {
+    googleLoginBtn.disabled = true;
+    const origText = googleLoginBtn.innerHTML;
+    googleLoginBtn.innerHTML = `<span>🔄 جاري الاتصال بجوجل...</span>`;
+    
+    const errBox = document.getElementById('login-error');
+    if (errBox) errBox.classList.add('hidden');
+    
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error(err);
+      showLoginError(`❌ فشل تسجيل الدخول: ${err.message || 'يرجى المحاولة مجدداً'}`);
+      googleLoginBtn.disabled = false;
+      googleLoginBtn.innerHTML = origText;
+    }
+  });
+}
+
+// Bind Sign-Out button
+const signoutBtn = document.getElementById('signout-btn');
+if (signoutBtn) {
+  signoutBtn.addEventListener('click', async () => {
+    try {
+      await signOut(auth);
+      toast('تم تسجيل الخروج بنجاح', 'info', '👋');
+    } catch (err) {
+      console.error(err);
+      toast('فشل تسجيل الخروج', 'error');
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  COLLAPSIBLE SIDEBAR LOGIC
+// ════════════════════════════════════════════════════════════════
+
+const sidebar = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('sidebar-toggle-btn');
+
+if (sidebar && toggleBtn) {
+  // Read saved preference from localStorage
+  const isCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+  if (isCollapsed) {
+    sidebar.classList.add('collapsed');
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    const collapsed = sidebar.classList.toggle('collapsed');
+    localStorage.setItem('sidebar-collapsed', collapsed);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ADDITIONAL UX EVENT BINDINGS (Column Add)
+// ════════════════════════════════════════════════════════════════
+
+// 2. Toolbar Add Buttons
+const btnAddClient = document.getElementById('btn-add-client');
+if (btnAddClient) {
+  btnAddClient.addEventListener('click', () => openModal('client'));
+}
+const btnAddProject = document.getElementById('btn-add-project');
+if (btnAddProject) {
+  btnAddProject.addEventListener('click', () => openModal('project'));
+}
+const btnAddTask = document.getElementById('btn-add-task');
+if (btnAddTask) {
+  btnAddTask.addEventListener('click', () => openModal('task'));
+}
+
+// Toolbar Back Buttons
+const btnBackProjects = document.getElementById('btn-back-projects');
+if (btnBackProjects) {
+  btnBackProjects.addEventListener('click', () => navigateTo('clients'));
+}
+const btnBackTasks = document.getElementById('btn-back-tasks');
+if (btnBackTasks) {
+  btnBackTasks.addEventListener('click', () => navigateTo('projects', { client: state.client }));
+}
+
+// 3. Expandable Search Boxes Logic
+const searchBoxes = [
+  { boxId: 'search-box-clients', inputId: 'search-clients' },
+  { boxId: 'search-box-projects', inputId: 'search-projects' },
+  { boxId: 'search-box-tasks', inputId: 'search-tasks' }
+];
+
+searchBoxes.forEach(({ boxId, inputId }) => {
+  const box = document.getElementById(boxId);
+  const input = document.getElementById(inputId);
+  if (!box || !input) return;
+
+  const btn = box.querySelector('.search-icon-btn');
+  
+  // Click icon to focus input and expand
+  if (btn) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      box.classList.add('expanded');
+      input.focus();
+    });
+  }
+
+  // Input events
+  input.addEventListener('focus', () => box.classList.add('expanded'));
+  input.addEventListener('input', () => {
+    if (input.value) {
+      box.classList.add('expanded');
+    }
+  });
+  input.addEventListener('blur', () => {
+    if (!input.value) {
+      box.classList.remove('expanded');
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  QUICK ADD TASK — Inline form in Todo column
+// ════════════════════════════════════════════════════════════════
+
+const colAddTaskBtn  = document.getElementById('col-add-task-btn');
+const quickAddForm   = document.getElementById('quick-add-todo');
+const quickAddInput  = document.getElementById('quick-add-input');
+const quickAddSubmit = document.getElementById('quick-add-submit');
+const quickAddCancel = document.getElementById('quick-add-cancel');
+
+function showQuickAdd() {
+  if (!quickAddForm || !quickAddInput) return;
+  quickAddForm.classList.remove('hidden');
+  quickAddInput.value = '';
+  quickAddInput.focus();
+  if (colAddTaskBtn) colAddTaskBtn.classList.add('active');
+}
+
+function hideQuickAdd() {
+  if (!quickAddForm) return;
+  quickAddForm.classList.add('hidden');
+  if (colAddTaskBtn) colAddTaskBtn.classList.remove('active');
+}
+
+if (colAddTaskBtn) {
+  colAddTaskBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Only show quick-add when on tasks view
+    if (state.view === 'tasks') {
+      showQuickAdd();
+    } else {
+      openModal('task');
+    }
+  });
+}
+
+if (quickAddCancel) {
+  quickAddCancel.addEventListener('click', () => hideQuickAdd());
+}
+
+if (quickAddInput) {
+  // Submit on Enter (without Shift)
+  quickAddInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      await submitQuickAdd();
+    }
+    if (e.key === 'Escape') hideQuickAdd();
+  });
+}
+
+if (quickAddSubmit) {
+  quickAddSubmit.addEventListener('click', async () => await submitQuickAdd());
+}
+
+async function submitQuickAdd() {
+  if (!quickAddInput) return;
+  const title = quickAddInput.value.trim();
+  if (!title) {
+    quickAddInput.classList.add('shake');
+    setTimeout(() => quickAddInput.classList.remove('shake'), 400);
+    return;
+  }
+  if (!state.client || !state.project) {
+    toast('يجب فتح مشروع أولاً', 'error');
+    return;
+  }
+  quickAddSubmit.disabled = true;
+  quickAddSubmit.textContent = '...';
+  try {
+    await addDoc(tasksRef(state.client.id, state.project.id), {
+      title,
+      priority: null,
+      notes: null,
+      status: 'todo',
+      createdAt: serverTimestamp(),
+    });
+    toast(`تمت إضافة "‎${title}‏" 🎉`, 'success');
+    quickAddInput.value = '';
+    quickAddInput.focus();
+  } catch (err) {
+    toast('حدث خطأ، تحقق من الاتصال', 'error');
+    console.error(err);
+  } finally {
+    quickAddSubmit.disabled = false;
+    quickAddSubmit.textContent = 'إضافة';
+  }
+}
+
 
 // ── Firebase Refs ──────────────────────────────────────────────
 const clientsRef  = ()                         => collection(db, 'clients');
@@ -42,8 +314,11 @@ const state = {
   projects:    [],
   tasks:       [],
   draggedId:   null,
+  draggedEntityId:   null,
+  draggedEntityType: null,
   search:      '',
   deleteTarget: null,
+  editTarget:   null,
   unsubscribe: null,
 };
 
@@ -133,13 +408,20 @@ function navigateTo(view, payload = {}) {
   // Cleanup old listener
   if (state.unsubscribe) { state.unsubscribe(); state.unsubscribe = null; }
 
+  // Hide quick-add form when navigating
+  hideQuickAdd();
+
   state.view   = view;
   state.search = '';
 
-  // Clear all search inputs
+  // Clear all search inputs and collapse search boxes
   ['search-clients','search-projects','search-tasks'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
+  });
+  ['search-box-clients','search-box-projects','search-box-tasks'].forEach(id => {
+    const box = document.getElementById(id);
+    if (box) box.classList.remove('expanded');
   });
 
   // Hide all views, show target
@@ -205,7 +487,18 @@ function subscribeTasks() {
 
 function renderClients() {
   const q        = state.search.toLowerCase();
-  const filtered = q ? state.clients.filter(c => c.name?.toLowerCase().includes(q)) : state.clients;
+  
+  // Sort clients: order (ascending), fallback to createdAt (descending)
+  const sortedClients = [...state.clients].sort((a, b) => {
+    const aOrder = a.order !== undefined ? a.order : 0;
+    const bOrder = b.order !== undefined ? b.order : 0;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    const aTime = a.createdAt?.seconds || 0;
+    const bTime = b.createdAt?.seconds || 0;
+    return bTime - aTime; 
+  });
+
+  const filtered = q ? sortedClients.filter(c => c.name?.toLowerCase().includes(q)) : sortedClients;
   const grid     = document.getElementById('clients-grid');
 
   if (filtered.length === 0) {
@@ -218,12 +511,16 @@ function renderClients() {
   }
 
   grid.innerHTML = filtered.map(client => `
-    <div class="entity-card" data-id="${client.id}" role="button" tabindex="0">
+    <div class="entity-card" data-id="${client.id}" role="button" tabindex="0" draggable="true">
       <div class="card-header-row">
-        <div class="card-avatar" style="background:${escapeHtml(client.color || '#3574F0')}">
-          ${escapeHtml(getInitials(client.name))}
+        <div class="card-avatar" style="background:${client.avatarUrl ? 'transparent' : escapeHtml(client.color || '#3574F0')}; overflow:hidden;">
+          ${client.avatarUrl 
+            ? `<img src="${client.avatarUrl}" alt="${escapeHtml(client.name)}" style="width:100%; height:100%; object-fit:cover;" />` 
+            : escapeHtml(getInitials(client.name))
+          }
         </div>
         <div class="card-top-actions">
+          <button class="card-edit-btn" data-id="${client.id}" title="تعديل العميل">✏️</button>
           <button class="card-del-btn" data-id="${client.id}" title="حذف العميل">🗑️</button>
         </div>
       </div>
@@ -234,16 +531,60 @@ function renderClients() {
         <span class="card-arrow">المشاريع ←</span>
       </div>
     </div>
-  `).join('') + addCardHTML('إضافة عميل جديد', 'client');
+  `).join('');
 
   // Events
   grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.card-del-btn')) return;
+      if (e.target.closest('.card-del-btn') || e.target.closest('.card-edit-btn')) return;
       const client = state.clients.find(c => c.id === card.dataset.id);
       if (client) navigateTo('projects', { client });
     });
     card.addEventListener('keydown', e => { if (e.key === 'Enter') card.click(); });
+  });
+
+  // Drag & Drop Events for Clients
+  grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      state.draggedEntityId = card.dataset.id;
+      state.draggedEntityType = 'client';
+      card.classList.add('dragging-card');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging-card');
+      state.draggedEntityId = null;
+      state.draggedEntityType = null;
+      grid.querySelectorAll('.entity-card').forEach(c => c.classList.remove('drag-over-card'));
+    });
+
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (state.draggedEntityType !== 'client' || state.draggedEntityId === card.dataset.id) return;
+      card.classList.add('drag-over-card');
+    });
+
+    card.addEventListener('dragleave', e => {
+      if (!card.contains(e.relatedTarget)) {
+        card.classList.remove('drag-over-card');
+      }
+    });
+
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      card.classList.remove('drag-over-card');
+      if (state.draggedEntityType !== 'client' || !state.draggedEntityId || state.draggedEntityId === card.dataset.id) return;
+
+      await handleEntityReorder('client', state.draggedEntityId, card.dataset.id);
+    });
+  });
+
+  grid.querySelectorAll('.card-edit-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openModal('client', btn.dataset.id);
+    });
   });
 
   grid.querySelectorAll('.card-del-btn').forEach(btn => {
@@ -259,7 +600,7 @@ function renderClients() {
     });
   });
 
-  grid.querySelector('.add-card')?.addEventListener('click', () => openModal('client'));
+
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -274,7 +615,18 @@ const PROJECT_STATUS = {
 
 function renderProjects() {
   const q        = state.search.toLowerCase();
-  const filtered = q ? state.projects.filter(p => p.name?.toLowerCase().includes(q)) : state.projects;
+  
+  // Sort projects: order (ascending), fallback to createdAt (descending)
+  const sortedProjects = [...state.projects].sort((a, b) => {
+    const aOrder = a.order !== undefined ? a.order : 0;
+    const bOrder = b.order !== undefined ? b.order : 0;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    const aTime = a.createdAt?.seconds || 0;
+    const bTime = b.createdAt?.seconds || 0;
+    return bTime - aTime; 
+  });
+
+  const filtered = q ? sortedProjects.filter(p => p.name?.toLowerCase().includes(q)) : sortedProjects;
   const grid     = document.getElementById('projects-grid');
 
   if (filtered.length === 0) {
@@ -289,11 +641,12 @@ function renderProjects() {
   grid.innerHTML = filtered.map(project => {
     const st = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
     return `
-      <div class="entity-card" data-id="${project.id}" role="button" tabindex="0">
+      <div class="entity-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
         <div class="card-header-row">
           <div class="project-icon">📁</div>
           <div class="card-top-actions">
             <span class="status-badge ${st.cls}">${st.label}</span>
+            <button class="card-edit-btn" data-id="${project.id}" title="تعديل المشروع">✏️</button>
             <button class="card-del-btn" data-id="${project.id}" title="حذف المشروع">🗑️</button>
           </div>
         </div>
@@ -305,16 +658,60 @@ function renderProjects() {
         </div>
       </div>
     `;
-  }).join('') + addCardHTML('إضافة مشروع جديد', 'project');
+  }).join('');
 
   // Events
   grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.card-del-btn')) return;
+      if (e.target.closest('.card-del-btn') || e.target.closest('.card-edit-btn')) return;
       const project = state.projects.find(p => p.id === card.dataset.id);
       if (project) navigateTo('tasks', { project });
     });
     card.addEventListener('keydown', e => { if (e.key === 'Enter') card.click(); });
+  });
+
+  // Drag & Drop Events for Projects
+  grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      state.draggedEntityId = card.dataset.id;
+      state.draggedEntityType = 'project';
+      card.classList.add('dragging-card');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging-card');
+      state.draggedEntityId = null;
+      state.draggedEntityType = null;
+      grid.querySelectorAll('.entity-card').forEach(c => c.classList.remove('drag-over-card'));
+    });
+
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (state.draggedEntityType !== 'project' || state.draggedEntityId === card.dataset.id) return;
+      card.classList.add('drag-over-card');
+    });
+
+    card.addEventListener('dragleave', e => {
+      if (!card.contains(e.relatedTarget)) {
+        card.classList.remove('drag-over-card');
+      }
+    });
+
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      card.classList.remove('drag-over-card');
+      if (state.draggedEntityType !== 'project' || !state.draggedEntityId || state.draggedEntityId === card.dataset.id) return;
+
+      await handleEntityReorder('project', state.draggedEntityId, card.dataset.id);
+    });
+  });
+
+  grid.querySelectorAll('.card-edit-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openModal('project', btn.dataset.id);
+    });
   });
 
   grid.querySelectorAll('.card-del-btn').forEach(btn => {
@@ -330,7 +727,7 @@ function renderProjects() {
     });
   });
 
-  grid.querySelector('.add-card')?.addEventListener('click', () => openModal('project'));
+
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -359,14 +756,28 @@ function renderKanban() {
   if (sn) sn.textContent  = groups.done.length;
 
   [
-    { el: document.getElementById('col-todo'),  tasks: groups.todo,  emptyIcon: '📋', emptyText: 'لا توجد مهام\nاضغط + لإضافة مهمة' },
-    { el: document.getElementById('col-doing'), tasks: groups.doing, emptyIcon: '⏳', emptyText: 'اسحب مهمة هنا\nلبدء العمل عليها' },
-    { el: document.getElementById('col-done'),  tasks: groups.done,  emptyIcon: '✅', emptyText: 'المهام المنجزة\nستظهر هنا' },
-  ].forEach(({ el, tasks, emptyIcon, emptyText }) => {
+    { el: document.getElementById('col-todo'),  tasks: groups.todo,  emptyIcon: '📋', emptyText: 'لا توجد مهام\nاضغط + لإضافة مهمة', isTodo: true },
+    { el: document.getElementById('col-doing'), tasks: groups.doing, emptyIcon: '⏳', emptyText: 'اسحب مهمة هنا\nلبدء العمل عليها', isTodo: false },
+    { el: document.getElementById('col-done'),  tasks: groups.done,  emptyIcon: '✅', emptyText: 'المهام المنجزة\nستظهر هنا', isTodo: false },
+  ].forEach(({ el, tasks, emptyIcon, emptyText, isTodo }) => {
     if (!el) return;
+
+    // For the todo column: save and restore the quick-add form
+    let savedQuickAdd = null;
+    if (isTodo) {
+      savedQuickAdd = el.querySelector('.quick-add-task');
+      if (savedQuickAdd) el.removeChild(savedQuickAdd);
+    }
+
     el.innerHTML = tasks.length === 0
       ? `<div class="col-empty"><div class="empty-icon">${emptyIcon}</div><div style="text-align:center;line-height:1.9;white-space:pre-line">${emptyText}</div></div>`
       : tasks.map(taskCardHTML).join('');
+
+    // Re-prepend the quick-add form at the top
+    if (isTodo && savedQuickAdd) {
+      el.insertBefore(savedQuickAdd, el.firstChild);
+    }
+
     bindTaskCardEvents(el);
   });
 }
@@ -374,9 +785,12 @@ function renderKanban() {
 function taskCardHTML(task) {
   return `
     <div class="task-card" id="tc-${task.id}" draggable="true" data-id="${task.id}">
-      <div class="card-top">
+      <div class="card-top" style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
         <div class="card-title">${escapeHtml(task.title)}</div>
-        <button class="card-menu-btn" data-id="${task.id}" title="حذف المهمة">✕</button>
+        <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
+          <button class="card-edit-btn" data-id="${task.id}" title="تعديل المهمة">✏️</button>
+          <button class="card-menu-btn" data-id="${task.id}" title="حذف المهمة">✕</button>
+        </div>
       </div>
       ${task.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.55">${escapeHtml(task.notes)}</div>` : ''}
       <div class="card-footer">
@@ -392,6 +806,13 @@ function bindTaskCardEvents(colEl) {
       e.stopPropagation();
       const task = state.tasks.find(t => t.id === btn.dataset.id);
       openConfirm({ type: 'task', id: btn.dataset.id, name: task?.title });
+    });
+  });
+
+  colEl.querySelectorAll('.card-edit-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openModal('task', btn.dataset.id);
     });
   });
 
@@ -442,6 +863,41 @@ function setupColumnDnD() {
   });
 }
 
+// ── Drag & Drop Reordering for Clients & Projects ──────────────────
+async function handleEntityReorder(type, draggedId, targetId) {
+  const list = type === 'client' ? state.clients : state.projects;
+  const sorted = [...list].sort((a, b) => {
+    const aOrder = a.order !== undefined ? a.order : 0;
+    const bOrder = b.order !== undefined ? b.order : 0;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    const aTime = a.createdAt?.seconds || 0;
+    const bTime = b.createdAt?.seconds || 0;
+    return bTime - aTime;
+  });
+
+  const draggedIdx = sorted.findIndex(item => item.id === draggedId);
+  const targetIdx = sorted.findIndex(item => item.id === targetId);
+  if (draggedIdx === -1 || targetIdx === -1) return;
+
+  const [removed] = sorted.splice(draggedIdx, 1);
+  sorted.splice(targetIdx, 0, removed);
+
+  const batch = writeBatch(db);
+  sorted.forEach((item, idx) => {
+    const docRef = type === 'client' 
+      ? clientDoc(item.id) 
+      : projectDoc(state.client.id, item.id);
+    batch.update(docRef, { order: idx });
+  });
+
+  try {
+    await batch.commit();
+  } catch (err) {
+    console.error(err);
+    toast('فشل حفظ الترتيب الجديد', 'error');
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 //  HEADER & BREADCRUMB
 // ════════════════════════════════════════════════════════════════
@@ -454,14 +910,12 @@ function updateHeader() {
   if (state.view === 'clients') {
     titleEl.textContent  = '👥 العملاء';
     statsEl.innerHTML    = '';
-    actionsEl.innerHTML  = `<button class="btn-primary" id="hdr-add-btn">+ إضافة عميل</button>`;
-    document.getElementById('hdr-add-btn').onclick = () => openModal('client');
+    actionsEl.innerHTML  = '';
 
   } else if (state.view === 'projects') {
     titleEl.textContent  = `📁 ${escapeHtml(state.client?.name || '')}`;
     statsEl.innerHTML    = '';
-    actionsEl.innerHTML  = `<button class="btn-primary" id="hdr-add-btn">+ إضافة مشروع</button>`;
-    document.getElementById('hdr-add-btn').onclick = () => openModal('project');
+    actionsEl.innerHTML  = '';
 
   } else if (state.view === 'tasks') {
     titleEl.textContent = `📋 ${escapeHtml(state.project?.name || '')}`;
@@ -469,8 +923,7 @@ function updateHeader() {
       <div class="stat-pill"><span class="dot todo"></span><span id="stat-todo">0</span></div>
       <div class="stat-pill"><span class="dot doing"></span><span id="stat-doing">0</span></div>
       <div class="stat-pill"><span class="dot done"></span><span id="stat-done">0</span></div>`;
-    actionsEl.innerHTML = `<button class="btn-primary" id="hdr-add-btn">+ إضافة مهمة</button>`;
-    document.getElementById('hdr-add-btn').onclick = () => openModal('task');
+    actionsEl.innerHTML = '';
     // Re-render stats after DOM update
     renderKanban();
   }
@@ -524,6 +977,10 @@ const MODAL_CONFIGS = {
         <label class="form-label">وصف مختصر (اختياري)</label>
         <input type="text" id="f-desc" class="form-input"
           placeholder="مثال: عميل تصميم مواقع" maxlength="120" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">شعار أو صورة العميل (اختياري)</label>
+        <input type="file" id="f-avatar" class="form-input" accept="image/*" />
       </div>`,
   },
   project: {
@@ -575,14 +1032,73 @@ const MODAL_CONFIGS = {
   },
 };
 
-function openModal(type) {
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
+function openModal(type, editId = null) {
   currentModalType = type;
+  state.editTarget = editId ? { type, id: editId } : null;
   const cfg = MODAL_CONFIGS[type];
-  document.getElementById('modal-title').textContent   = cfg.title;
+  document.getElementById('modal-title').textContent   = state.editTarget ? cfg.title.replace('إضافة', 'تعديل') : cfg.title;
   document.getElementById('modal-body').innerHTML      = cfg.fields;
-  document.getElementById('modal-submit-btn').textContent = cfg.submitText;
+  document.getElementById('modal-submit-btn').textContent = state.editTarget ? cfg.submitText.replace('إضافة', 'تعديل') : cfg.submitText;
+  
+  if (state.editTarget) {
+    prefillModalValues();
+  }
+  
   document.getElementById('modal-overlay').classList.remove('hidden');
   setTimeout(() => document.querySelector('#modal-body input, #modal-body textarea')?.focus(), 60);
+}
+
+function prefillModalValues() {
+  const { type, id } = state.editTarget;
+  
+  if (type === 'client') {
+    const client = state.clients.find(c => c.id === id);
+    if (!client) return;
+    document.getElementById('f-name').value = client.name || '';
+    const descEl = document.getElementById('f-desc');
+    if (descEl) descEl.value = client.description || '';
+    
+    if (client.avatarUrl) {
+      const parent = document.getElementById('f-avatar').parentElement;
+      const preview = document.createElement('div');
+      preview.style.marginTop = '8px';
+      preview.style.display = 'flex';
+      preview.style.alignItems = 'center';
+      preview.style.gap = '8px';
+      preview.innerHTML = `
+        <img src="${client.avatarUrl}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;" />
+        <span style="font-size:12px; color:var(--text-muted);">الشعار الحالي</span>
+      `;
+      parent.appendChild(preview);
+    }
+    
+  } else if (type === 'project') {
+    const project = state.projects.find(p => p.id === id);
+    if (!project) return;
+    document.getElementById('f-name').value = project.name || '';
+    const descEl = document.getElementById('f-desc');
+    if (descEl) descEl.value = project.description || '';
+    const statusEl = document.getElementById('f-status');
+    if (statusEl) statusEl.value = project.status || 'active';
+    
+  } else if (type === 'task') {
+    const task = state.tasks.find(t => t.id === id);
+    if (!task) return;
+    document.getElementById('f-title').value = task.title || '';
+    const priorityEl = document.getElementById('f-priority');
+    if (priorityEl) priorityEl.value = task.priority || '';
+    const notesEl = document.getElementById('f-notes');
+    if (notesEl) notesEl.value = task.notes || '';
+  }
 }
 
 function closeModal() {
@@ -590,6 +1106,7 @@ function closeModal() {
   document.getElementById('modal-form').reset();
   document.getElementById('modal-body').innerHTML = '';
   currentModalType = null;
+  state.editTarget = null;
 }
 
 document.getElementById('close-modal-btn').addEventListener('click',  closeModal);
@@ -604,35 +1121,78 @@ document.getElementById('modal-form').addEventListener('submit', async e => {
   const btn  = document.getElementById('modal-submit-btn');
   const orig = btn.textContent;
   btn.disabled    = true;
-  btn.textContent = 'جاري الإضافة...';
+  btn.textContent = state.editTarget ? 'جاري التعديل...' : 'جاري الإضافة...';
 
   try {
     if (currentModalType === 'client') {
       const name = document.getElementById('f-name').value.trim();
       const desc = document.getElementById('f-desc')?.value.trim();
-      if (!name) { toast('يرجى إدخال اسم العميل', 'error'); return; }
-      await addDoc(clientsRef(), { name, description: desc || null, color: randomColor(), createdAt: serverTimestamp() });
-      toast('تمت إضافة العميل! 🎉', 'success');
+      if (!name) { toast('يرجى إدخال اسم العميل', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      const fileInput = document.getElementById('f-avatar');
+      let avatarData = null;
+      if (fileInput && fileInput.files && fileInput.files[0]) {
+        const file = fileInput.files[0];
+        if (file.size > 800 * 1024) {
+          toast('حجم الصورة كبير جداً، يرجى اختيار صورة أقل من 800 كيلوبايت', 'error');
+          btn.disabled = false;
+          btn.textContent = orig;
+          return;
+        }
+        avatarData = await readAsDataURL(file);
+      }
+
+      if (state.editTarget) {
+        const updateData = { name, description: desc || null };
+        if (avatarData) updateData.avatarUrl = avatarData;
+        await updateDoc(clientDoc(state.editTarget.id), updateData);
+        toast('تم تعديل العميل بنجاح! 🎉', 'success');
+      } else {
+        await addDoc(clientsRef(), { 
+          name, 
+          description: desc || null, 
+          color: randomColor(), 
+          avatarUrl: avatarData || null,
+          createdAt: serverTimestamp() 
+        });
+        toast('تمت إضافة العميل! 🎉', 'success');
+      }
       closeModal();
 
     } else if (currentModalType === 'project') {
       const name   = document.getElementById('f-name').value.trim();
       const desc   = document.getElementById('f-desc')?.value.trim();
       const status = document.getElementById('f-status')?.value || 'active';
-      if (!name) { toast('يرجى إدخال اسم المشروع', 'error'); return; }
-      await addDoc(projectsRef(state.client.id), { name, description: desc || null, status, createdAt: serverTimestamp() });
-      toast('تمت إضافة المشروع! 🎉', 'success');
+      if (!name) { toast('يرجى إدخال اسم المشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      if (state.editTarget) {
+        await updateDoc(projectDoc(state.client.id, state.editTarget.id), {
+          name, description: desc || null, status
+        });
+        toast('تم تعديل المشروع بنجاح! 🎉', 'success');
+      } else {
+        await addDoc(projectsRef(state.client.id), { name, description: desc || null, status, createdAt: serverTimestamp() });
+        toast('تمت إضافة المشروع! 🎉', 'success');
+      }
       closeModal();
 
     } else if (currentModalType === 'task') {
       const title    = document.getElementById('f-title').value.trim();
       const priority = document.getElementById('f-priority')?.value || null;
       const notes    = document.getElementById('f-notes')?.value.trim() || null;
-      if (!title) { toast('يرجى إدخال عنوان المهمة', 'error'); return; }
-      await addDoc(tasksRef(state.client.id, state.project.id), {
-        title, priority, notes, status: 'todo', createdAt: serverTimestamp()
-      });
-      toast('تمت إضافة المهمة! 🎉', 'success');
+      if (!title) { toast('يرجى إدخال عنوان المهمة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      if (state.editTarget) {
+        await updateDoc(taskDoc(state.client.id, state.project.id, state.editTarget.id), {
+          title, priority, notes
+        });
+        toast('تم تعديل المهمة بنجاح! 🎉', 'success');
+      } else {
+        await addDoc(tasksRef(state.client.id, state.project.id), {
+          title, priority, notes, status: 'todo', createdAt: serverTimestamp()
+        });
+        toast('تمت إضافة المهمة! 🎉', 'success');
+      }
       closeModal();
     }
   } catch (err) {
@@ -768,9 +1328,4 @@ setInterval(() => {
   if (state.view === 'tasks')    renderKanban();
 }, 60000);
 
-// ════════════════════════════════════════════════════════════════
-//  BOOT
-// ════════════════════════════════════════════════════════════════
 
-setupColumnDnD();
-navigateTo('clients');
