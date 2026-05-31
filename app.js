@@ -14,7 +14,8 @@ import {
   onAuthStateChanged
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
   collection,
   collectionGroup,
   addDoc,
@@ -31,7 +32,9 @@ import {
 
 // ── Init ───────────────────────────────────────────────────────
 const firebaseApp = initializeApp(firebaseConfig);
-const db          = getFirestore(firebaseApp);
+const db          = initializeFirestore(firebaseApp, {
+  localCache: persistentLocalCache()
+});
 const auth        = getAuth(firebaseApp);
 const provider    = new GoogleAuthProvider();
 
@@ -603,19 +606,25 @@ function subscribeProjects() {
   if (state.projUnsub) { state.projUnsub(); state.projUnsub = null; }
   if (state.taskUnsub) { state.taskUnsub(); state.taskUnsub = null; }
 
+  // Clear stale data immediately so old client's data doesn't flash
+  state.projects = [];
+  state.tasks = [];
+  renderProjects();
+
   if (state.client) {
     // 1. Specific client projects
     const q = query(projectsRef(state.client.id), orderBy('createdAt', 'desc'));
     state.unsubscribe = onSnapshot(q, snap => {
       setOnline(); hideLoading();
       state.projects = snap.docs.map(d => ({ id: d.id, ...d.data(), _clientId: state.client.id }));
-      
-      // Also load all tasks for these projects to show progress
-      state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
-        state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
-        renderProjects();
-      }, err => console.error(err));
+      renderProjects();
     }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+    
+    // Also load all tasks for these projects to show progress
+    state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
+      state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
+      renderProjects();
+    }, err => console.error(err));
   } else {
     // 2. All projects mode
     const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
@@ -623,25 +632,31 @@ function subscribeProjects() {
       setOnline(); hideLoading();
       state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       document.getElementById('total-badge').textContent = state.clients.length;
-      
-      state.projUnsub = onSnapshot(query(collectionGroup(db, 'projects')), projSnap => {
-        state.projects = projSnap.docs.map(d => ({ 
-          id: d.id, 
-          ...d.data(), 
-          _ref: d.ref, 
-          _clientId: d.ref.parent.parent.id 
-        }));
-        
-        state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
-          state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
-          renderProjects();
-        }, err => console.error(err));
-      }, err => console.error(err));
+      renderProjects();
     }, err => { setOffline(); hideLoading(); console.error(err); });
+    
+    state.projUnsub = onSnapshot(query(collectionGroup(db, 'projects')), projSnap => {
+      state.projects = projSnap.docs.map(d => ({ 
+        id: d.id, 
+        ...d.data(), 
+        _ref: d.ref, 
+        _clientId: d.ref.parent.parent.id 
+      }));
+      renderProjects();
+    }, err => console.error(err));
+    
+    state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
+      state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
+      renderProjects();
+    }, err => console.error(err));
   }
 }
 
 function subscribeTasks() {
+  // Clear stale data immediately so old project's tasks don't flash
+  state.tasks = [];
+  renderKanban();
+
   const q = query(tasksRef(state.client.id, state.project.id), orderBy('createdAt', 'desc'));
   state.unsubscribe = onSnapshot(q, snap => {
     setOnline(); hideLoading();
