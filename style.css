@@ -262,16 +262,18 @@ html, body {
   letter-spacing: -0.3px;
 }
 
-.header-left p {
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.header-right {
+.header-right-side {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
+}
+
+.header-right-side p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
 }
 
 /* Stats pills */
@@ -1802,16 +1804,811 @@ html, body {
 }
 
 /* ── Drag & Drop Card Reordering Feedback ── */
-.entity-card.drag-over-card {
+.entity-card.drag-over-card,
+.project-compact-card.drag-over-card {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px var(--accent-dim) !important;
   transform: translateY(-2px) scale(1.01);
 }
 
-.entity-card.dragging-card {
+.entity-card.dragging-card,
+.project-compact-card.dragging-card {
   opacity: 0.4;
   border-style: dashed !important;
 }
 
 
+/* ============================================================
+   DASHBOARD v3.0 — لوحة المؤشرات الذكية
+   ============================================================ */
 
+#view-dashboard {
+  display: none;
+  overflow-y: auto;
+  padding: 20px 28px 32px;
+  flex-direction: column;
+  gap: 0;
+}
+
+#view-dashboard.active {
+  display: flex;
+  flex: 1;
+}
+
+
+
+/* ── Stats Grid ── */
+.dashboard-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .dashboard-stats-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Stat Card ── */
+.stat-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(53,116,240,0.03) 0%, transparent 60%);
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.stat-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.stat-card:hover::before { opacity: 1; }
+
+.stat-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.stat-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.stat-card-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  transition: all 0.35s cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+
+.stat-card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ── Section Header ── */
+.dashboard-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.dashboard-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+/* ── Active Projects Grid ── */
+.dashboard-projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+/* ── Dashboard Project Card ── */
+.dash-project-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: cardIn 0.22s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dash-project-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--accent-dim), transparent);
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.dash-project-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+
+.dash-project-card:hover::after { opacity: 1; }
+
+.dash-project-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.dash-project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dash-project-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-client-name {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dash-project-percent {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Progress Bar ── */
+.progress-bar-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-app);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 4px;
+}
+
+/* Color based on progress — applied via inline style + class */
+.progress-low    { background: var(--danger); box-shadow: 0 0 6px rgba(224,92,92,0.4); }
+.progress-mid    { background: #F0A835;       box-shadow: 0 0 6px rgba(240,168,53,0.4); }
+.progress-high   { background: #3DB981;       box-shadow: 0 0 6px rgba(61,185,129,0.4); }
+
+.progress-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Dashboard Empty State ── */
+.dash-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.dash-empty .dash-empty-icon { font-size: 48px; opacity: 0.35; }
+.dash-empty p { font-size: 13px; line-height: 1.7; max-width: 260px; }
+
+
+/* ============================================================
+   COMPACT PROJECTS LAYOUT (v3.1)
+   ============================================================ */
+
+#projects-grid {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+/* ── Compact Project Card ── */
+.project-compact-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  animation: cardIn 0.22s ease;
+}
+
+.project-compact-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.proj-compact-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.proj-compact-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.proj-compact-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.proj-compact-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj-compact-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  z-index: 2;
+}
+
+/* Status dot instead of badge */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  margin-left: 2px;
+}
+.status-dot.status-active { background: #3DB981; }
+.status-dot.status-paused { background: #F0A835; }
+.status-dot.status-completed { background: #6B7280; }
+
+.card-edit-btn.compact,
+.card-del-btn.compact {
+  opacity: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.project-compact-card:hover .card-edit-btn.compact,
+.project-compact-card:hover .card-del-btn.compact {
+  opacity: 0.7;
+}
+
+.project-compact-card:hover .card-edit-btn.compact:hover,
+.project-compact-card:hover .card-del-btn.compact:hover {
+  opacity: 1;
+  background: var(--bg-app);
+}
+
+.proj-compact-client {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  position: relative;
+  z-index: 1;
+}
+
+.proj-compact-client .client-label {
+  color: var(--text-muted);
+}
+
+.proj-compact-client .client-val {
+  font-weight: 500;
+}
+
+.proj-compact-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* Progress bar inside card */
+.proj-compact-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.proj-compact-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-app);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.proj-compact-progress-text {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+
+/* ============================================================
+   DASHBOARD — PROJECTS PROGRESS LIST
+   ============================================================ */
+
+.dash-projects-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Section Header ── */
+.dash-section-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  flex: 1;
+}
+
+.dash-section-badge {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 99px;
+  min-width: 26px;
+  text-align: center;
+}
+
+/* ── Dashboard Unified Column Layout ── */
+.dashboard-column-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 24px;
+  margin-right: auto; /* physical left-aligned in RTL */
+}
+
+@media (max-width: 600px) {
+  .dashboard-column-layout {
+    max-width: 100%;
+  }
+}
+
+/* ── Project Lists Container ── */
+.dash-proj-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ── Collapsible Header Row ── */
+.dash-projects-section .dash-section-hd {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dash-section-arrow {
+  transition: transform 0.2s ease;
+  color: var(--text-secondary);
+}
+
+.dash-projects-section.collapsed .dash-section-arrow {
+  transform: rotate(-90deg); /* points to the left when collapsed */
+}
+
+.dash-projects-section.collapsed .dash-proj-list {
+  display: none;
+}
+
+/* ── Horizontal Strip Row (Ultra-Compact) ── */
+.dash-proj-strip-row {
+  position: relative;
+  background: var(--bg-app);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  height: 38px;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  animation: cardIn 0.2s ease;
+  overflow: hidden;
+}
+
+.dash-proj-strip-row:hover {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.22);
+}
+
+.proj-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dash-proj-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dash-proj-status-dot.status-active    { background: #3DB981; box-shadow: 0 0 5px rgba(61,185,129,0.5); }
+.dash-proj-status-dot.status-paused    { background: #F0A835; }
+.dash-proj-status-dot.status-completed { background: #6B7280; }
+
+.proj-strip-names-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.proj-strip-project-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.proj-strip-separator {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.proj-strip-client-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.proj-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.proj-strip-pct-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.proj-strip-tasks-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--border-light);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.proj-strip-tasks-badge.has-pending {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: rgba(53, 116, 240, 0.25);
+}
+
+/* Linear progress bar aligned at the very bottom edge */
+.proj-strip-micro-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--bg-app);
+  overflow: hidden;
+}
+
+.proj-strip-micro-fill {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.proj-strip-micro-fill.progress-low {
+  background: var(--danger);
+}
+
+.proj-strip-micro-fill.progress-mid {
+  background: #F0A835;
+}
+
+.proj-strip-micro-fill.progress-high {
+  background: #3DB981;
+}
+
+/* ── Productivity & Activities Left Pane ── */
+.dash-productivity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dash-productivity-container {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.prod-breakdown-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* Proportional Segmented Progress Bar */
+.productivity-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.productivity-bar {
+  display: flex;
+  height: 8px;
+  background: var(--bg-app);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.prod-bar-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.prod-bar-segment.todo {
+  background: var(--status-todo);
+}
+
+.prod-bar-segment.doing {
+  background: var(--status-doing);
+}
+
+.prod-bar-segment.done {
+  background: var(--status-done);
+}
+
+.productivity-legends {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.legend-dot.todo { background: var(--status-todo); }
+.legend-dot.doing { background: var(--status-doing); }
+.legend-dot.done { background: var(--status-done); }
+
+/* Recent Tasks List */
+.dash-recent-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recent-task-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+  transition: var(--transition);
+  gap: 8px;
+  height: 38px;
+}
+
+.recent-task-item:hover {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+}
+
+.recent-task-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.recent-task-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.recent-task-dot.todo { background: var(--status-todo); }
+.recent-task-dot.doing { background: var(--status-doing); }
+
+.recent-task-title {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-task-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+/* ── Empty State ── */
+.dash-proj-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  opacity: 0.65;
+}
+
+.dash-proj-empty span { font-size: 36px; opacity: 0.4; }

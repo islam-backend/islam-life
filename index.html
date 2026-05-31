@@ -1,315 +1,402 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="islam.walied — لوحة تحكم شخصية لإدارة العملاء والمشاريع والمهام" />
   <title>islam.walied — لوحة التحكم</title>
   <link rel="stylesheet" href="style.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
 </head>
+
 <body>
 
-<!-- ══════════════════
+  <!-- ══════════════════
      LOGIN SCREEN
 ══════════════════ -->
-<div id="login-screen">
-  <div class="login-bg"></div>
-  <div class="login-content">
-    <span class="login-rocket">🚀</span>
+  <div id="login-screen">
+    <div class="login-bg"></div>
+    <div class="login-content">
+      <span class="login-rocket">🚀</span>
 
-    <div class="google-auth-container">
-      <button type="button" class="btn-google-login" id="google-login-btn">
-        <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20">
-          <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.85 2.99C6.18 7.39 8.84 5.04 12 5.04z"/>
-          <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.7 2.87c2.16-1.99 3.43-4.92 3.43-8.6z"/>
-          <path fill="#FBBC05" d="M5.24 14.57c-.24-.72-.38-1.49-.38-2.57s.14-1.85.38-2.57L1.39 6.44C.5 8.22 0 10.15 0 12s.5 3.78 1.39 5.56l3.85-2.99z"/>
-          <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.7-2.87c-1.03.69-2.35 1.1-4.26 1.1-3.16 0-5.82-2.35-6.77-5.51L1.39 15.8C3.37 19.71 7.35 23 12 23z"/>
-        </svg>
-        <span>تسجيل الدخول بواسطة Google</span>
-      </button>
-      <div id="login-error" class="login-error hidden"></div>
+      <div class="google-auth-container">
+        <button type="button" class="btn-google-login" id="google-login-btn">
+          <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20">
+            <path fill="#EA4335"
+              d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.85 2.99C6.18 7.39 8.84 5.04 12 5.04z" />
+            <path fill="#4285F4"
+              d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.7 2.87c2.16-1.99 3.43-4.92 3.43-8.6z" />
+            <path fill="#FBBC05"
+              d="M5.24 14.57c-.24-.72-.38-1.49-.38-2.57s.14-1.85.38-2.57L1.39 6.44C.5 8.22 0 10.15 0 12s.5 3.78 1.39 5.56l3.85-2.99z" />
+            <path fill="#34A853"
+              d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.7-2.87c-1.03.69-2.35 1.1-4.26 1.1-3.16 0-5.82-2.35-6.77-5.51L1.39 15.8C3.37 19.71 7.35 23 12 23z" />
+          </svg>
+          <span>تسجيل الدخول بواسطة Google</span>
+        </button>
+        <div id="login-error" class="login-error hidden"></div>
+      </div>
+
+      <p class="login-footer-note">🔒 وصول مقيّد — islam.walied</p>
     </div>
-
-    <p class="login-footer-note">🔒 وصول مقيّد — islam.walied</p>
   </div>
-</div>
 
-<!-- ══════════════════════════════════
+  <!-- ══════════════════════════════════
      LOADING SCREEN
 ══════════════════════════════════ -->
-<div id="loading-overlay">
-  <div class="spinner"></div>
-  <p class="loading-text">جاري الاتصال بقاعدة البيانات...</p>
-</div>
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <p class="loading-text">جاري الاتصال بقاعدة البيانات...</p>
+  </div>
 
-<!-- ══════════════════════════════════
+  <!-- ══════════════════════════════════
      APP SHELL
 ══════════════════════════════════ -->
-<div id="app">
+  <div id="app">
 
-  <!-- ── SIDEBAR ── -->
-  <aside id="sidebar">
-    <div class="sidebar-logo">
-      <div class="logo-icon">🚀</div>
-      <div class="logo-text">
-        <div class="user-row">
-          <span>islam.walied</span>
+    <!-- ── SIDEBAR ── -->
+    <aside id="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">🚀</div>
+        <div class="logo-text">
+          <div class="user-row">
+            <span>islam.walied</span>
+          </div>
+          <small>Work Dashboard</small>
         </div>
-        <small>Work Dashboard</small>
+        <button class="sidebar-toggle" id="sidebar-toggle-btn" title="طي القائمة" aria-label="طي القائمة">
+          <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
       </div>
-      <button class="sidebar-toggle" id="sidebar-toggle-btn" title="طي القائمة" aria-label="طي القائمة">
-        <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
-      </button>
-    </div>
 
-    <span class="nav-label">العمل</span>
+      <span class="nav-label">لوحة التحكم</span>
 
-    <div class="nav-item active" id="nav-clients" title="العملاء والمشاريع">
-      <span class="nav-icon">👥</span>
-      <span>العملاء</span>
-      <span class="nav-badge" id="total-badge">0</span>
-    </div>
+      <div class="nav-item active" id="nav-dashboard" title="الرئيسية">
+        <span class="nav-icon">📊</span>
+        <span>الرئيسية</span>
+      </div>
 
-    <span class="nav-label">قريباً</span>
+      <span class="nav-label">العمل</span>
 
-    <div class="nav-item disabled" title="قريباً">
-      <span class="nav-icon">💰</span>
-      <span>المصاريف</span>
-    </div>
-    <div class="nav-item disabled" title="قريباً">
-      <span class="nav-icon">🥗</span>
-      <span>التغذية</span>
-    </div>
-    <div class="nav-item disabled" title="قريباً">
-      <span class="nav-icon">🏋️</span>
-      <span>التمرين</span>
-    </div>
+      <div class="nav-item" id="nav-clients" title="العملاء">
+        <span class="nav-icon">👥</span>
+        <span>العملاء</span>
+        <span class="nav-badge" id="total-badge">0</span>
+      </div>
 
-    <!-- ── SIDEBAR FOOTER ── -->
-    <div class="sidebar-footer">
-      <div class="sidebar-status-row">
-        <div class="status-left" style="display: flex; align-items: center; gap: 6px;">
-          <span class="db-dot offline" id="db-dot" title="حالة الاتصال"></span>
-          <span id="db-status-text" style="font-size: 11px; color: var(--text-muted);">غير متصل</span>
+
+
+      <span class="nav-label">قريباً</span>
+
+      <div class="nav-item disabled" title="قريباً">
+        <span class="nav-icon">💰</span>
+        <span>المصاريف</span>
+      </div>
+      <div class="nav-item disabled" title="قريباً">
+        <span class="nav-icon">🥗</span>
+        <span>التغذية</span>
+      </div>
+      <div class="nav-item disabled" title="قريباً">
+        <span class="nav-icon">🏋️</span>
+        <span>التمرين</span>
+      </div>
+
+      <!-- ── SIDEBAR FOOTER ── -->
+      <div class="sidebar-footer">
+        <div class="sidebar-status-row">
+          <div class="status-left" style="display: flex; align-items: center; gap: 6px;">
+            <span class="db-dot offline" id="db-dot" title="حالة الاتصال"></span>
+            <span id="db-status-text" style="font-size: 11px; color: var(--text-muted);">غير متصل</span>
+          </div>
+          <span class="version-tag">v2.0</span>
         </div>
-        <span class="version-tag">v2.0</span>
+        <button class="btn-signout" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+            stroke-linejoin="round" class="signout-icon">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          <span class="signout-text">تسجيل الخروج</span>
+        </button>
       </div>
-      <button class="btn-signout" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="signout-icon">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-        <span class="signout-text">تسجيل الخروج</span>
-      </button>
-    </div>
-  </aside>
+    </aside>
 
-  <!-- ── MAIN ── -->
-  <main id="main">
+    <!-- ── MAIN ── -->
+    <main id="main">
 
-    <!-- Header (dynamic) -->
-    <header id="header">
-      <div class="header-left">
-        <nav class="breadcrumb" id="breadcrumb"></nav>
-        <div class="header-title-row">
-          <h1 id="page-title">👥 العملاء</h1>
-          <div id="header-stats"></div>
-        </div>
-        <p id="header-date"></p>
-      </div>
-      <div class="header-right" id="header-actions"></div>
-    </header>
-
-    <!-- Views Container -->
-    <div id="content">
-
-      <!-- ── VIEW: CLIENTS ── -->
-      <div class="view active" id="view-clients">
-        <div class="view-toolbar">
-          <button class="toolbar-add-btn" id="btn-add-client" aria-label="إضافة عميل جديد">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            <span>عميل جديد</span>
-          </button>
-          <div class="search-box" id="search-box-clients">
-            <button class="search-icon-btn" aria-label="بحث" type="button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-            </button>
-            <input type="text" id="search-clients" placeholder="ابحث عن عميل..." autocomplete="off" />
+      <!-- Header (dynamic) -->
+      <header id="header">
+        <div class="header-left">
+          <nav class="breadcrumb" id="breadcrumb"></nav>
+          <div class="header-title-row">
+            <h1 id="page-title">👥 العملاء</h1>
+            <div id="header-stats"></div>
           </div>
         </div>
-        <div class="cards-grid" id="clients-grid">
-          <!-- Client cards rendered by JS -->
+        <div class="header-right-side">
+          <p id="header-date"></p>
+          <div id="header-actions"></div>
         </div>
-      </div>
+      </header>
 
-      <!-- ── VIEW: PROJECTS ── -->
-      <div class="view" id="view-projects">
-        <div class="view-toolbar">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <button class="toolbar-back-btn" id="btn-back-projects" aria-label="رجوع" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-              </svg>
-            </button>
-            <button class="toolbar-add-btn" id="btn-add-project" aria-label="إضافة مشروع جديد">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              <span>مشروع جديد</span>
-            </button>
-          </div>
-          <div class="search-box" id="search-box-projects">
-            <button class="search-icon-btn" aria-label="بحث" type="button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-            </button>
-            <input type="text" id="search-projects" placeholder="ابحث عن مشروع..." autocomplete="off" />
-          </div>
-        </div>
-        <div class="cards-grid" id="projects-grid">
-          <!-- Project cards rendered by JS -->
-        </div>
-      </div>
+      <!-- Views Container -->
+      <div id="content">
 
-      <!-- ── VIEW: TASKS (Kanban) ── -->
-      <div class="view" id="view-tasks">
-        <div id="board-area">
-          <div class="board-toolbar">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <button class="toolbar-back-btn" id="btn-back-tasks" aria-label="رجوع" title="رجوع">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-                </svg>
-              </button>
-              <button class="toolbar-add-btn" id="btn-add-task" aria-label="إضافة مهمة جديدة">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                <span>مهمة جديدة</span>
-              </button>
-            </div>
-            <div class="search-box" id="search-box-tasks">
-              <button class="search-icon-btn" aria-label="بحث" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-              </button>
-              <input type="text" id="search-tasks" placeholder="ابحث عن مهمة..." autocomplete="off" />
-            </div>
-          </div>
+        <!-- ── VIEW: DASHBOARD ── -->
+        <div class="view active" id="view-dashboard">
 
-          <div id="kanban">
-            <!-- Column: Todo -->
-            <div class="column col-todo" data-status="todo">
-              <div class="col-header">
-                <span class="col-dot" style="background:var(--status-todo)"></span>
-                <span class="col-title">📋 المطلوب</span>
-                <span class="col-count" id="count-todo">0</span>
-                <button class="col-add-btn" id="col-add-task-btn" title="إضافة مهمة جديدة" aria-label="إضافة مهمة">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                  </svg>
-                </button>
+          <!-- Single Column Layout -->
+          <div class="dashboard-column-layout">
+
+            <!-- Productivity Card -->
+            <div class="dash-productivity-section">
+              <div class="dash-section-hd">
+                <span class="dash-section-title">📊 الإنتاجية والأنشطة</span>
               </div>
-              <div class="col-body" id="col-todo">
-                <!-- Quick add task inline form -->
-                <div class="quick-add-task hidden" id="quick-add-todo">
-                  <textarea class="quick-add-input" id="quick-add-input" placeholder="عنوان المهمة..." rows="2" maxlength="120"></textarea>
-                  <div class="quick-add-actions">
-                    <button class="btn-primary quick-add-submit" id="quick-add-submit">إضافة</button>
-                    <button class="btn-ghost quick-add-cancel" id="quick-add-cancel">إلغاء</button>
-                  </div>
+              <div class="dash-productivity-container">
+                <div class="prod-breakdown-title">إنجاز المهام العام</div>
+                <div id="dash-productivity-bar">
+                  <!-- Segmented progress bar rendered by JS -->
+                </div>
+
+                <div class="prod-breakdown-title" style="margin-top: 20px;">المهام النشطة مؤخراً</div>
+                <div class="dash-recent-tasks" id="dash-recent-tasks">
+                  <!-- Recent tasks rendered by JS -->
                 </div>
               </div>
             </div>
 
-            <!-- Column: Doing -->
-            <div class="column col-doing" data-status="doing">
-              <div class="col-header">
-                <span class="col-dot" style="background:var(--status-doing)"></span>
-                <span class="col-title">⏳ جاري التنفيذ</span>
-                <span class="col-count" id="count-doing">0</span>
+            <!-- Collapsible Projects Section -->
+            <div class="dash-projects-section" id="dash-projects-sec">
+              <div class="dash-section-hd" id="dash-projects-toggle" role="button" aria-expanded="true">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="dash-section-title">📁 المشاريع الجارية</span>
+                  <span class="dash-section-badge" id="dash-proj-badge">0</span>
+                </div>
+                <svg class="dash-section-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
               </div>
-              <div class="col-body" id="col-doing"></div>
+              <div class="dash-proj-list" id="dash-proj-list">
+                <!-- Rendered by JS -->
+              </div>
             </div>
 
-            <!-- Column: Done -->
-            <div class="column col-done" data-status="done">
-              <div class="col-header">
-                <span class="col-dot" style="background:var(--status-done)"></span>
-                <span class="col-title">✅ تم الإنتهاء</span>
-                <span class="col-count" id="count-done">0</span>
-              </div>
-              <div class="col-body" id="col-done"></div>
+          </div>
+
+        </div>
+
+        <!-- ── VIEW: CLIENTS ── -->
+        <div class="view" id="view-clients">
+          <div class="view-toolbar">
+            <button class="toolbar-add-btn" id="btn-add-client" aria-label="إضافة عميل جديد">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>عميل جديد</span>
+            </button>
+            <div class="search-box" id="search-box-clients">
+              <button class="search-icon-btn" aria-label="بحث" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
+              <input type="text" id="search-clients" placeholder="ابحث عن عميل..." autocomplete="off" />
             </div>
-          </div><!-- /#kanban -->
+          </div>
+          <div class="cards-grid" id="clients-grid">
+            <!-- Client cards rendered by JS -->
+          </div>
+        </div>
 
-        </div><!-- /#board-area -->
-      </div><!-- /#view-tasks -->
+        <!-- ── VIEW: PROJECTS ── -->
+        <div class="view" id="view-projects">
+          <div class="view-toolbar">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <button class="toolbar-back-btn" id="btn-back-projects" aria-label="رجوع" title="رجوع">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12" />
+                  <polyline points="12 19 5 12 12 5" />
+                </svg>
+              </button>
+              <button class="toolbar-add-btn" id="btn-add-project" aria-label="إضافة مشروع جديد">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>مشروع جديد</span>
+              </button>
+            </div>
+            <div class="search-box" id="search-box-projects">
+              <button class="search-icon-btn" aria-label="بحث" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
+              <input type="text" id="search-projects" placeholder="ابحث عن مشروع..." autocomplete="off" />
+            </div>
+          </div>
+          <div class="cards-grid" id="projects-grid">
+            <!-- Project cards rendered by JS -->
+          </div>
+        </div>
 
-    </div><!-- /#content -->
+        <!-- ── VIEW: TASKS (Kanban) ── -->
+        <div class="view" id="view-tasks">
+          <div id="board-area">
+            <div class="board-toolbar">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <button class="toolbar-back-btn" id="btn-back-tasks" aria-label="رجوع" title="رجوع">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12" />
+                    <polyline points="12 19 5 12 12 5" />
+                  </svg>
+                </button>
+                <button class="toolbar-add-btn" id="btn-add-task" aria-label="إضافة مهمة جديدة">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span>مهمة جديدة</span>
+                </button>
+              </div>
+              <div class="search-box" id="search-box-tasks">
+                <button class="search-icon-btn" aria-label="بحث" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </button>
+                <input type="text" id="search-tasks" placeholder="ابحث عن مهمة..." autocomplete="off" />
+              </div>
+            </div>
+
+            <div id="kanban">
+              <!-- Column: Todo -->
+              <div class="column col-todo" data-status="todo">
+                <div class="col-header">
+                  <span class="col-dot" style="background:var(--status-todo)"></span>
+                  <span class="col-title">📋 المطلوب</span>
+                  <span class="col-count" id="count-todo">0</span>
+                  <button class="col-add-btn" id="col-add-task-btn" title="إضافة مهمة جديدة" aria-label="إضافة مهمة">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="col-body" id="col-todo">
+                  <!-- Quick add task inline form -->
+                  <div class="quick-add-task hidden" id="quick-add-todo">
+                    <textarea class="quick-add-input" id="quick-add-input" placeholder="عنوان المهمة..." rows="2"
+                      maxlength="120"></textarea>
+                    <div class="quick-add-actions">
+                      <button class="btn-primary quick-add-submit" id="quick-add-submit">إضافة</button>
+                      <button class="btn-ghost quick-add-cancel" id="quick-add-cancel">إلغاء</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Column: Doing -->
+              <div class="column col-doing" data-status="doing">
+                <div class="col-header">
+                  <span class="col-dot" style="background:var(--status-doing)"></span>
+                  <span class="col-title">⏳ جاري التنفيذ</span>
+                  <span class="col-count" id="count-doing">0</span>
+                </div>
+                <div class="col-body" id="col-doing"></div>
+              </div>
+
+              <!-- Column: Done -->
+              <div class="column col-done" data-status="done">
+                <div class="col-header">
+                  <span class="col-dot" style="background:var(--status-done)"></span>
+                  <span class="col-title">✅ تم الإنتهاء</span>
+                  <span class="col-count" id="count-done">0</span>
+                </div>
+                <div class="col-body" id="col-done"></div>
+              </div>
+            </div><!-- /#kanban -->
+
+          </div><!-- /#board-area -->
+        </div><!-- /#view-tasks -->
+
+      </div><!-- /#content -->
 
 
 
-  </main>
-</div><!-- /#app -->
+    </main>
+  </div><!-- /#app -->
 
-<!-- ══════════════════════════════════
+  <!-- ══════════════════════════════════
      MODAL (Dynamic — used for client / project / task)
 ══════════════════════════════════ -->
-<div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-  <div class="modal">
-    <div class="modal-header">
-      <h2 id="modal-title">إضافة</h2>
-      <button class="modal-close" id="close-modal-btn" aria-label="إغلاق">✕</button>
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">إضافة</h2>
+        <button class="modal-close" id="close-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="modal-form">
+        <div class="modal-body" id="modal-body">
+          <!-- Dynamic fields injected by JS -->
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-primary" id="modal-submit-btn">إضافة</button>
+        </div>
+      </form>
     </div>
-    <form id="modal-form">
-      <div class="modal-body" id="modal-body">
-        <!-- Dynamic fields injected by JS -->
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn-ghost" id="cancel-modal-btn">إلغاء</button>
-        <button type="submit" class="btn-primary" id="modal-submit-btn">إضافة</button>
-      </div>
-    </form>
   </div>
-</div>
 
-<!-- ══════════════════════════════════
+  <!-- ══════════════════════════════════
      CONFIRM DELETE DIALOG
 ══════════════════════════════════ -->
-<div id="confirm-overlay" class="confirm-overlay hidden" role="alertdialog">
-  <div class="confirm-box">
-    <div class="confirm-icon">🗑️</div>
-    <h3 id="confirm-title">حذف العنصر</h3>
-    <p>
-      هل أنت متأكد من حذف:<br>
-      <strong id="confirm-item-name" style="color:var(--text-primary)"></strong>؟
-      <br><span id="confirm-warning" style="color:var(--danger);font-size:12px;margin-top:4px;display:block"></span>
-    </p>
-    <div class="confirm-actions">
-      <button class="btn-ghost" id="confirm-no">إلغاء</button>
-      <button class="btn-danger" id="confirm-yes">نعم، احذف</button>
+  <div id="confirm-overlay" class="confirm-overlay hidden" role="alertdialog">
+    <div class="confirm-box">
+      <div class="confirm-icon">🗑️</div>
+      <h3 id="confirm-title">حذف العنصر</h3>
+      <p>
+        هل أنت متأكد من حذف:<br>
+        <strong id="confirm-item-name" style="color:var(--text-primary)"></strong>؟
+        <br><span id="confirm-warning" style="color:var(--danger);font-size:12px;margin-top:4px;display:block"></span>
+      </p>
+      <div class="confirm-actions">
+        <button class="btn-ghost" id="confirm-no">إلغاء</button>
+        <button class="btn-danger" id="confirm-yes">نعم، احذف</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Toast Container -->
-<div id="toast-container"></div>
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
 
-<!-- Scripts -->
-<script>
-  document.getElementById('header-date').textContent = new Date().toLocaleDateString('ar-EG', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  });
-</script>
-<script type="module" src="app.js"></script>
+  <!-- Scripts -->
+  <script>
+    document.getElementById('header-date').textContent = new Date().toLocaleDateString('ar-EG', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+  </script>
+  <script type="module" src="app.js"></script>
 </body>
+
 </html>

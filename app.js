@@ -1,7 +1,7 @@
 // ================================================================
-//  islam.walied v2.0 — app.js
-//  Hierarchy: Clients → Projects → Tasks (Kanban)
-//  Firebase Firestore subcollections + Drag & Drop
+//  islam.walied v3.0 — app.js
+//  Hierarchy: Dashboard → Clients → Projects → Tasks (Kanban)
+//  Firebase Firestore subcollections + Drag & Drop + Dashboard
 // ================================================================
 
 import { firebaseConfig, allowedEmail } from './firebase-config.js';
@@ -16,6 +16,7 @@ import {
 import {
   getFirestore,
   collection,
+  collectionGroup,
   addDoc,
   deleteDoc,
   updateDoc,
@@ -52,7 +53,7 @@ onAuthStateChanged(auth, async (user) => {
       
       if (!isBooted) {
         setupColumnDnD();
-        navigateTo('clients');
+        navigateTo('dashboard');
         isBooted = true;
       }
     } else {
@@ -142,6 +143,30 @@ if (sidebar && toggleBtn) {
   });
 }
 
+// ── Sidebar Nav Item Click Handlers ──────────────────────────
+const navDashboard = document.getElementById('nav-dashboard');
+const navClients   = document.getElementById('nav-clients');
+
+if (navDashboard) {
+  navDashboard.addEventListener('click', () => navigateTo('dashboard'));
+}
+if (navClients) {
+  navClients.addEventListener('click', () => navigateTo('clients'));
+}
+
+// ── Collapsible Dashboard Projects Section Toggle ──
+document.addEventListener('click', e => {
+  const toggle = e.target.closest('#dash-projects-toggle');
+  if (toggle) {
+    const sec = document.getElementById('dash-projects-sec');
+    if (sec) {
+      const collapsed = sec.classList.toggle('collapsed');
+      localStorage.setItem('dashboard-projects-collapsed', collapsed);
+      toggle.setAttribute('aria-expanded', !collapsed);
+    }
+  }
+});
+
 // ════════════════════════════════════════════════════════════════
 //  ADDITIONAL UX EVENT BINDINGS (Column Add)
 // ════════════════════════════════════════════════════════════════
@@ -163,11 +188,21 @@ if (btnAddTask) {
 // Toolbar Back Buttons
 const btnBackProjects = document.getElementById('btn-back-projects');
 if (btnBackProjects) {
-  btnBackProjects.addEventListener('click', () => navigateTo('clients'));
+  btnBackProjects.addEventListener('click', () => {
+    navigateTo('clients');
+  });
 }
 const btnBackTasks = document.getElementById('btn-back-tasks');
 if (btnBackTasks) {
-  btnBackTasks.addEventListener('click', () => navigateTo('projects', { client: state.client }));
+  btnBackTasks.addEventListener('click', () => {
+    if (state.navigationSource === 'dashboard') {
+      navigateTo('dashboard');
+    } else if (state.navigationSource === 'projects-all') {
+      navigateTo('projects');
+    } else {
+      navigateTo('projects', { client: state.client });
+    }
+  });
 }
 
 // 3. Expandable Search Boxes Logic
@@ -307,12 +342,19 @@ const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'proje
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
-  view:        'clients',  // 'clients' | 'projects' | 'tasks'
+  view:        'dashboard',  // 'dashboard' | 'clients' | 'projects' | 'tasks'
   client:      null,
   project:     null,
   clients:     [],
   projects:    [],
   tasks:       [],
+  allProjects: [],   // Dashboard: all projects across all clients
+  allTasks:    [],   // Dashboard: all tasks across all projects
+  navigationSource: 'dashboard', // 'dashboard' | 'clients' | 'projects-all'
+  dashUnsubProjects: null,
+  dashUnsubTasks:    null,
+  projUnsub:         null,
+  taskUnsub:         null,
   draggedId:   null,
   draggedEntityId:   null,
   draggedEntityType: null,
@@ -321,6 +363,15 @@ const state = {
   editTarget:   null,
   unsubscribe: null,
 };
+
+// ── Cleanup Listeners ──────────────────────────────────────────
+function cleanupListeners() {
+  if (state.unsubscribe) { state.unsubscribe(); state.unsubscribe = null; }
+  if (state.dashUnsubProjects) { state.dashUnsubProjects(); state.dashUnsubProjects = null; }
+  if (state.dashUnsubTasks) { state.dashUnsubTasks(); state.dashUnsubTasks = null; }
+  if (state.projUnsub) { state.projUnsub(); state.projUnsub = null; }
+  if (state.taskUnsub) { state.taskUnsub(); state.taskUnsub = null; }
+}
 
 // ── Avatar Colors ──────────────────────────────────────────────
 const COLORS = [
@@ -405,8 +456,8 @@ function setOffline() {
 // ════════════════════════════════════════════════════════════════
 
 function navigateTo(view, payload = {}) {
-  // Cleanup old listener
-  if (state.unsubscribe) { state.unsubscribe(); state.unsubscribe = null; }
+  // Cleanup old listeners
+  cleanupListeners();
 
   // Hide quick-add form when navigating
   hideQuickAdd();
@@ -424,23 +475,70 @@ function navigateTo(view, payload = {}) {
     if (box) box.classList.remove('expanded');
   });
 
+  // Track navigation source
+  if (view === 'dashboard') {
+    state.navigationSource = 'dashboard';
+  } else if (view === 'clients') {
+    state.navigationSource = 'clients';
+  } else if (view === 'projects') {
+    if (payload.client) {
+      state.navigationSource = 'clients';
+    } else {
+      state.navigationSource = 'projects-all';
+    }
+  } else if (view === 'tasks') {
+    if (payload.fromDashboard) {
+      state.navigationSource = 'dashboard';
+    } else if (payload.fromProjectsAll) {
+      state.navigationSource = 'projects-all';
+    } else {
+      state.navigationSource = 'clients';
+    }
+  }
+
+  // Update sidebar nav active states
+  const showDashActive    = (view === 'dashboard') || (view === 'tasks' && state.navigationSource === 'dashboard');
+  const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
+
+  document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
+  document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
+
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
 
-  if (view === 'clients') {
+  if (view === 'dashboard') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-dashboard').classList.add('active');
+
+    // Restore projects section collapse state from localStorage
+    const sec = document.getElementById('dash-projects-sec');
+    const isCollapsed = localStorage.getItem('dashboard-projects-collapsed') === 'true';
+    if (sec) {
+      sec.classList.toggle('collapsed', isCollapsed);
+    }
+    const toggleBtn = document.getElementById('dash-projects-toggle');
+    if (toggleBtn) {
+      toggleBtn.setAttribute('aria-expanded', !isCollapsed);
+    }
+
+    subscribeDashboard();
+
+  } else if (view === 'clients') {
     state.client  = null;
     state.project = null;
     document.getElementById('view-clients').classList.add('active');
     subscribeClients();
 
   } else if (view === 'projects') {
-    state.client  = payload.client;
+    state.client  = payload.client || null;
     state.project = null;
     document.getElementById('view-projects').classList.add('active');
     subscribeProjects();
 
   } else if (view === 'tasks') {
-    state.project = payload.project;
+    if (payload.client)  state.client  = payload.client;
+    if (payload.project) state.project = payload.project;
     document.getElementById('view-tasks').classList.add('active');
     subscribeTasks();
   }
@@ -453,6 +551,38 @@ function navigateTo(view, payload = {}) {
 //  FIRESTORE SUBSCRIPTIONS
 // ════════════════════════════════════════════════════════════════
 
+// ── Dashboard Global Subscription ─────────────────────────────
+function subscribeDashboard() {
+  // Unsubscribe any previous dashboard listeners
+  if (state.dashUnsubProjects) { state.dashUnsubProjects(); state.dashUnsubProjects = null; }
+  if (state.dashUnsubTasks)    { state.dashUnsubTasks();    state.dashUnsubTasks    = null; }
+
+  // 0. Also subscribe to clients so we can look up client names
+  const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
+  state.unsubscribe = onSnapshot(clientQ, snap => {
+    setOnline(); hideLoading();
+    state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    document.getElementById('total-badge').textContent = state.clients.length;
+    renderDashboard();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  // 1. Listen to all projects across all clients via collectionGroup
+  const projQ = query(collectionGroup(db, 'projects'));
+  state.dashUnsubProjects = onSnapshot(projQ, snap => {
+    setOnline(); hideLoading();
+    state.allProjects = snap.docs.map(d => ({ id: d.id, ...d.data(), _ref: d.ref }));
+    renderDashboard();
+  }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+
+  // 2. Listen to all tasks across all projects via collectionGroup
+  const taskQ = query(collectionGroup(db, 'tasks'));
+  state.dashUnsubTasks = onSnapshot(taskQ, snap => {
+    setOnline(); hideLoading();
+    state.allTasks = snap.docs.map(d => ({ id: d.id, ...d.data(), _projectId: d.ref.parent.parent.id, _clientId: d.ref.parent.parent.parent.parent.id }));
+    renderDashboard();
+  }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+}
+
 function subscribeClients() {
   const q = query(clientsRef(), orderBy('createdAt', 'desc'));
   state.unsubscribe = onSnapshot(q, snap => {
@@ -464,12 +594,51 @@ function subscribeClients() {
 }
 
 function subscribeProjects() {
-  const q = query(projectsRef(state.client.id), orderBy('createdAt', 'desc'));
-  state.unsubscribe = onSnapshot(q, snap => {
-    setOnline(); hideLoading();
-    state.projects = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderProjects();
-  }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+  const backBtn = document.getElementById('btn-back-projects');
+  if (backBtn) {
+    backBtn.style.display = state.client ? 'inline-flex' : 'none';
+  }
+
+  // Clear sub listeners
+  if (state.projUnsub) { state.projUnsub(); state.projUnsub = null; }
+  if (state.taskUnsub) { state.taskUnsub(); state.taskUnsub = null; }
+
+  if (state.client) {
+    // 1. Specific client projects
+    const q = query(projectsRef(state.client.id), orderBy('createdAt', 'desc'));
+    state.unsubscribe = onSnapshot(q, snap => {
+      setOnline(); hideLoading();
+      state.projects = snap.docs.map(d => ({ id: d.id, ...d.data(), _clientId: state.client.id }));
+      
+      // Also load all tasks for these projects to show progress
+      state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
+        state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
+        renderProjects();
+      }, err => console.error(err));
+    }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+  } else {
+    // 2. All projects mode
+    const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
+    state.unsubscribe = onSnapshot(clientQ, snap => {
+      setOnline(); hideLoading();
+      state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      document.getElementById('total-badge').textContent = state.clients.length;
+      
+      state.projUnsub = onSnapshot(query(collectionGroup(db, 'projects')), projSnap => {
+        state.projects = projSnap.docs.map(d => ({ 
+          id: d.id, 
+          ...d.data(), 
+          _ref: d.ref, 
+          _clientId: d.ref.parent.parent.id 
+        }));
+        
+        state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
+          state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
+          renderProjects();
+        }, err => console.error(err));
+      }, err => console.error(err));
+    }, err => { setOffline(); hideLoading(); console.error(err); });
+  }
 }
 
 function subscribeTasks() {
@@ -482,10 +651,201 @@ function subscribeTasks() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  RENDER — DASHBOARD
+// ════════════════════════════════════════════════════════════════
+
+function renderDashboard() {
+  if (state.view !== 'dashboard') return;
+
+
+
+  // ── Count stats ──
+  const totalClients   = state.clients.length;
+  const activeProjects = state.allProjects.filter(p => p.status === 'active' || !p.status);
+  const totalTodo      = state.allTasks.filter(t => t.status === 'todo' || t.status === 'doing').length;
+  const totalDone      = state.allTasks.filter(t => t.status === 'done').length;
+
+  animateCount('dash-total-clients',   totalClients);
+  animateCount('dash-active-projects', activeProjects.length);
+  animateCount('dash-total-todo',      totalTodo);
+  animateCount('dash-total-done',      totalDone);
+
+  // ── Projects List ──
+  const projList  = document.getElementById('dash-proj-list');
+  const projBadge = document.getElementById('dash-proj-badge');
+  if (!projList) return;
+
+  // Filter only active projects (status is 'active' or undefined/null)
+  const activeProjs = state.allProjects.filter(p => p.status === 'active' || !p.status);
+
+  // Sort: pending tasks (todo/doing) count descending, then alphabetical
+  const sortedProjs = [...activeProjs].sort((a, b) => {
+    const aTasks = state.allTasks.filter(t => t._projectId === a.id);
+    const bTasks = state.allTasks.filter(t => t._projectId === b.id);
+    const aPending = aTasks.filter(t => t.status === 'todo' || t.status === 'doing').length;
+    const bPending = bTasks.filter(t => t.status === 'todo' || t.status === 'doing').length;
+
+    if (bPending !== aPending) {
+      return bPending - aPending;
+    }
+    return (a.name || '').localeCompare(b.name || '', 'ar');
+  });
+
+  if (projBadge) projBadge.textContent = sortedProjs.length;
+
+  if (sortedProjs.length === 0) {
+    projList.innerHTML = `
+      <div class="dash-proj-empty">
+        <span>📁</span>
+        <p>لا توجد مشاريع جارية حالياً</p>
+      </div>`;
+  } else {
+    projList.innerHTML = sortedProjs.map(project => {
+      const clientId   = project._clientId || project._ref?.parent?.parent?.id;
+      const client     = state.clients.find(c => c.id === clientId);
+      const clientName = client ? escapeHtml(client.name) : '';
+
+      const projectTasks = state.allTasks.filter(t => t._projectId === project.id);
+      const pendingTasks = projectTasks.filter(t => t.status === 'todo' || t.status === 'doing').length;
+      const doneTasks    = projectTasks.filter(t => t.status === 'done').length;
+      const totalTasks   = projectTasks.length;
+      const pct          = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+      const pctClass     = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
+
+      return `
+        <div class="dash-proj-strip-row" data-id="${project.id}" data-client-id="${clientId || ''}" role="button" tabindex="0">
+          <div class="proj-strip-left">
+            <span class="dash-proj-status-dot status-active"></span>
+            <div class="proj-strip-names-row">
+              <span class="proj-strip-project-name" title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span>
+              ${clientName ? `
+                <span class="proj-strip-separator">/</span>
+                <span class="proj-strip-client-name" title="${clientName}">${clientName}</span>
+              ` : ''}
+            </div>
+          </div>
+          <div class="proj-strip-right">
+            <span class="proj-strip-pct-badge" title="نسبة الإنجاز">${pct}%</span>
+            <span class="proj-strip-tasks-badge ${pendingTasks > 0 ? 'has-pending' : ''}">
+              ${pendingTasks} معلقة
+            </span>
+          </div>
+          <div class="proj-strip-micro-bar">
+            <div class="proj-strip-micro-fill ${pctClass}" style="width: ${pct}%"></div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Click to open tasks
+    projList.querySelectorAll('.dash-proj-strip-row[data-id]').forEach(row => {
+      const handler = () => {
+        const project  = state.allProjects.find(p => p.id === row.dataset.id);
+        const clientId = row.dataset.clientId;
+        const client   = state.clients.find(c => c.id === clientId);
+        if (project && client) {
+          navigateTo('tasks', { client, project, fromDashboard: true });
+        }
+      };
+      row.addEventListener('click', handler);
+      row.addEventListener('keydown', e => { if (e.key === 'Enter') handler(); });
+    });
+  }
+
+  // ── Productivity & Recent Activities ──
+  const cntTodo  = state.allTasks.filter(t => t.status === 'todo').length;
+  const cntDoing = state.allTasks.filter(t => t.status === 'doing').length;
+  const cntDone  = state.allTasks.filter(t => t.status === 'done').length;
+  const totalAll = cntTodo + cntDoing + cntDone;
+
+  let todoPct = 0, doingPct = 0, donePct = 0;
+  if (totalAll > 0) {
+    todoPct  = Math.round((cntTodo / totalAll) * 100);
+    doingPct = Math.round((cntDoing / totalAll) * 100);
+    donePct  = 100 - todoPct - doingPct;
+  }
+
+  const prodBar = document.getElementById('dash-productivity-bar');
+  if (prodBar) {
+    prodBar.innerHTML = `
+      <div class="productivity-bar-wrap">
+        <div class="productivity-bar">
+          <div class="prod-bar-segment todo" style="width: ${todoPct}%" title="المطلوب: ${cntTodo}"></div>
+          <div class="prod-bar-segment doing" style="width: ${doingPct}%" title="جاري التنفيذ: ${cntDoing}"></div>
+          <div class="prod-bar-segment done" style="width: ${donePct}%" title="تم الانتهاء: ${cntDone}"></div>
+        </div>
+        <div class="productivity-legends">
+          <span class="legend-item"><span class="legend-dot todo"></span> المطلوب (${cntTodo})</span>
+          <span class="legend-item"><span class="legend-dot doing"></span> جاري (${cntDoing})</span>
+          <span class="legend-item"><span class="legend-dot done"></span> مكتمل (${cntDone})</span>
+        </div>
+      </div>`;
+  }
+
+  const recentContainer = document.getElementById('dash-recent-tasks');
+  if (recentContainer) {
+    const getTime = (val) => val && typeof val.toDate === 'function' ? val.toDate().getTime() : (val ? new Date(val).getTime() : 0);
+    const recentTasks = [...state.allTasks]
+      .filter(t => t.status === 'todo' || t.status === 'doing')
+      .sort((a,b) => getTime(b.createdAt) - getTime(a.createdAt))
+      .slice(0, 4);
+
+    if (recentTasks.length === 0) {
+      recentContainer.innerHTML = '<div class="dash-proj-empty" style="padding:10px;"><p style="font-size:11px;">لا توجد مهام نشطة حالياً</p></div>';
+    } else {
+      recentContainer.innerHTML = recentTasks.map(task => {
+        const project = state.allProjects.find(p => p.id === task._projectId);
+        const client  = state.clients.find(c => c.id === task._clientId);
+        const projName = project ? project.name : 'مشروع عام';
+        const dotCls = task.status === 'doing' ? 'doing' : 'todo';
+
+        return `
+          <div class="recent-task-item" data-project-id="${task._projectId}" data-client-id="${task._clientId || ''}" role="button" tabindex="0">
+            <div class="recent-task-title-wrap">
+              <span class="recent-task-dot ${dotCls}"></span>
+              <span class="recent-task-title" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</span>
+            </div>
+            <span class="recent-task-meta" title="${escapeHtml(projName)}">${escapeHtml(projName)}</span>
+          </div>`;
+      }).join('');
+
+      recentContainer.querySelectorAll('.recent-task-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const project = state.allProjects.find(p => p.id === item.dataset.projectId);
+          const clientId = item.dataset.clientId;
+          const client   = state.clients.find(c => c.id === clientId);
+          if (project && client) {
+            navigateTo('tasks', { client, project, fromDashboard: true });
+          }
+        });
+        item.addEventListener('keydown', e => { if (e.key === 'Enter') item.click(); });
+      });
+    }
+  }
+}
+
+// ── Animate counter number ──
+function animateCount(id, target) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const current = parseInt(el.textContent) || 0;
+  if (current === target) return;
+  const diff     = target - current;
+  const steps    = 20;
+  const stepVal  = diff / steps;
+  let frame = 0;
+  const timer = setInterval(() => {
+    frame++;
+    el.textContent = Math.round(current + stepVal * frame);
+    if (frame >= steps) { el.textContent = target; clearInterval(timer); }
+  }, 18);
+}
+
+// ════════════════════════════════════════════════════════════════
 //  RENDER — CLIENTS
 // ════════════════════════════════════════════════════════════════
 
 function renderClients() {
+
   const q        = state.search.toLowerCase();
   
   // Sort clients: order (ascending), fallback to createdAt (descending)
@@ -614,9 +974,9 @@ const PROJECT_STATUS = {
 };
 
 function renderProjects() {
-  const q        = state.search.toLowerCase();
+  const q = state.search.toLowerCase();
   
-  // Sort projects: order (ascending), fallback to createdAt (descending)
+  // Sort projects: order (ascending), fallback to createdAt
   const sortedProjects = [...state.projects].sort((a, b) => {
     const aOrder = a.order !== undefined ? a.order : 0;
     const bOrder = b.order !== undefined ? b.order : 0;
@@ -627,51 +987,83 @@ function renderProjects() {
   });
 
   const filtered = q ? sortedProjects.filter(p => p.name?.toLowerCase().includes(q)) : sortedProjects;
-  const grid     = document.getElementById('projects-grid');
+  const grid = document.getElementById('projects-grid');
 
   if (filtered.length === 0) {
     grid.innerHTML = emptyStateHTML(
       '📁',
       state.search ? 'لا نتائج مطابقة' : 'لا توجد مشاريع بعد',
-      state.search ? 'جرّب كلمة بحث مختلفة' : 'اضغط "إضافة مشروع" لإنشاء أول مشروع'
+      state.search ? 'جرّب كلمة بحث مختلفة' : 'اضغط "مشروع جديد" لإنشاء أول مشروع'
     );
     return;
   }
 
   grid.innerHTML = filtered.map(project => {
     const st = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
+    
+    // Find client name if available
+    const clientId = project._clientId || state.client?.id;
+    const client = state.clients.find(c => c.id === clientId);
+    const clientName = client ? client.name : '';
+
+    // Calculate progress
+    const projectTasks = state.tasks.filter(t => t._projectId === project.id);
+    const doneTasks    = projectTasks.filter(t => t.status === 'done').length;
+    const totalTasks   = projectTasks.length;
+    const pct          = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+    const progressClass = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
+
     return `
-      <div class="entity-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
-        <div class="card-header-row">
-          <div class="project-icon">📁</div>
-          <div class="card-top-actions">
-            <span class="status-badge ${st.cls}">${st.label}</span>
-            <button class="card-edit-btn" data-id="${project.id}" title="تعديل المشروع">✏️</button>
-            <button class="card-del-btn" data-id="${project.id}" title="حذف المشروع">🗑️</button>
+      <div class="project-compact-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
+        <div class="proj-compact-header">
+          <div class="proj-compact-title-wrap">
+            <span class="proj-compact-icon">📁</span>
+            <span class="proj-compact-name" title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span>
+          </div>
+          <div class="proj-compact-actions">
+            <span class="status-dot ${st.cls || 'status-active'}" title="${st.label}"></span>
+            <button class="card-edit-btn compact" data-id="${project.id}" title="تعديل المشروع">✏️</button>
+            <button class="card-del-btn compact" data-id="${project.id}" title="حذف المشروع">🗑️</button>
           </div>
         </div>
-        <div class="card-name">${escapeHtml(project.name)}</div>
-        ${project.description ? `<div class="card-desc">${escapeHtml(project.description)}</div>` : ''}
-        <div class="card-meta">
-          <span>📅 ${formatDate(project.createdAt)}</span>
-          <span class="card-arrow">المهام ←</span>
+        
+        ${clientName ? `
+        <div class="proj-compact-client">
+          <span class="client-label">العميل:</span>
+          <span class="client-val">${escapeHtml(clientName)}</span>
+        </div>` : ''}
+
+        ${project.description ? `<div class="proj-compact-desc" title="${escapeHtml(project.description)}">${escapeHtml(project.description)}</div>` : ''}
+
+        <div class="proj-compact-progress-wrap">
+          <div class="proj-compact-progress-bar">
+            <div class="progress-bar-fill ${progressClass}" style="width: ${pct}%"></div>
+          </div>
+          <div class="proj-compact-progress-text">
+            <span style="color: ${pct < 30 ? 'var(--danger)' : pct < 75 ? '#F0A835' : '#3DB981'}; font-weight:600;">${pct}% مكتمل</span>
+            <span>${doneTasks}/${totalTasks} مهام</span>
+          </div>
         </div>
       </div>
     `;
   }).join('');
 
-  // Events
-  grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
+  // Click on card: navigate to tasks
+  grid.querySelectorAll('.project-compact-card[data-id]').forEach(card => {
     card.addEventListener('click', e => {
       if (e.target.closest('.card-del-btn') || e.target.closest('.card-edit-btn')) return;
       const project = state.projects.find(p => p.id === card.dataset.id);
-      if (project) navigateTo('tasks', { project });
+      if (project) {
+        const clientId = project._clientId || state.client?.id;
+        const client = state.clients.find(c => c.id === clientId) || state.client;
+        navigateTo('tasks', { client, project, fromProjectsAll: !state.client });
+      }
     });
     card.addEventListener('keydown', e => { if (e.key === 'Enter') card.click(); });
   });
 
-  // Drag & Drop Events for Projects
-  grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
+  // Drag & Drop Reordering Events for Projects
+  grid.querySelectorAll('.project-compact-card[data-id]').forEach(card => {
     card.addEventListener('dragstart', e => {
       state.draggedEntityId = card.dataset.id;
       state.draggedEntityType = 'project';
@@ -683,7 +1075,7 @@ function renderProjects() {
       card.classList.remove('dragging-card');
       state.draggedEntityId = null;
       state.draggedEntityType = null;
-      grid.querySelectorAll('.entity-card').forEach(c => c.classList.remove('drag-over-card'));
+      grid.querySelectorAll('.project-compact-card').forEach(c => c.classList.remove('drag-over-card'));
     });
 
     card.addEventListener('dragover', e => {
@@ -703,13 +1095,24 @@ function renderProjects() {
       card.classList.remove('drag-over-card');
       if (state.draggedEntityType !== 'project' || !state.draggedEntityId || state.draggedEntityId === card.dataset.id) return;
 
+      const project = state.projects.find(p => p.id === state.draggedEntityId);
+      const clientId = project?._clientId || state.client?.id;
+      if (!clientId) return;
+
+      const oldClient = state.client;
+      state.client = { id: clientId };
       await handleEntityReorder('project', state.draggedEntityId, card.dataset.id);
+      state.client = oldClient;
     });
   });
 
+  // Edit / Delete click handlers
   grid.querySelectorAll('.card-edit-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
+      const project = state.projects.find(p => p.id === btn.dataset.id);
+      const clientId = project?._clientId || state.client?.id;
+      state.client = state.clients.find(c => c.id === clientId) || state.client;
       openModal('project', btn.dataset.id);
     });
   });
@@ -718,16 +1121,16 @@ function renderProjects() {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const project = state.projects.find(p => p.id === btn.dataset.id);
+      const clientId = project?._clientId || state.client?.id;
       openConfirm({
         type:    'project',
         id:      btn.dataset.id,
         name:    project?.name,
         warning: 'سيتم حذف جميع مهام هذا المشروع أيضاً',
+        clientId: clientId
       });
     });
   });
-
-
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -886,7 +1289,7 @@ async function handleEntityReorder(type, draggedId, targetId) {
   sorted.forEach((item, idx) => {
     const docRef = type === 'client' 
       ? clientDoc(item.id) 
-      : projectDoc(state.client.id, item.id);
+      : projectDoc(item._clientId || state.client.id, item.id);
     batch.update(docRef, { order: idx });
   });
 
@@ -907,13 +1310,18 @@ function updateHeader() {
   const actionsEl = document.getElementById('header-actions');
   const statsEl   = document.getElementById('header-stats');
 
-  if (state.view === 'clients') {
+  if (state.view === 'dashboard') {
+    titleEl.textContent  = '📊 الرئيسية';
+    statsEl.innerHTML    = '';
+    actionsEl.innerHTML  = '';
+
+  } else if (state.view === 'clients') {
     titleEl.textContent  = '👥 العملاء';
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
   } else if (state.view === 'projects') {
-    titleEl.textContent  = `📁 ${escapeHtml(state.client?.name || '')}`;
+    titleEl.textContent  = state.client ? `📁 ${escapeHtml(state.client.name)}` : '📁 كافة المشاريع';
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
@@ -924,35 +1332,59 @@ function updateHeader() {
       <div class="stat-pill"><span class="dot doing"></span><span id="stat-doing">0</span></div>
       <div class="stat-pill"><span class="dot done"></span><span id="stat-done">0</span></div>`;
     actionsEl.innerHTML = '';
-    // Re-render stats after DOM update
     renderKanban();
   }
 }
 
 function updateBreadcrumb() {
   const bc = document.getElementById('breadcrumb');
-  if (state.view === 'clients') { bc.innerHTML = ''; return; }
+  if (state.view === 'dashboard' || state.view === 'clients' || (state.view === 'projects' && !state.client)) { 
+    bc.innerHTML = ''; 
+    return; 
+  }
 
-  let html = `<span class="breadcrumb-link" data-to="clients">🏠 الرئيسية</span>`;
+  let html = `<span class="breadcrumb-link" data-to="dashboard">📊 الرئيسية</span>`;
 
-  if (state.view === 'projects') {
+  if (state.view === 'projects' && state.client) {
     html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">${escapeHtml(state.client?.name)}</span>`;
+             <span class="breadcrumb-link" data-to="clients">العملاء</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">${escapeHtml(state.client.name)}</span>`;
   }
 
   if (state.view === 'tasks') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="projects">${escapeHtml(state.client?.name)}</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
+    html += `<span class="breadcrumb-sep">›</span>`;
+    if (state.navigationSource === 'dashboard') {
+      html += `<span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
+    } else if (state.navigationSource === 'projects-all') {
+      html += `<span class="breadcrumb-link" data-to="projects">المشاريع</span>
+               <span class="breadcrumb-sep">›</span>
+               <span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
+    } else {
+      html += `<span class="breadcrumb-link" data-to="clients">العملاء</span>
+               <span class="breadcrumb-sep">›</span>
+               <span class="breadcrumb-link" data-to="projects" data-client="true">${escapeHtml(state.client?.name)}</span>
+               <span class="breadcrumb-sep">›</span>
+               <span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
+    }
   }
 
   bc.innerHTML = html;
 
   bc.querySelectorAll('[data-to]').forEach(el => {
     el.addEventListener('click', () => {
-      if (el.dataset.to === 'clients')  navigateTo('clients');
-      if (el.dataset.to === 'projects') navigateTo('projects', { client: state.client });
+      const to = el.dataset.to;
+      if (to === 'dashboard') {
+        navigateTo('dashboard');
+      } else if (to === 'clients') {
+        navigateTo('clients');
+      } else if (to === 'projects') {
+        if (el.dataset.client) {
+          navigateTo('projects', { client: state.client });
+        } else {
+          navigateTo('projects');
+        }
+      }
     });
   });
 }
@@ -987,6 +1419,12 @@ const MODAL_CONFIGS = {
     title:      '📁 إضافة مشروع جديد',
     submitText: 'إضافة المشروع',
     fields: `
+      <div class="form-group" id="project-client-group" style="display:none;">
+        <label class="form-label">العميل <span class="required">*</span></label>
+        <select id="f-client-id" class="form-select">
+          <!-- populated dynamically -->
+        </select>
+      </div>
       <div class="form-group">
         <label class="form-label">اسم المشروع <span class="required">*</span></label>
         <input type="text" id="f-name" class="form-input"
@@ -1044,11 +1482,32 @@ function readAsDataURL(file) {
 function openModal(type, editId = null) {
   currentModalType = type;
   state.editTarget = editId ? { type, id: editId } : null;
+  
+  if (type === 'project' && editId) {
+    const project = state.projects.find(p => p.id === editId);
+    state.editTarget.clientId = project?._clientId;
+  }
+  
   const cfg = MODAL_CONFIGS[type];
   document.getElementById('modal-title').textContent   = state.editTarget ? cfg.title.replace('إضافة', 'تعديل') : cfg.title;
   document.getElementById('modal-body').innerHTML      = cfg.fields;
   document.getElementById('modal-submit-btn').textContent = state.editTarget ? cfg.submitText.replace('إضافة', 'تعديل') : cfg.submitText;
   
+  if (type === 'project') {
+    const cg = document.getElementById('project-client-group');
+    if (cg) {
+      if (!state.client && !state.editTarget) {
+        cg.style.display = 'flex';
+        const sel = document.getElementById('f-client-id');
+        if (sel) {
+          sel.innerHTML = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        }
+      } else {
+        cg.style.display = 'none';
+      }
+    }
+  }
+
   if (state.editTarget) {
     prefillModalValues();
   }
@@ -1165,13 +1624,16 @@ document.getElementById('modal-form').addEventListener('submit', async e => {
       const status = document.getElementById('f-status')?.value || 'active';
       if (!name) { toast('يرجى إدخال اسم المشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
 
+      const cId = state.client?.id || (state.editTarget && state.editTarget.clientId) || document.getElementById('f-client-id')?.value;
+      if (!cId) { toast('يرجى تحديد العميل أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
       if (state.editTarget) {
-        await updateDoc(projectDoc(state.client.id, state.editTarget.id), {
+        await updateDoc(projectDoc(cId, state.editTarget.id), {
           name, description: desc || null, status
         });
         toast('تم تعديل المشروع بنجاح! 🎉', 'success');
       } else {
-        await addDoc(projectsRef(state.client.id), { name, description: desc || null, status, createdAt: serverTimestamp() });
+        await addDoc(projectsRef(cId), { name, description: desc || null, status, createdAt: serverTimestamp() });
         toast('تمت إضافة المشروع! 🎉', 'success');
       }
       closeModal();
@@ -1207,8 +1669,8 @@ document.getElementById('modal-form').addEventListener('submit', async e => {
 //  CONFIRM DELETE
 // ════════════════════════════════════════════════════════════════
 
-function openConfirm({ type, id, name, warning = '' }) {
-  state.deleteTarget = { type, id };
+function openConfirm({ type, id, name, warning = '', clientId = null }) {
+  state.deleteTarget = { type, id, clientId };
   const titles = { client: 'حذف العميل', project: 'حذف المشروع', task: 'حذف المهمة' };
   document.getElementById('confirm-title').textContent    = titles[type] || 'حذف';
   document.getElementById('confirm-item-name').textContent = name || '';
@@ -1233,7 +1695,9 @@ document.getElementById('confirm-yes').addEventListener('click', async () => {
       toast('تم حذف العميل وبياناته', 'info', '🗑️');
 
     } else if (target.type === 'project') {
-      await deleteProjectCascade(state.client.id, target.id);
+      const cId = target.clientId || state.client?.id;
+      if (!cId) { toast('فشل الحذف: لم يتم العثور على العميل', 'error'); return; }
+      await deleteProjectCascade(cId, target.id);
       toast('تم حذف المشروع ومهامه', 'info', '🗑️');
 
     } else if (target.type === 'task') {
@@ -1298,8 +1762,6 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// Sidebar nav
-document.getElementById('nav-clients').addEventListener('click', () => navigateTo('clients'));
 
 // ════════════════════════════════════════════════════════════════
 //  HELPERS
