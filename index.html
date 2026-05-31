@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Solo-OS — لوحة تحكم شخصية لإدارة العملاء والمشاريع والمهام" />
+  <title>Solo-OS — لوحة التحكم</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════
+     LOADING SCREEN
+══════════════════════════════════ -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <p class="loading-text">جاري الاتصال بقاعدة البيانات...</p>
+</div>
+
+<!-- ══════════════════════════════════
+     APP SHELL
+══════════════════════════════════ -->
+<div id="app">
+
+  <!-- ── SIDEBAR ── -->
+  <aside id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🚀</div>
+      <div>
+        <span>Solo-OS</span>
+        <small>Work Dashboard</small>
+      </div>
+    </div>
+
+    <span class="nav-label">العمل</span>
+
+    <div class="nav-item active" id="nav-clients" title="العملاء والمشاريع">
+      <span class="nav-icon">👥</span>
+      <span>العملاء</span>
+      <span class="nav-badge" id="total-badge">0</span>
+    </div>
+
+    <span class="nav-label">قريباً</span>
+
+    <div class="nav-item disabled" title="قريباً">
+      <span class="nav-icon">💰</span>
+      <span>المصاريف</span>
+    </div>
+    <div class="nav-item disabled" title="قريباً">
+      <span class="nav-icon">🥗</span>
+      <span>التغذية</span>
+    </div>
+    <div class="nav-item disabled" title="قريباً">
+      <span class="nav-icon">🏋️</span>
+      <span>التمرين</span>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="db-status">
+        <span class="db-dot" id="db-dot"></span>
+        <span id="db-status-text">جاري الاتصال...</span>
+      </div>
+      <div class="version-tag">Solo-OS v2.0</div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <main id="main">
+
+    <!-- Header (dynamic) -->
+    <header id="header">
+      <div class="header-left">
+        <nav class="breadcrumb" id="breadcrumb"></nav>
+        <div class="header-title-row">
+          <h1 id="page-title">👥 العملاء</h1>
+          <div id="header-stats"></div>
+        </div>
+        <p id="header-date"></p>
+      </div>
+      <div class="header-right" id="header-actions"></div>
+    </header>
+
+    <!-- Views Container -->
+    <div id="content">
+
+      <!-- ── VIEW: CLIENTS ── -->
+      <div class="view active" id="view-clients">
+        <div class="view-toolbar">
+          <div class="search-box" id="search-box-clients">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-clients" placeholder="ابحث عن عميل..." autocomplete="off" />
+          </div>
+        </div>
+        <div class="cards-grid" id="clients-grid">
+          <!-- Client cards rendered by JS -->
+        </div>
+      </div>
+
+      <!-- ── VIEW: PROJECTS ── -->
+      <div class="view" id="view-projects">
+        <div class="view-toolbar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-projects" placeholder="ابحث عن مشروع..." autocomplete="off" />
+          </div>
+        </div>
+        <div class="cards-grid" id="projects-grid">
+          <!-- Project cards rendered by JS -->
+        </div>
+      </div>
+
+      <!-- ── VIEW: TASKS (Kanban) ── -->
+      <div class="view" id="view-tasks">
+        <div id="board-area">
+          <div class="board-toolbar">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="search-tasks" placeholder="ابحث عن مهمة..." autocomplete="off" />
+            </div>
+          </div>
+
+          <div id="kanban">
+            <!-- Column: Todo -->
+            <div class="column col-todo" data-status="todo">
+              <div class="col-header">
+                <span class="col-dot" style="background:var(--status-todo)"></span>
+                <span class="col-title">📋 المطلوب</span>
+                <span class="col-count" id="count-todo">0</span>
+              </div>
+              <div class="col-body" id="col-todo"></div>
+            </div>
+
+            <!-- Column: Doing -->
+            <div class="column col-doing" data-status="doing">
+              <div class="col-header">
+                <span class="col-dot" style="background:var(--status-doing)"></span>
+                <span class="col-title">⏳ جاري التنفيذ</span>
+                <span class="col-count" id="count-doing">0</span>
+              </div>
+              <div class="col-body" id="col-doing"></div>
+            </div>
+
+            <!-- Column: Done -->
+            <div class="column col-done" data-status="done">
+              <div class="col-header">
+                <span class="col-dot" style="background:var(--status-done)"></span>
+                <span class="col-title">✅ تم الإنتهاء</span>
+                <span class="col-count" id="count-done">0</span>
+              </div>
+              <div class="col-body" id="col-done"></div>
+            </div>
+          </div><!-- /#kanban -->
+
+        </div><!-- /#board-area -->
+      </div><!-- /#view-tasks -->
+
+    </div><!-- /#content -->
+
+  </main>
+</div><!-- /#app -->
+
+<!-- ══════════════════════════════════
+     MODAL (Dynamic — used for client / project / task)
+══════════════════════════════════ -->
+<div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">إضافة</h2>
+      <button class="modal-close" id="close-modal-btn" aria-label="إغلاق">✕</button>
+    </div>
+    <form id="modal-form">
+      <div class="modal-body" id="modal-body">
+        <!-- Dynamic fields injected by JS -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" id="cancel-modal-btn">إلغاء</button>
+        <button type="submit" class="btn-primary" id="modal-submit-btn">إضافة</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     CONFIRM DELETE DIALOG
+══════════════════════════════════ -->
+<div id="confirm-overlay" class="confirm-overlay hidden" role="alertdialog">
+  <div class="confirm-box">
+    <div class="confirm-icon">🗑️</div>
+    <h3 id="confirm-title">حذف العنصر</h3>
+    <p>
+      هل أنت متأكد من حذف:<br>
+      <strong id="confirm-item-name" style="color:var(--text-primary)"></strong>؟
+      <br><span id="confirm-warning" style="color:var(--danger);font-size:12px;margin-top:4px;display:block"></span>
+    </p>
+    <div class="confirm-actions">
+      <button class="btn-ghost" id="confirm-no">إلغاء</button>
+      <button class="btn-danger" id="confirm-yes">نعم، احذف</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script>
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('ar-EG', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  });
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
