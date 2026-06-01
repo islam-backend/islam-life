@@ -88,11 +88,11 @@
         <span class="nav-badge" id="total-badge">0</span>
       </div>
 
-      <span class="nav-label">التركيز</span>
+      <span class="nav-label">التتبع</span>
 
-      <div class="nav-item" id="nav-focus" title="جلسة التركيز">
-        <span class="nav-icon">⏱️</span>
-        <span>جلسة التركيز</span>
+      <div class="nav-item" id="nav-hours" title="تتبع الساعات">
+        <span class="nav-icon">📊</span>
+        <span>تتبع الساعات</span>
       </div>
 
       <span class="nav-label">قريباً</span>
@@ -240,94 +240,60 @@
 
         </div>
 
-        <!-- ── VIEW: FOCUS MODE ── -->
-        <div class="view" id="view-focus">
-          <div class="focus-workspace">
-
-            <!-- Ambient background orbs -->
-            <div class="focus-orb focus-orb-1"></div>
-            <div class="focus-orb focus-orb-2"></div>
-            <div class="focus-orb focus-orb-3"></div>
-
-            <!-- Central focus card -->
-            <div class="focus-card" id="focus-card">
-
-              <!-- Header -->
-              <div class="focus-card-header">
-                <div class="focus-card-header-left">
-                  <span class="focus-card-eyebrow">⏱️ غرفة التركيز</span>
-                  <span class="focus-status-badge focus-session" id="pomo-status-badge">جاري العمل 🎯</span>
-                </div>
-                <div class="focus-session-count" id="focus-session-count">
-                  <span id="focus-sessions-done">0</span> جلسات اليوم
-                </div>
-              </div>
-
-              <!-- Project Selector -->
-              <div class="focus-selector-area" id="pomo-selectors">
-                <div class="focus-selector-question">فيبدأ العمل على مشروع ماذا اليوم؟ 🎯</div>
-                <div class="focus-selects-row">
-                  <div class="focus-select-wrapper">
-                    <span class="focus-select-icon">📁</span>
-                    <select id="pomo-project-select" class="focus-select">
-                      <option value="">-- اختر المشروع --</option>
-                    </select>
-                  </div>
-                  <div class="focus-select-wrapper">
-                    <span class="focus-select-icon">📋</span>
-                    <select id="pomo-task-select" class="focus-select" disabled>
-                      <option value="">-- اختر المهمة --</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Linked Task Display (when locked) -->
-              <div class="focus-linked-task hidden" id="pomo-linked-task">
-                <div class="focus-linked-icon">🎯</div>
-                <div class="focus-linked-details">
-                  <span class="focus-linked-project" id="pomo-project-name"></span>
-                  <span class="focus-linked-task-title" id="pomo-task-title"></span>
-                </div>
-                <button type="button" class="focus-btn-unlink" id="btn-pomo-unlink" title="تغيير المهمة">✕</button>
-              </div>
-
-              <!-- Mode Toggles -->
-              <div class="focus-modes">
-                <button class="focus-mode-btn active" id="btn-pomo-mode-25" data-mode="work-25" data-duration="25" data-break="5">
-                  <span class="mode-icon">⚡</span>
-                  <span class="mode-label">جلسة سريعة</span>
-                  <span class="mode-duration">25 / 5 د</span>
-                </button>
-                <button class="focus-mode-btn" id="btn-pomo-mode-60" data-mode="work-60" data-duration="60" data-break="10">
-                  <span class="mode-icon">🧠</span>
-                  <span class="mode-label">تركيز عميق</span>
-                  <span class="mode-duration">60 / 10 د</span>
-                </button>
-              </div>
-
-              <!-- Big Timer Display -->
-              <div class="focus-timer-display" id="focus-timer-display">
-                <div class="focus-timer-digits">
-                  <span class="focus-time-minutes" id="pomo-minutes">25</span>
-                  <span class="focus-time-colon">:</span>
-                  <span class="focus-time-seconds" id="pomo-seconds">00</span>
-                </div>
-                <div class="focus-timer-label" id="focus-timer-label">وقت العمل</div>
-              </div>
-
-              <!-- Progress Rail -->
-              <div class="focus-progress-rail">
-                <div class="focus-progress-fill" id="focus-progress-fill"></div>
-              </div>
-
-              <!-- Control Buttons -->
-              <div class="focus-controls">
-                <button class="focus-btn-reset" id="btn-pomo-reset" title="إعادة تعيين">🔄</button>
-                <button class="focus-btn-start" id="btn-pomo-start">ابدأ الجلسة ▶️</button>
-              </div>
-
+        <!-- ── VIEW: HOURS TRACKER ── -->
+        <div class="view" id="view-hours">
+          <div class="view-toolbar">
+            <button class="toolbar-add-btn" id="btn-add-hours" aria-label="تسجيل ساعات جديدة">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>تسجيل ساعات جديدة</span>
+            </button>
+            <div class="search-box" id="search-box-hours">
+              <button class="search-icon-btn" aria-label="بحث" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
+              <input type="text" id="search-hours" placeholder="ابحث عن سجل..." autocomplete="off" />
             </div>
+          </div>
+
+          <!-- Summary Cards Row -->
+          <div class="hours-summary-grid">
+            <div class="hours-summary-card">
+              <div class="stat-card-icon" style="background: rgba(53,116,240,0.12); color: var(--accent);">📅</div>
+              <div class="stat-card-body">
+                <span class="stat-card-label">هذا الأسبوع</span>
+                <span class="hours-summary-value" id="hours-week">0</span>
+                <span class="hours-summary-unit">ساعة</span>
+              </div>
+            </div>
+            <div class="hours-summary-card">
+              <div class="stat-card-icon" style="background: rgba(240,168,53,0.12); color: var(--status-doing);">🗓️</div>
+              <div class="stat-card-body">
+                <span class="stat-card-label">هذا الشهر</span>
+                <span class="hours-summary-value" id="hours-month">0</span>
+                <span class="hours-summary-unit">ساعة</span>
+              </div>
+            </div>
+            <div class="hours-summary-card">
+              <div class="stat-card-icon" style="background: rgba(61,185,129,0.12); color: var(--status-done);">⏱️</div>
+              <div class="stat-card-body">
+                <span class="stat-card-label">الإجمالي الكلي</span>
+                <span class="hours-summary-value" id="hours-total">0</span>
+                <span class="hours-summary-unit">ساعة</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Logs Grid -->
+          <div class="cards-grid hours-logs-grid" id="hours-logs-grid">
+            <!-- Hours log cards rendered by JS -->
           </div>
         </div>
 

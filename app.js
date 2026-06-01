@@ -57,7 +57,6 @@ onAuthStateChanged(auth, async (user) => {
 
       if (!isBooted) {
         setupColumnDnD();
-        setupPomodoroControls();
         navigateTo('dashboard');
         isBooted = true;
       }
@@ -70,18 +69,13 @@ onAuthStateChanged(auth, async (user) => {
     isBooted = false;
     // Clear all Firestore listeners on signout
     cleanupListeners();
-    // Stop any running Pomodoro timer
-    if (state.pomoInterval) {
-      clearInterval(state.pomoInterval);
-      state.pomoInterval = null;
-      state.pomoRunning = false;
-    }
     // Reset local data
     state.clients = [];
     state.projects = [];
     state.tasks = [];
     state.allProjects = [];
     state.allTasks = [];
+    state.timeLogs = [];
     state.client = null;
     state.project = null;
 
@@ -158,7 +152,7 @@ if (sidebar && toggleBtn) {
 // ── Sidebar Nav Item Click Handlers ──────────────────────────
 const navDashboard = document.getElementById('nav-dashboard');
 const navClients   = document.getElementById('nav-clients');
-const navFocus     = document.getElementById('nav-focus');
+const navHours     = document.getElementById('nav-hours');
 
 if (navDashboard) {
   navDashboard.addEventListener('click', () => navigateTo('dashboard'));
@@ -166,8 +160,8 @@ if (navDashboard) {
 if (navClients) {
   navClients.addEventListener('click', () => navigateTo('clients'));
 }
-if (navFocus) {
-  navFocus.addEventListener('click', () => navigateTo('focus'));
+if (navHours) {
+  navHours.addEventListener('click', () => navigateTo('hours'));
 }
 
 // ── Collapsible Dashboard Projects Section Toggle ──
@@ -378,17 +372,9 @@ const state = {
   deleteTarget: null,
   editTarget:   null,
   unsubscribe: null,
-  // Pomodoro Timer State
-  pomoTimeLeft:        25 * 60,
-  pomoInterval:        null,
-  pomoRunning:         false,
-  pomoMode:            'work-25', // 'work-25' | 'work-60'
-  pomoState:           'work',    // 'work' | 'break'
-  pomoDuration:        25,
-  pomoBreakDuration:   5,
-  pomoActiveProjectId: null,
-  pomoActiveTaskId:    null,
-  pomoSessionsToday:   0,
+  // Hours Tracker State (v6.0)
+  timeLogs:        [],
+  timeLogsUnsub:   null,
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -401,6 +387,7 @@ function cleanupListeners() {
   safeUnsub(state.dashUnsubTasks);     state.dashUnsubTasks = null;
   safeUnsub(state.projUnsub);          state.projUnsub = null;
   safeUnsub(state.taskUnsub);          state.taskUnsub = null;
+  safeUnsub(state.timeLogsUnsub);      state.timeLogsUnsub = null;
 }
 
 // ── Avatar Colors ──────────────────────────────────────────────
@@ -542,11 +529,11 @@ function navigateTo(view, payload = {}) {
   // Update sidebar nav active states
   const showDashActive    = (view === 'dashboard') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
-  const showFocusActive   = (view === 'focus');
+  const showHoursActive   = (view === 'hours');
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
-  document.getElementById('nav-focus')?.classList.toggle('active', !!showFocusActive);
+  document.getElementById('nav-hours')?.classList.toggle('active', !!showHoursActive);
 
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -1962,477 +1949,3 @@ setInterval(() => {
     if (el) el.scrollTop = top;
   });
 }, 60000);
-
-// ════════════════════════════════════════════════════════════════
-//  POMODORO TIMER MODULE (v3.6)
-// ════════════════════════════════════════════════════════════════
-
-function playPomoSound(type = 'success') {
-  try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    if (type === 'success') {
-      // Sleek double beep for break start
-      const osc1 = audioCtx.createOscillator();
-      const gain1 = audioCtx.createGain();
-      osc1.connect(gain1);
-      gain1.connect(audioCtx.destination);
-      osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-      gain1.gain.setValueAtTime(0.1, audioCtx.currentTime);
-      gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-      osc1.start();
-      osc1.stop(audioCtx.currentTime + 0.15);
-      
-      setTimeout(() => {
-        const osc2 = audioCtx.createOscillator();
-        const gain2 = audioCtx.createGain();
-        osc2.connect(gain2);
-        gain2.connect(audioCtx.destination);
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-        gain2.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
-        osc2.start();
-        osc2.stop(audioCtx.currentTime + 0.25);
-      }, 150);
-    } else {
-      // Deeper double beep for work start
-      const osc1 = audioCtx.createOscillator();
-      const gain1 = audioCtx.createGain();
-      osc1.connect(gain1);
-      gain1.connect(audioCtx.destination);
-      osc1.type = 'triangle';
-      osc1.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
-      gain1.gain.setValueAtTime(0.15, audioCtx.currentTime);
-      gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-      osc1.start();
-      osc1.stop(audioCtx.currentTime + 0.2);
-      
-      setTimeout(() => {
-        const osc2 = audioCtx.createOscillator();
-        const gain2 = audioCtx.createGain();
-        osc2.connect(gain2);
-        gain2.connect(audioCtx.destination);
-        osc2.type = 'triangle';
-        osc2.frequency.setValueAtTime(349.23, audioCtx.currentTime); // F4
-        gain2.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-        osc2.start();
-        osc2.stop(audioCtx.currentTime + 0.3);
-      }, 200);
-    }
-  } catch (err) {
-    console.error('AudioContext failed:', err);
-  }
-}
-
-function setupPomodoroControls() {
-  const btnStart = document.getElementById('btn-pomo-start');
-  const btnReset = document.getElementById('btn-pomo-reset');
-  const btnMode25 = document.getElementById('btn-pomo-mode-25');
-  const btnMode60 = document.getElementById('btn-pomo-mode-60');
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-  const btnUnlink = document.getElementById('btn-pomo-unlink');
-
-  if (btnStart) {
-    btnStart.addEventListener('click', togglePomo);
-  }
-  if (btnReset) {
-    btnReset.addEventListener('click', resetPomo);
-  }
-  if (btnMode25) {
-    btnMode25.addEventListener('click', () => switchPomoMode('work-25'));
-  }
-  if (btnMode60) {
-    btnMode60.addEventListener('click', () => switchPomoMode('work-60'));
-  }
-  if (projectSelect) {
-    projectSelect.addEventListener('change', handlePomoProjectChange);
-  }
-  if (taskSelect) {
-    taskSelect.addEventListener('change', handlePomoTaskChange);
-  }
-  if (btnUnlink) {
-    btnUnlink.addEventListener('click', unlinkPomoTask);
-  }
-
-  updatePomoDisplay();
-}
-
-function updatePomoDisplay() {
-  const minEl = document.getElementById('pomo-minutes');
-  const secEl = document.getElementById('pomo-seconds');
-  const badgeEl = document.getElementById('pomo-status-badge');
-  const timerDisplayEl = document.getElementById('focus-timer-display');
-  const timerLabelEl = document.getElementById('focus-timer-label');
-  const progressFill = document.getElementById('focus-progress-fill');
-
-  if (!minEl || !secEl) return;
-
-  const minutes = Math.floor(state.pomoTimeLeft / 60);
-  const seconds = state.pomoTimeLeft % 60;
-
-  minEl.textContent = String(minutes).padStart(2, '0');
-  secEl.textContent = String(seconds).padStart(2, '0');
-
-  // Update timer label and color mode
-  if (timerLabelEl) {
-    timerLabelEl.textContent = state.pomoState === 'work' ? 'وقت العمل' : 'وقت الراحة';
-  }
-
-  if (badgeEl && timerDisplayEl) {
-    if (state.pomoState === 'work') {
-      badgeEl.textContent = 'جاري العمل 🎯';
-      badgeEl.className = 'focus-status-badge focus-session';
-      timerDisplayEl.classList.remove('break-mode');
-    } else {
-      badgeEl.textContent = 'وقت الراحة ☕';
-      badgeEl.className = 'focus-status-badge break-session';
-      timerDisplayEl.classList.add('break-mode');
-    }
-  }
-
-  // Update progress rail
-  if (progressFill) {
-    const totalDuration = (state.pomoState === 'work' ? state.pomoDuration : state.pomoBreakDuration) * 60;
-    const pct = ((totalDuration - state.pomoTimeLeft) / totalDuration) * 100;
-    progressFill.style.width = pct + '%';
-  }
-}
-
-function togglePomo() {
-  const btnStart = document.getElementById('btn-pomo-start');
-  if (!btnStart) return;
-
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-
-  if (state.pomoRunning) {
-    // Pause
-    clearInterval(state.pomoInterval);
-    state.pomoInterval = null;
-    state.pomoRunning = false;
-    btnStart.textContent = 'ابدأ الجلسة ▶️';
-    btnStart.classList.remove('running');
-
-    // Enable selects if not linked
-    if (!state.pomoActiveProjectId) {
-      if (projectSelect) projectSelect.removeAttribute('disabled');
-      if (taskSelect && projectSelect && projectSelect.value) taskSelect.removeAttribute('disabled');
-    }
-  } else {
-    // Start
-    state.pomoRunning = true;
-    btnStart.textContent = 'إيقاف مؤقت ⏸️';
-    btnStart.classList.add('running');
-    state.pomoInterval = setInterval(tickPomo, 1000);
-
-    // Disable selects
-    if (projectSelect) projectSelect.setAttribute('disabled', 'true');
-    if (taskSelect) taskSelect.setAttribute('disabled', 'true');
-  }
-}
-
-function tickPomo() {
-  if (state.pomoTimeLeft > 0) {
-    state.pomoTimeLeft--;
-    updatePomoDisplay();
-  } else {
-    handlePomoCycleComplete();
-  }
-}
-
-async function handlePomoCycleComplete() {
-  clearInterval(state.pomoInterval);
-  state.pomoInterval = null;
-  state.pomoRunning = false;
-
-  const btnStart = document.getElementById('btn-pomo-start');
-  if (btnStart) {
-    btnStart.textContent = 'ابدأ الجلسة ▶️';
-    btnStart.classList.remove('running');
-  }
-
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-  if (!state.pomoActiveProjectId) {
-    if (projectSelect) projectSelect.removeAttribute('disabled');
-    if (taskSelect && projectSelect && projectSelect.value) taskSelect.removeAttribute('disabled');
-  }
-
-  if (state.pomoState === 'work') {
-    // Work completed! Increment session counter.
-    state.pomoSessionsToday = (state.pomoSessionsToday || 0) + 1;
-    const sessEl = document.getElementById('focus-sessions-done');
-    if (sessEl) sessEl.textContent = state.pomoSessionsToday;
-
-    playPomoSound('success');
-    toast('انتهت دورة العمل بنجاح! وقت الراحة الآن ☕', 'success', '🎉');
-
-    // Update Firestore time spent if a project and task are active
-    if (state.pomoActiveProjectId && state.pomoActiveTaskId) {
-      await savePomoTimeSpent(state.pomoActiveProjectId, state.pomoActiveTaskId, state.pomoDuration);
-    }
-
-    // Switch to break
-    state.pomoState = 'break';
-    state.pomoTimeLeft = state.pomoBreakDuration * 60;
-  } else {
-    // Break completed!
-    playPomoSound('work');
-    toast('انتهت دورة الراحة! فلنعد للعمل 🚀', 'info', '⏱️');
-
-    // Switch to work
-    state.pomoState = 'work';
-    state.pomoTimeLeft = state.pomoDuration * 60;
-  }
-
-  updatePomoDisplay();
-}
-
-function resetPomo() {
-  clearInterval(state.pomoInterval);
-  state.pomoInterval = null;
-  state.pomoRunning = false;
-
-  const btnStart = document.getElementById('btn-pomo-start');
-  if (btnStart) {
-    btnStart.textContent = 'ابدأ الجلسة ▶️';
-    btnStart.classList.remove('running');
-  }
-
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-  if (!state.pomoActiveProjectId) {
-    if (projectSelect) projectSelect.removeAttribute('disabled');
-    if (taskSelect && projectSelect && projectSelect.value) taskSelect.removeAttribute('disabled');
-  }
-
-  state.pomoState = 'work';
-  state.pomoTimeLeft = state.pomoDuration * 60;
-  updatePomoDisplay();
-}
-
-function switchPomoMode(mode) {
-  state.pomoMode = mode;
-  if (mode === 'work-25') {
-    state.pomoDuration = 25;
-    state.pomoBreakDuration = 5;
-  } else {
-    state.pomoDuration = 60;
-    state.pomoBreakDuration = 10;
-  }
-
-  // Update button active state
-  const btn25 = document.getElementById('btn-pomo-mode-25');
-  const btn60 = document.getElementById('btn-pomo-mode-60');
-  if (btn25 && btn60) {
-    btn25.classList.toggle('active', mode === 'work-25');
-    btn60.classList.toggle('active', mode === 'work-60');
-  }
-
-  resetPomo();
-}
-
-async function savePomoTimeSpent(projectId, taskId, minutes) {
-  try {
-    // Find project to get its client ID
-    const project = state.allProjects.find(p => p.id === projectId);
-    if (!project) {
-      console.error('Project not found in allProjects:', projectId);
-      return;
-    }
-    const clientId = project._clientId || project._ref?.parent?.parent?.id;
-    if (!clientId) {
-      console.error('Client ID not found for project:', project);
-      return;
-    }
-
-    // Update Task
-    const tRef = taskDoc(clientId, projectId, taskId);
-    await updateDoc(tRef, {
-      totalMinutesSpent: increment(minutes)
-    });
-
-    // Update Project
-    const pRef = projectDoc(clientId, projectId);
-    await updateDoc(pRef, {
-      totalMinutesSpent: increment(minutes)
-    });
-
-    toast(`تم تسجيل ${minutes} دقيقة تركيز بنجاح! ⏱️`, 'success');
-  } catch (err) {
-    console.error('Error saving Pomodoro minutes:', err);
-    toast('فشل حفظ الوقت المستغرق في قاعدة البيانات', 'error');
-  }
-}
-
-function handlePomoProjectChange() {
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-
-  if (!projectSelect || !taskSelect) return;
-
-  const projectId = projectSelect.value;
-  taskSelect.innerHTML = '<option value="">-- اختر المهمة --</option>';
-
-  if (projectId) {
-    taskSelect.removeAttribute('disabled');
-    
-    // Filter tasks for this project that are todo or doing
-    const filteredTasks = state.allTasks.filter(t => t._projectId === projectId && (t.status === 'todo' || t.status === 'doing'));
-    filteredTasks.forEach(task => {
-      const opt = document.createElement('option');
-      opt.value = task.id;
-      opt.textContent = task.title;
-      taskSelect.appendChild(opt);
-    });
-  } else {
-    taskSelect.setAttribute('disabled', 'true');
-    state.pomoActiveProjectId = null;
-    state.pomoActiveTaskId = null;
-  }
-}
-
-function handlePomoTaskChange() {
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-
-  if (!projectSelect || !taskSelect) return;
-
-  const projectId = projectSelect.value;
-  const taskId = taskSelect.value;
-
-  if (projectId && taskId) {
-    const project = state.allProjects.find(p => p.id === projectId);
-    const task = state.allTasks.find(t => t.id === taskId);
-    
-    if (project && task) {
-      linkPomoTask(project.id, project.name, task.id, task.title);
-    }
-  }
-}
-
-function linkPomoTask(projectId, projectName, taskId, taskTitle) {
-  state.pomoActiveProjectId = projectId;
-  state.pomoActiveTaskId = taskId;
-
-  const selectorsEl = document.getElementById('pomo-selectors');
-  const linkedEl = document.getElementById('pomo-linked-task');
-  const projNameEl = document.getElementById('pomo-project-name');
-  const taskTitleEl = document.getElementById('pomo-task-title');
-
-  if (selectorsEl && linkedEl && projNameEl && taskTitleEl) {
-    projNameEl.textContent = projectName;
-    taskTitleEl.textContent = taskTitle;
-    selectorsEl.classList.add('hidden');
-    linkedEl.classList.remove('hidden');
-  }
-
-  // Lock the focus card
-  const card = document.getElementById('focus-card');
-  if (card) card.classList.add('locked');
-}
-
-function unlinkPomoTask() {
-  state.pomoActiveProjectId = null;
-  state.pomoActiveTaskId = null;
-
-  const selectorsEl = document.getElementById('pomo-selectors');
-  const linkedEl = document.getElementById('pomo-linked-task');
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-
-  if (selectorsEl && linkedEl && projectSelect && taskSelect) {
-    projectSelect.value = '';
-    taskSelect.innerHTML = '<option value="">-- اختر المهمة --</option>';
-    taskSelect.setAttribute('disabled', 'true');
-
-    linkedEl.classList.add('hidden');
-    selectorsEl.classList.remove('hidden');
-  }
-
-  // Unlock the focus card
-  const card = document.getElementById('focus-card');
-  if (card) card.classList.remove('locked');
-
-  // Stop timer if running
-  if (state.pomoRunning) resetPomo();
-}
-
-function populatePomoSelectors() {
-  const projectSelect = document.getElementById('pomo-project-select');
-  const taskSelect = document.getElementById('pomo-task-select');
-
-  if (!projectSelect || !taskSelect) return;
-
-  // Preserve selected values if currently linked or selected
-  const currentProjId = state.pomoActiveProjectId || projectSelect.value;
-  const currentTaskId = state.pomoActiveTaskId || taskSelect.value;
-
-  projectSelect.innerHTML = '<option value="">-- اختر المشروع --</option>';
-  
-  // Sort projects alphabetically
-  const activeProjs = state.allProjects.filter(p => p.status === 'active' || !p.status)
-    .sort((a,b) => (a.name || '').localeCompare(b.name || '', 'ar'));
-
-  activeProjs.forEach(proj => {
-    const opt = document.createElement('option');
-    opt.value = proj.id;
-    opt.textContent = proj.name;
-    projectSelect.appendChild(opt);
-  });
-
-  if (state.pomoActiveProjectId && state.pomoActiveTaskId) {
-    const project = state.allProjects.find(p => p.id === state.pomoActiveProjectId);
-    const task = state.allTasks.find(t => t.id === state.pomoActiveTaskId);
-    if (project && task) {
-      linkPomoTask(project.id, project.name, task.id, task.title);
-    } else {
-      // Linked task or project was deleted — clean up and notify
-      if (state.pomoRunning) {
-        toast('تم إلغاء جلسة التركيز لأن المهمة المرتبطة اتمسحت', 'info');
-      }
-      unlinkPomoTask();
-    }
-  } else if (currentProjId) {
-    projectSelect.value = currentProjId;
-    handlePomoProjectChange();
-    if (currentTaskId) {
-      taskSelect.value = currentTaskId;
-    }
-  } else {
-    unlinkPomoTask();
-  }
-}
-
-// ── Focus Mode Subscription ────────────────────────────────────
-function subscribeFocusMode() {
-  // Always (re)subscribe so we get live updates — navigateTo clears previous listeners.
-  const projQ = query(collectionGroup(db, 'projects'));
-  state.dashUnsubProjects = onSnapshot(projQ, snap => {
-    setOnline(); hideLoading();
-    state.allProjects = snap.docs.map(d => ({ id: d.id, ...d.data(), _ref: d.ref, _clientId: d.ref.parent.parent.id }));
-    populatePomoSelectors();
-  }, err => { setOffline(); hideLoading(); console.error(err); });
-
-  const taskQ = query(collectionGroup(db, 'tasks'));
-  state.dashUnsubTasks = onSnapshot(taskQ, snap => {
-    setOnline(); hideLoading();
-    state.allTasks = snap.docs.map(d => ({
-      id: d.id, ...d.data(),
-      _projectId: d.ref.parent.parent.id,
-      _clientId: d.ref.parent.parent.parent.parent.id
-    }));
-    populatePomoSelectors();
-  }, err => { setOffline(); hideLoading(); console.error(err); });
-
-  // Update session count display
-  const sessEl = document.getElementById('focus-sessions-done');
-  if (sessEl) sessEl.textContent = state.pomoSessionsToday || 0;
-
-  // Update display
-  updatePomoDisplay();
-}
