@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// ════════════════════════════════════════════════════════════════
+//  Firestore Security Rules — islam.walied dashboard
+//  Only the owner email can read/write any data.
+// ════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper: only the owner is allowed ──
+    function isOwner() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email == 'islam.walied96@gmail.com';
+    }
+
+    // ── Direct paths ──
+    match /clients/{clientId} {
+      allow read, write: if isOwner();
+
+      match /projects/{projectId} {
+        allow read, write: if isOwner();
+
+        match /tasks/{taskId} {
+          allow read, write: if isOwner();
+        }
+      }
+    }
+
+    // ── collectionGroup queries (Dashboard + Focus mode) ──
+    // The dashboard uses collectionGroup('projects') and collectionGroup('tasks')
+    // — those need their OWN rules even though paths above already grant access.
+    match /{path=**}/projects/{projectId} {
+      allow read: if isOwner();
+    }
+
+    match /{path=**}/tasks/{taskId} {
+      allow read: if isOwner();
+    }
+  }
+}

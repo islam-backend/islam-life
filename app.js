@@ -27,7 +27,8 @@ import {
   query,
   orderBy,
   getDocs,
-  writeBatch
+  writeBatch,
+  increment
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 // ── Init ───────────────────────────────────────────────────────
@@ -53,9 +54,10 @@ onAuthStateChanged(auth, async (user) => {
     if (user.email === allowedEmail) {
       if (loginScreen) loginScreen.classList.add('hidden');
       if (loadingOverlay) loadingOverlay.classList.add('hidden');
-      
+
       if (!isBooted) {
         setupColumnDnD();
+        setupPomodoroControls();
         navigateTo('dashboard');
         isBooted = true;
       }
@@ -66,16 +68,23 @@ onAuthStateChanged(auth, async (user) => {
     }
   } else {
     isBooted = false;
-    // Clear Firestore listener on signout
-    if (state.unsubscribe) {
-      state.unsubscribe();
-      state.unsubscribe = null;
+    // Clear all Firestore listeners on signout
+    cleanupListeners();
+    // Stop any running Pomodoro timer
+    if (state.pomoInterval) {
+      clearInterval(state.pomoInterval);
+      state.pomoInterval = null;
+      state.pomoRunning = false;
     }
     // Reset local data
     state.clients = [];
     state.projects = [];
     state.tasks = [];
-    
+    state.allProjects = [];
+    state.allTasks = [];
+    state.client = null;
+    state.project = null;
+
     // Hide main screen, show login screen
     if (loginScreen) loginScreen.classList.remove('hidden');
     hideLoading(); // Remove DB spinner if still there
@@ -149,12 +158,16 @@ if (sidebar && toggleBtn) {
 // ── Sidebar Nav Item Click Handlers ──────────────────────────
 const navDashboard = document.getElementById('nav-dashboard');
 const navClients   = document.getElementById('nav-clients');
+const navFocus     = document.getElementById('nav-focus');
 
 if (navDashboard) {
   navDashboard.addEventListener('click', () => navigateTo('dashboard'));
 }
 if (navClients) {
   navClients.addEventListener('click', () => navigateTo('clients'));
+}
+if (navFocus) {
+  navFocus.addEventListener('click', () => navigateTo('focus'));
 }
 
 // ── Collapsible Dashboard Projects Section Toggle ──
@@ -365,15 +378,29 @@ const state = {
   deleteTarget: null,
   editTarget:   null,
   unsubscribe: null,
+  // Pomodoro Timer State
+  pomoTimeLeft:        25 * 60,
+  pomoInterval:        null,
+  pomoRunning:         false,
+  pomoMode:            'work-25', // 'work-25' | 'work-60'
+  pomoState:           'work',    // 'work' | 'break'
+  pomoDuration:        25,
+  pomoBreakDuration:   5,
+  pomoActiveProjectId: null,
+  pomoActiveTaskId:    null,
+  pomoSessionsToday:   0,
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
 function cleanupListeners() {
-  if (state.unsubscribe) { state.unsubscribe(); state.unsubscribe = null; }
-  if (state.dashUnsubProjects) { state.dashUnsubProjects(); state.dashUnsubProjects = null; }
-  if (state.dashUnsubTasks) { state.dashUnsubTasks(); state.dashUnsubTasks = null; }
-  if (state.projUnsub) { state.projUnsub(); state.projUnsub = null; }
-  if (state.taskUnsub) { state.taskUnsub(); state.taskUnsub = null; }
+  const safeUnsub = (fn) => {
+    try { if (typeof fn === 'function') fn(); } catch (e) { console.error('Unsub failed:', e); }
+  };
+  safeUnsub(state.unsubscribe);        state.unsubscribe = null;
+  safeUnsub(state.dashUnsubProjects);  state.dashUnsubProjects = null;
+  safeUnsub(state.dashUnsubTasks);     state.dashUnsubTasks = null;
+  safeUnsub(state.projUnsub);          state.projUnsub = null;
+  safeUnsub(state.taskUnsub);          state.taskUnsub = null;
 }
 
 // ── Avatar Colors ──────────────────────────────────────────────
@@ -397,7 +424,9 @@ function escapeHtml(str = '') {
     .replace(/&/g,'&amp;')
     .replace(/</g,'&lt;')
     .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;')
+    .replace(/`/g,'&#96;');
 }
 
 function formatDate(ts) {
@@ -413,16 +442,27 @@ function formatDate(ts) {
 }
 
 function priorityLabel(p) {
-  return { high:'عالي', medium:'متوسط', low:'منخفض' }[p] || p;
+  return { high:'عالي', medium:'متوسط', low:'منخفض' }[p] || '';
+}
+
+function formatMinutes(m) {
+  m = Number(m) || 0;
+  if (m <= 0) return '0 د';
+  if (m < 60) return `${m} د`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h} س ${rem} د` : `${h} س`;
 }
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = 'info', icon = null) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
   const icons  = { success:'✅', error:'❌', info:'💡' };
   const el     = document.createElement('div');
   el.className = `toast ${type}`;
-  el.innerHTML = `<span class="toast-icon">${icon || icons[type]}</span><span>${msg}</span>`;
-  document.getElementById('toast-container').appendChild(el);
+  el.innerHTML = `<span class="toast-icon">${icon || icons[type]}</span><span>${escapeHtml(msg)}</span>`;
+  container.appendChild(el);
   setTimeout(() => {
     el.classList.add('fade-out');
     el.addEventListener('animationend', () => el.remove());
@@ -502,9 +542,11 @@ function navigateTo(view, payload = {}) {
   // Update sidebar nav active states
   const showDashActive    = (view === 'dashboard') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
+  const showFocusActive   = (view === 'focus');
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
+  document.getElementById('nav-focus')?.classList.toggle('active', !!showFocusActive);
 
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -539,6 +581,12 @@ function navigateTo(view, payload = {}) {
     document.getElementById('view-projects').classList.add('active');
     subscribeProjects();
 
+  } else if (view === 'focus') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-focus').classList.add('active');
+    subscribeFocusMode();
+
   } else if (view === 'tasks') {
     if (payload.client)  state.client  = payload.client;
     if (payload.project) state.project = payload.project;
@@ -565,7 +613,8 @@ function subscribeDashboard() {
   state.unsubscribe = onSnapshot(clientQ, snap => {
     setOnline(); hideLoading();
     state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    document.getElementById('total-badge').textContent = state.clients.length;
+    const badge = document.getElementById('total-badge');
+    if (badge) badge.textContent = state.clients.length;
     renderDashboard();
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
@@ -591,7 +640,8 @@ function subscribeClients() {
   state.unsubscribe = onSnapshot(q, snap => {
     setOnline(); hideLoading();
     state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    document.getElementById('total-badge').textContent = state.clients.length;
+    const badge = document.getElementById('total-badge');
+    if (badge) badge.textContent = state.clients.length;
     renderClients();
   }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
 }
@@ -631,7 +681,8 @@ function subscribeProjects() {
     state.unsubscribe = onSnapshot(clientQ, snap => {
       setOnline(); hideLoading();
       state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      document.getElementById('total-badge').textContent = state.clients.length;
+      const badge = document.getElementById('total-badge');
+    if (badge) badge.textContent = state.clients.length;
       renderProjects();
     }, err => { setOffline(); hideLoading(); console.error(err); });
     
@@ -657,6 +708,13 @@ function subscribeTasks() {
   state.tasks = [];
   renderKanban();
 
+  if (!state.client?.id || !state.project?.id) {
+    hideLoading();
+    toast('تعذّر فتح المهام: لم يتم تحديد المشروع', 'error');
+    navigateTo('dashboard');
+    return;
+  }
+
   const q = query(tasksRef(state.client.id, state.project.id), orderBy('createdAt', 'desc'));
   state.unsubscribe = onSnapshot(q, snap => {
     setOnline(); hideLoading();
@@ -672,7 +730,17 @@ function subscribeTasks() {
 function renderDashboard() {
   if (state.view !== 'dashboard') return;
 
-
+  // ── Time-based greeting ──
+  const greetEl = document.getElementById('dash-greeting');
+  if (greetEl) {
+    const h = new Date().getHours();
+    let text;
+    if (h >= 5 && h < 12)       text = 'صباح الخير ☀️';
+    else if (h >= 12 && h < 17) text = 'مساء النور 🌤️';
+    else if (h >= 17 && h < 22) text = 'مساء الخير 🌙';
+    else                        text = 'ليلة هادئة ✨';
+    greetEl.textContent = text;
+  }
 
   // ── Count stats ──
   const totalClients   = state.clients.length;
@@ -727,6 +795,10 @@ function renderDashboard() {
       const pct          = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
       const pctClass     = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
 
+      // Time spent badge — neutral accent color (not a warning)
+      const mins = project.totalMinutesSpent || 0;
+      const timeBadge = mins > 0 ? `<span class="proj-strip-pct-badge" style="color: var(--accent); border-color: rgba(53,116,240,0.2); background: rgba(53,116,240,0.06);" title="الوقت المستغرق">⏱️ ${formatMinutes(mins)}</span>` : '';
+
       return `
         <div class="dash-proj-strip-row" data-id="${project.id}" data-client-id="${clientId || ''}" role="button" tabindex="0">
           <div class="proj-strip-left">
@@ -740,6 +812,7 @@ function renderDashboard() {
             </div>
           </div>
           <div class="proj-strip-right">
+            ${timeBadge}
             <span class="proj-strip-pct-badge" title="نسبة الإنجاز">${pct}%</span>
             <span class="proj-strip-tasks-badge ${pendingTasks > 0 ? 'has-pending' : ''}">
               ${pendingTasks} معلقة
@@ -836,6 +909,7 @@ function renderDashboard() {
       });
     }
   }
+  populatePomoSelectors();
 }
 
 // ── Animate counter number ──
@@ -875,6 +949,7 @@ function renderClients() {
 
   const filtered = q ? sortedClients.filter(c => c.name?.toLowerCase().includes(q)) : sortedClients;
   const grid     = document.getElementById('clients-grid');
+  if (!grid) return;
 
   if (filtered.length === 0) {
     grid.innerHTML = emptyStateHTML(
@@ -1003,6 +1078,7 @@ function renderProjects() {
 
   const filtered = q ? sortedProjects.filter(p => p.name?.toLowerCase().includes(q)) : sortedProjects;
   const grid = document.getElementById('projects-grid');
+  if (!grid) return;
 
   if (filtered.length === 0) {
     grid.innerHTML = emptyStateHTML(
@@ -1028,6 +1104,10 @@ function renderProjects() {
     const pct          = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
     const progressClass = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
 
+    // Time spent badge
+    const mins = project.totalMinutesSpent || 0;
+    const timeBadge = mins > 0 ? `<div class="pomo-time-badge" style="margin-top: 0;" title="الوقت المستغرق">⏱️ ${formatMinutes(mins)}</div>` : '';
+
     return `
       <div class="project-compact-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
         <div class="proj-compact-header">
@@ -1042,11 +1122,14 @@ function renderProjects() {
           </div>
         </div>
         
-        ${clientName ? `
-        <div class="proj-compact-client">
-          <span class="client-label">العميل:</span>
-          <span class="client-val">${escapeHtml(clientName)}</span>
-        </div>` : ''}
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          ${clientName ? `
+          <div class="proj-compact-client">
+            <span class="client-label">العميل:</span>
+            <span class="client-val">${escapeHtml(clientName)}</span>
+          </div>` : '<div></div>'}
+          ${timeBadge}
+        </div>
 
         ${project.description ? `<div class="proj-compact-desc" title="${escapeHtml(project.description)}">${escapeHtml(project.description)}</div>` : ''}
 
@@ -1110,24 +1193,26 @@ function renderProjects() {
       card.classList.remove('drag-over-card');
       if (state.draggedEntityType !== 'project' || !state.draggedEntityId || state.draggedEntityId === card.dataset.id) return;
 
-      const project = state.projects.find(p => p.id === state.draggedEntityId);
-      const clientId = project?._clientId || state.client?.id;
-      if (!clientId) return;
+      const draggedProject = state.projects.find(p => p.id === state.draggedEntityId);
+      const targetProject  = state.projects.find(p => p.id === card.dataset.id);
+      const draggedClientId = draggedProject?._clientId || state.client?.id;
+      const targetClientId  = targetProject?._clientId  || state.client?.id;
+      if (!draggedClientId || !targetClientId) return;
+      // Prevent cross-client reorder in "all projects" mode — would move docs to wrong client.
+      if (draggedClientId !== targetClientId) {
+        toast('لا يمكن إعادة ترتيب مشاريع عملاء مختلفين', 'error');
+        return;
+      }
 
-      const oldClient = state.client;
-      state.client = { id: clientId };
-      await handleEntityReorder('project', state.draggedEntityId, card.dataset.id);
-      state.client = oldClient;
+      await handleEntityReorder('project', state.draggedEntityId, card.dataset.id, draggedClientId);
     });
   });
 
-  // Edit / Delete click handlers
+  // Edit / Delete click handlers — openModal() captures project._clientId
+  // into state.editTarget.clientId, so no need to mutate state.client here.
   grid.querySelectorAll('.card-edit-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      const project = state.projects.find(p => p.id === btn.dataset.id);
-      const clientId = project?._clientId || state.client?.id;
-      state.client = state.clients.find(c => c.id === clientId) || state.client;
       openModal('project', btn.dataset.id);
     });
   });
@@ -1162,9 +1247,12 @@ function renderKanban() {
   filtered.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
 
   // Counters
-  document.getElementById('count-todo').textContent  = groups.todo.length;
-  document.getElementById('count-doing').textContent = groups.doing.length;
-  document.getElementById('count-done').textContent  = groups.done.length;
+  const ct = document.getElementById('count-todo');
+  const cd = document.getElementById('count-doing');
+  const cn = document.getElementById('count-done');
+  if (ct) ct.textContent = groups.todo.length;
+  if (cd) cd.textContent = groups.doing.length;
+  if (cn) cn.textContent = groups.done.length;
   // Stats in header
   const st = document.getElementById('stat-todo');
   const sd = document.getElementById('stat-doing');
@@ -1201,19 +1289,24 @@ function renderKanban() {
 }
 
 function taskCardHTML(task) {
+  const mins = task.totalMinutesSpent || 0;
+  const timeBadge = mins > 0 ? `<div class="pomo-time-badge" title="الوقت المسجل للمهمة">⏱️ ${formatMinutes(mins)}</div>` : '';
+
   return `
     <div class="task-card" id="tc-${task.id}" draggable="true" data-id="${task.id}">
       <div class="card-top" style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
         <div class="card-title">${escapeHtml(task.title)}</div>
         <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
+          <button class="card-focus-btn" data-id="${task.id}" title="بدء تركيز بومودورو">⏱️</button>
           <button class="card-edit-btn" data-id="${task.id}" title="تعديل المهمة">✏️</button>
           <button class="card-menu-btn" data-id="${task.id}" title="حذف المهمة">✕</button>
         </div>
       </div>
       ${task.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.55">${escapeHtml(task.notes)}</div>` : ''}
-      <div class="card-footer">
+      <div class="card-footer" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
         <span class="card-date">🕐 ${formatDate(task.createdAt)}</span>
         ${task.priority ? `<span class="card-priority priority-${task.priority}">${priorityLabel(task.priority)}</span>` : ''}
+        ${timeBadge}
       </div>
     </div>`;
 }
@@ -1231,6 +1324,18 @@ function bindTaskCardEvents(colEl) {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       openModal('task', btn.dataset.id);
+    });
+  });
+
+  colEl.querySelectorAll('.card-focus-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const task = state.tasks.find(t => t.id === btn.dataset.id);
+      if (task && state.project) {
+        linkPomoTask(state.project.id, state.project.name, task.id, task.title);
+        toast(`تم ربط المهمة "‎${task.title}‏" بمؤقت البومودورو ⏱️`, 'success');
+        navigateTo('focus'); // Navigate to focus mode so they see the linked timer
+      }
     });
   });
 
@@ -1282,8 +1387,17 @@ function setupColumnDnD() {
 }
 
 // ── Drag & Drop Reordering for Clients & Projects ──────────────────
-async function handleEntityReorder(type, draggedId, targetId) {
-  const list = type === 'client' ? state.clients : state.projects;
+async function handleEntityReorder(type, draggedId, targetId, scopeClientId = null) {
+  let list;
+  if (type === 'client') {
+    list = state.clients;
+  } else {
+    // For projects, only reorder within the same client to keep ordering meaningful
+    const cId = scopeClientId || state.client?.id;
+    if (!cId) return;
+    list = state.projects.filter(p => (p._clientId || state.client?.id) === cId);
+  }
+
   const sorted = [...list].sort((a, b) => {
     const aOrder = a.order !== undefined ? a.order : 0;
     const bOrder = b.order !== undefined ? b.order : 0;
@@ -1302,9 +1416,9 @@ async function handleEntityReorder(type, draggedId, targetId) {
 
   const batch = writeBatch(db);
   sorted.forEach((item, idx) => {
-    const docRef = type === 'client' 
-      ? clientDoc(item.id) 
-      : projectDoc(item._clientId || state.client.id, item.id);
+    const docRef = type === 'client'
+      ? clientDoc(item.id)
+      : projectDoc(item._clientId || scopeClientId || state.client.id, item.id);
     batch.update(docRef, { order: idx });
   });
 
@@ -1324,9 +1438,15 @@ function updateHeader() {
   const titleEl   = document.getElementById('page-title');
   const actionsEl = document.getElementById('header-actions');
   const statsEl   = document.getElementById('header-stats');
+  if (!titleEl || !actionsEl || !statsEl) return;
 
   if (state.view === 'dashboard') {
     titleEl.textContent  = '📊 الرئيسية';
+    statsEl.innerHTML    = '';
+    actionsEl.innerHTML  = '';
+
+  } else if (state.view === 'focus') {
+    titleEl.textContent  = '⏱️ جلسة التركيز';
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
@@ -1353,9 +1473,10 @@ function updateHeader() {
 
 function updateBreadcrumb() {
   const bc = document.getElementById('breadcrumb');
-  if (state.view === 'dashboard' || state.view === 'clients' || (state.view === 'projects' && !state.client)) { 
-    bc.innerHTML = ''; 
-    return; 
+  if (!bc) return;
+  if (state.view === 'dashboard' || state.view === 'focus' || state.view === 'clients' || (state.view === 'projects' && !state.client)) {
+    bc.innerHTML = '';
+    return;
   }
 
   let html = `<span class="breadcrumb-link" data-to="dashboard">📊 الرئيسية</span>`;
@@ -1583,14 +1704,14 @@ function closeModal() {
   state.editTarget = null;
 }
 
-document.getElementById('close-modal-btn').addEventListener('click',  closeModal);
-document.getElementById('cancel-modal-btn').addEventListener('click', closeModal);
-document.getElementById('modal-overlay').addEventListener('click', e => {
+document.getElementById('close-modal-btn')?.addEventListener('click',  closeModal);
+document.getElementById('cancel-modal-btn')?.addEventListener('click', closeModal);
+document.getElementById('modal-overlay')?.addEventListener('click', e => {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
 });
 
 // ── Modal Submit ────────────────────────────────────────────────
-document.getElementById('modal-form').addEventListener('submit', async e => {
+document.getElementById('modal-form')?.addEventListener('submit', async e => {
   e.preventDefault();
   const btn  = document.getElementById('modal-submit-btn');
   const orig = btn.textContent;
@@ -1607,13 +1728,22 @@ document.getElementById('modal-form').addEventListener('submit', async e => {
       let avatarData = null;
       if (fileInput && fileInput.files && fileInput.files[0]) {
         const file = fileInput.files[0];
-        if (file.size > 800 * 1024) {
-          toast('حجم الصورة كبير جداً، يرجى اختيار صورة أقل من 800 كيلوبايت', 'error');
+        // Firestore document size limit is ~1MB. Base64 inflates payload by ~33%,
+        // so cap the raw file at 700KB to keep the encoded URL safely under the limit.
+        if (file.size > 700 * 1024) {
+          toast('حجم الصورة كبير جداً، يرجى اختيار صورة أقل من 700 كيلوبايت', 'error');
           btn.disabled = false;
           btn.textContent = orig;
           return;
         }
         avatarData = await readAsDataURL(file);
+        // Final safety check on encoded size (in case of unusual encodings)
+        if (avatarData.length > 950 * 1024) {
+          toast('الصورة بعد المعالجة كبيرة جداً، اختر صورة أصغر', 'error');
+          btn.disabled = false;
+          btn.textContent = orig;
+          return;
+        }
       }
 
       if (state.editTarget) {
@@ -1693,12 +1823,12 @@ function openConfirm({ type, id, name, warning = '', clientId = null }) {
   document.getElementById('confirm-overlay').classList.remove('hidden');
 }
 
-document.getElementById('confirm-no').addEventListener('click', () => {
-  document.getElementById('confirm-overlay').classList.add('hidden');
+document.getElementById('confirm-no')?.addEventListener('click', () => {
+  document.getElementById('confirm-overlay')?.classList.add('hidden');
   state.deleteTarget = null;
 });
 
-document.getElementById('confirm-yes').addEventListener('click', async () => {
+document.getElementById('confirm-yes')?.addEventListener('click', async () => {
   document.getElementById('confirm-overlay').classList.add('hidden');
   const target = state.deleteTarget;
   state.deleteTarget = null;
@@ -1757,9 +1887,9 @@ function onSearch(e) {
   if (state.view === 'tasks')    renderKanban();
 }
 
-document.getElementById('search-clients').addEventListener('input',  onSearch);
-document.getElementById('search-projects').addEventListener('input', onSearch);
-document.getElementById('search-tasks').addEventListener('input',    onSearch);
+document.getElementById('search-clients')?.addEventListener('input',  onSearch);
+document.getElementById('search-projects')?.addEventListener('input', onSearch);
+document.getElementById('search-tasks')?.addEventListener('input',    onSearch);
 
 // ════════════════════════════════════════════════════════════════
 //  KEYBOARD SHORTCUTS
@@ -1767,13 +1897,20 @@ document.getElementById('search-tasks').addEventListener('input',    onSearch);
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    closeModal();
-    document.getElementById('confirm-overlay').classList.add('hidden');
+    const modalOpen   = !document.getElementById('modal-overlay')?.classList.contains('hidden');
+    const confirmOpen = !document.getElementById('confirm-overlay')?.classList.contains('hidden');
+    if (modalOpen)   closeModal();
+    if (confirmOpen) {
+      document.getElementById('confirm-overlay')?.classList.add('hidden');
+      state.deleteTarget = null;
+    }
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
-    const type = state.view === 'clients' ? 'client' : state.view === 'projects' ? 'project' : 'task';
-    openModal(type);
+    // Only open modal when on a view that supports adding
+    if (state.view === 'clients')       openModal('client');
+    else if (state.view === 'projects') openModal('project');
+    else if (state.view === 'tasks')    openModal('task');
   }
 });
 
@@ -1798,11 +1935,504 @@ function addCardHTML(label, type) {
   </div>`;
 }
 
-// Refresh timestamps every minute
+// Refresh timestamps every minute — skip if a search/input is focused
+// or a modal is open, so we don't yank focus mid-typing.
 setInterval(() => {
+  const active = document.activeElement;
+  const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+  const modalOpen = !document.getElementById('modal-overlay')?.classList.contains('hidden');
+  if (isTyping || modalOpen) return;
+
+  // Preserve scroll position of grids/board across re-renders
+  const scrollTargets = ['clients-grid', 'projects-grid', 'kanban'];
+  const scrolls = {};
+  scrollTargets.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) scrolls[id] = el.scrollTop;
+  });
+
   if (state.view === 'clients')  renderClients();
   if (state.view === 'projects') renderProjects();
   if (state.view === 'tasks')    renderKanban();
+  if (state.view === 'dashboard') renderDashboard();
+
+  // Restore scroll
+  Object.entries(scrolls).forEach(([id, top]) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollTop = top;
+  });
 }, 60000);
 
+// ════════════════════════════════════════════════════════════════
+//  POMODORO TIMER MODULE (v3.6)
+// ════════════════════════════════════════════════════════════════
 
+function playPomoSound(type = 'success') {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    if (type === 'success') {
+      // Sleek double beep for break start
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+      gain1.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      osc1.start();
+      osc1.stop(audioCtx.currentTime + 0.15);
+      
+      setTimeout(() => {
+        const osc2 = audioCtx.createOscillator();
+        const gain2 = audioCtx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(audioCtx.destination);
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        gain2.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+        osc2.start();
+        osc2.stop(audioCtx.currentTime + 0.25);
+      }, 150);
+    } else {
+      // Deeper double beep for work start
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+      gain1.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+      osc1.start();
+      osc1.stop(audioCtx.currentTime + 0.2);
+      
+      setTimeout(() => {
+        const osc2 = audioCtx.createOscillator();
+        const gain2 = audioCtx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(audioCtx.destination);
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(349.23, audioCtx.currentTime); // F4
+        gain2.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc2.start();
+        osc2.stop(audioCtx.currentTime + 0.3);
+      }, 200);
+    }
+  } catch (err) {
+    console.error('AudioContext failed:', err);
+  }
+}
+
+function setupPomodoroControls() {
+  const btnStart = document.getElementById('btn-pomo-start');
+  const btnReset = document.getElementById('btn-pomo-reset');
+  const btnMode25 = document.getElementById('btn-pomo-mode-25');
+  const btnMode60 = document.getElementById('btn-pomo-mode-60');
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+  const btnUnlink = document.getElementById('btn-pomo-unlink');
+
+  if (btnStart) {
+    btnStart.addEventListener('click', togglePomo);
+  }
+  if (btnReset) {
+    btnReset.addEventListener('click', resetPomo);
+  }
+  if (btnMode25) {
+    btnMode25.addEventListener('click', () => switchPomoMode('work-25'));
+  }
+  if (btnMode60) {
+    btnMode60.addEventListener('click', () => switchPomoMode('work-60'));
+  }
+  if (projectSelect) {
+    projectSelect.addEventListener('change', handlePomoProjectChange);
+  }
+  if (taskSelect) {
+    taskSelect.addEventListener('change', handlePomoTaskChange);
+  }
+  if (btnUnlink) {
+    btnUnlink.addEventListener('click', unlinkPomoTask);
+  }
+
+  updatePomoDisplay();
+}
+
+function updatePomoDisplay() {
+  const minEl = document.getElementById('pomo-minutes');
+  const secEl = document.getElementById('pomo-seconds');
+  const badgeEl = document.getElementById('pomo-status-badge');
+  const timerDisplayEl = document.getElementById('focus-timer-display');
+  const timerLabelEl = document.getElementById('focus-timer-label');
+  const progressFill = document.getElementById('focus-progress-fill');
+
+  if (!minEl || !secEl) return;
+
+  const minutes = Math.floor(state.pomoTimeLeft / 60);
+  const seconds = state.pomoTimeLeft % 60;
+
+  minEl.textContent = String(minutes).padStart(2, '0');
+  secEl.textContent = String(seconds).padStart(2, '0');
+
+  // Update timer label and color mode
+  if (timerLabelEl) {
+    timerLabelEl.textContent = state.pomoState === 'work' ? 'وقت العمل' : 'وقت الراحة';
+  }
+
+  if (badgeEl && timerDisplayEl) {
+    if (state.pomoState === 'work') {
+      badgeEl.textContent = 'جاري العمل 🎯';
+      badgeEl.className = 'focus-status-badge focus-session';
+      timerDisplayEl.classList.remove('break-mode');
+    } else {
+      badgeEl.textContent = 'وقت الراحة ☕';
+      badgeEl.className = 'focus-status-badge break-session';
+      timerDisplayEl.classList.add('break-mode');
+    }
+  }
+
+  // Update progress rail
+  if (progressFill) {
+    const totalDuration = (state.pomoState === 'work' ? state.pomoDuration : state.pomoBreakDuration) * 60;
+    const pct = ((totalDuration - state.pomoTimeLeft) / totalDuration) * 100;
+    progressFill.style.width = pct + '%';
+  }
+}
+
+function togglePomo() {
+  const btnStart = document.getElementById('btn-pomo-start');
+  if (!btnStart) return;
+
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+
+  if (state.pomoRunning) {
+    // Pause
+    clearInterval(state.pomoInterval);
+    state.pomoInterval = null;
+    state.pomoRunning = false;
+    btnStart.textContent = 'ابدأ الجلسة ▶️';
+    btnStart.classList.remove('running');
+
+    // Enable selects if not linked
+    if (!state.pomoActiveProjectId) {
+      if (projectSelect) projectSelect.removeAttribute('disabled');
+      if (taskSelect && projectSelect && projectSelect.value) taskSelect.removeAttribute('disabled');
+    }
+  } else {
+    // Start
+    state.pomoRunning = true;
+    btnStart.textContent = 'إيقاف مؤقت ⏸️';
+    btnStart.classList.add('running');
+    state.pomoInterval = setInterval(tickPomo, 1000);
+
+    // Disable selects
+    if (projectSelect) projectSelect.setAttribute('disabled', 'true');
+    if (taskSelect) taskSelect.setAttribute('disabled', 'true');
+  }
+}
+
+function tickPomo() {
+  if (state.pomoTimeLeft > 0) {
+    state.pomoTimeLeft--;
+    updatePomoDisplay();
+  } else {
+    handlePomoCycleComplete();
+  }
+}
+
+async function handlePomoCycleComplete() {
+  clearInterval(state.pomoInterval);
+  state.pomoInterval = null;
+  state.pomoRunning = false;
+
+  const btnStart = document.getElementById('btn-pomo-start');
+  if (btnStart) {
+    btnStart.textContent = 'ابدأ الجلسة ▶️';
+    btnStart.classList.remove('running');
+  }
+
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+  if (!state.pomoActiveProjectId) {
+    if (projectSelect) projectSelect.removeAttribute('disabled');
+    if (taskSelect && projectSelect && projectSelect.value) taskSelect.removeAttribute('disabled');
+  }
+
+  if (state.pomoState === 'work') {
+    // Work completed! Increment session counter.
+    state.pomoSessionsToday = (state.pomoSessionsToday || 0) + 1;
+    const sessEl = document.getElementById('focus-sessions-done');
+    if (sessEl) sessEl.textContent = state.pomoSessionsToday;
+
+    playPomoSound('success');
+    toast('انتهت دورة العمل بنجاح! وقت الراحة الآن ☕', 'success', '🎉');
+
+    // Update Firestore time spent if a project and task are active
+    if (state.pomoActiveProjectId && state.pomoActiveTaskId) {
+      await savePomoTimeSpent(state.pomoActiveProjectId, state.pomoActiveTaskId, state.pomoDuration);
+    }
+
+    // Switch to break
+    state.pomoState = 'break';
+    state.pomoTimeLeft = state.pomoBreakDuration * 60;
+  } else {
+    // Break completed!
+    playPomoSound('work');
+    toast('انتهت دورة الراحة! فلنعد للعمل 🚀', 'info', '⏱️');
+
+    // Switch to work
+    state.pomoState = 'work';
+    state.pomoTimeLeft = state.pomoDuration * 60;
+  }
+
+  updatePomoDisplay();
+}
+
+function resetPomo() {
+  clearInterval(state.pomoInterval);
+  state.pomoInterval = null;
+  state.pomoRunning = false;
+
+  const btnStart = document.getElementById('btn-pomo-start');
+  if (btnStart) {
+    btnStart.textContent = 'ابدأ الجلسة ▶️';
+    btnStart.classList.remove('running');
+  }
+
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+  if (!state.pomoActiveProjectId) {
+    if (projectSelect) projectSelect.removeAttribute('disabled');
+    if (taskSelect && projectSelect && projectSelect.value) taskSelect.removeAttribute('disabled');
+  }
+
+  state.pomoState = 'work';
+  state.pomoTimeLeft = state.pomoDuration * 60;
+  updatePomoDisplay();
+}
+
+function switchPomoMode(mode) {
+  state.pomoMode = mode;
+  if (mode === 'work-25') {
+    state.pomoDuration = 25;
+    state.pomoBreakDuration = 5;
+  } else {
+    state.pomoDuration = 60;
+    state.pomoBreakDuration = 10;
+  }
+
+  // Update button active state
+  const btn25 = document.getElementById('btn-pomo-mode-25');
+  const btn60 = document.getElementById('btn-pomo-mode-60');
+  if (btn25 && btn60) {
+    btn25.classList.toggle('active', mode === 'work-25');
+    btn60.classList.toggle('active', mode === 'work-60');
+  }
+
+  resetPomo();
+}
+
+async function savePomoTimeSpent(projectId, taskId, minutes) {
+  try {
+    // Find project to get its client ID
+    const project = state.allProjects.find(p => p.id === projectId);
+    if (!project) {
+      console.error('Project not found in allProjects:', projectId);
+      return;
+    }
+    const clientId = project._clientId || project._ref?.parent?.parent?.id;
+    if (!clientId) {
+      console.error('Client ID not found for project:', project);
+      return;
+    }
+
+    // Update Task
+    const tRef = taskDoc(clientId, projectId, taskId);
+    await updateDoc(tRef, {
+      totalMinutesSpent: increment(minutes)
+    });
+
+    // Update Project
+    const pRef = projectDoc(clientId, projectId);
+    await updateDoc(pRef, {
+      totalMinutesSpent: increment(minutes)
+    });
+
+    toast(`تم تسجيل ${minutes} دقيقة تركيز بنجاح! ⏱️`, 'success');
+  } catch (err) {
+    console.error('Error saving Pomodoro minutes:', err);
+    toast('فشل حفظ الوقت المستغرق في قاعدة البيانات', 'error');
+  }
+}
+
+function handlePomoProjectChange() {
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+
+  if (!projectSelect || !taskSelect) return;
+
+  const projectId = projectSelect.value;
+  taskSelect.innerHTML = '<option value="">-- اختر المهمة --</option>';
+
+  if (projectId) {
+    taskSelect.removeAttribute('disabled');
+    
+    // Filter tasks for this project that are todo or doing
+    const filteredTasks = state.allTasks.filter(t => t._projectId === projectId && (t.status === 'todo' || t.status === 'doing'));
+    filteredTasks.forEach(task => {
+      const opt = document.createElement('option');
+      opt.value = task.id;
+      opt.textContent = task.title;
+      taskSelect.appendChild(opt);
+    });
+  } else {
+    taskSelect.setAttribute('disabled', 'true');
+    state.pomoActiveProjectId = null;
+    state.pomoActiveTaskId = null;
+  }
+}
+
+function handlePomoTaskChange() {
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+
+  if (!projectSelect || !taskSelect) return;
+
+  const projectId = projectSelect.value;
+  const taskId = taskSelect.value;
+
+  if (projectId && taskId) {
+    const project = state.allProjects.find(p => p.id === projectId);
+    const task = state.allTasks.find(t => t.id === taskId);
+    
+    if (project && task) {
+      linkPomoTask(project.id, project.name, task.id, task.title);
+    }
+  }
+}
+
+function linkPomoTask(projectId, projectName, taskId, taskTitle) {
+  state.pomoActiveProjectId = projectId;
+  state.pomoActiveTaskId = taskId;
+
+  const selectorsEl = document.getElementById('pomo-selectors');
+  const linkedEl = document.getElementById('pomo-linked-task');
+  const projNameEl = document.getElementById('pomo-project-name');
+  const taskTitleEl = document.getElementById('pomo-task-title');
+
+  if (selectorsEl && linkedEl && projNameEl && taskTitleEl) {
+    projNameEl.textContent = projectName;
+    taskTitleEl.textContent = taskTitle;
+    selectorsEl.classList.add('hidden');
+    linkedEl.classList.remove('hidden');
+  }
+
+  // Lock the focus card
+  const card = document.getElementById('focus-card');
+  if (card) card.classList.add('locked');
+}
+
+function unlinkPomoTask() {
+  state.pomoActiveProjectId = null;
+  state.pomoActiveTaskId = null;
+
+  const selectorsEl = document.getElementById('pomo-selectors');
+  const linkedEl = document.getElementById('pomo-linked-task');
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+
+  if (selectorsEl && linkedEl && projectSelect && taskSelect) {
+    projectSelect.value = '';
+    taskSelect.innerHTML = '<option value="">-- اختر المهمة --</option>';
+    taskSelect.setAttribute('disabled', 'true');
+
+    linkedEl.classList.add('hidden');
+    selectorsEl.classList.remove('hidden');
+  }
+
+  // Unlock the focus card
+  const card = document.getElementById('focus-card');
+  if (card) card.classList.remove('locked');
+
+  // Stop timer if running
+  if (state.pomoRunning) resetPomo();
+}
+
+function populatePomoSelectors() {
+  const projectSelect = document.getElementById('pomo-project-select');
+  const taskSelect = document.getElementById('pomo-task-select');
+
+  if (!projectSelect || !taskSelect) return;
+
+  // Preserve selected values if currently linked or selected
+  const currentProjId = state.pomoActiveProjectId || projectSelect.value;
+  const currentTaskId = state.pomoActiveTaskId || taskSelect.value;
+
+  projectSelect.innerHTML = '<option value="">-- اختر المشروع --</option>';
+  
+  // Sort projects alphabetically
+  const activeProjs = state.allProjects.filter(p => p.status === 'active' || !p.status)
+    .sort((a,b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+
+  activeProjs.forEach(proj => {
+    const opt = document.createElement('option');
+    opt.value = proj.id;
+    opt.textContent = proj.name;
+    projectSelect.appendChild(opt);
+  });
+
+  if (state.pomoActiveProjectId && state.pomoActiveTaskId) {
+    const project = state.allProjects.find(p => p.id === state.pomoActiveProjectId);
+    const task = state.allTasks.find(t => t.id === state.pomoActiveTaskId);
+    if (project && task) {
+      linkPomoTask(project.id, project.name, task.id, task.title);
+    } else {
+      // Linked task or project was deleted — clean up and notify
+      if (state.pomoRunning) {
+        toast('تم إلغاء جلسة التركيز لأن المهمة المرتبطة اتمسحت', 'info');
+      }
+      unlinkPomoTask();
+    }
+  } else if (currentProjId) {
+    projectSelect.value = currentProjId;
+    handlePomoProjectChange();
+    if (currentTaskId) {
+      taskSelect.value = currentTaskId;
+    }
+  } else {
+    unlinkPomoTask();
+  }
+}
+
+// ── Focus Mode Subscription ────────────────────────────────────
+function subscribeFocusMode() {
+  // Always (re)subscribe so we get live updates — navigateTo clears previous listeners.
+  const projQ = query(collectionGroup(db, 'projects'));
+  state.dashUnsubProjects = onSnapshot(projQ, snap => {
+    setOnline(); hideLoading();
+    state.allProjects = snap.docs.map(d => ({ id: d.id, ...d.data(), _ref: d.ref, _clientId: d.ref.parent.parent.id }));
+    populatePomoSelectors();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  const taskQ = query(collectionGroup(db, 'tasks'));
+  state.dashUnsubTasks = onSnapshot(taskQ, snap => {
+    setOnline(); hideLoading();
+    state.allTasks = snap.docs.map(d => ({
+      id: d.id, ...d.data(),
+      _projectId: d.ref.parent.parent.id,
+      _clientId: d.ref.parent.parent.parent.parent.id
+    }));
+    populatePomoSelectors();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  // Update session count display
+  const sessEl = document.getElementById('focus-sessions-done');
+  if (sessEl) sessEl.textContent = state.pomoSessionsToday || 0;
+
+  // Update display
+  updatePomoDisplay();
+}
