@@ -88,11 +88,11 @@
         <span class="nav-badge" id="total-badge">0</span>
       </div>
 
-      <span class="nav-label">التتبع</span>
+      <span class="nav-label">التركيز</span>
 
-      <div class="nav-item" id="nav-hours" title="تتبع الساعات">
-        <span class="nav-icon">📊</span>
-        <span>تتبع الساعات</span>
+      <div class="nav-item" id="nav-focus" title="جلسة التركيز">
+        <span class="nav-icon">⏱️</span>
+        <span>جلسة التركيز</span>
       </div>
 
       <span class="nav-label">قريباً</span>
@@ -152,148 +152,228 @@
       <!-- Views Container -->
       <div id="content">
 
-        <!-- ── VIEW: DASHBOARD ── -->
+        <!-- ── VIEW: DASHBOARD (v9.2 Ultra-Minimal) ── -->
         <div class="view active" id="view-dashboard">
 
           <!-- Welcome Row -->
-          <div class="dash-welcome-row" style="margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+          <div class="dash-welcome-row" style="margin-bottom: 20px;">
             <h2 id="dash-greeting" class="dash-welcome-title" style="font-size: 16px; font-weight: 700; color: var(--text-primary);"></h2>
           </div>
 
-          <!-- Compact Stats Strip -->
-          <div class="dashboard-stats-grid">
-            <!-- Card 1 -->
-            <div class="stat-card">
-              <div class="stat-card-icon" style="background: rgba(53,116,240,0.12); color: var(--accent);">👥</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">العملاء</span>
-                <span class="stat-card-value" id="dash-total-clients">0</span>
+          <!-- A. Donut chart: work hours vs rest hours -->
+          <div class="dash-donut-wrap">
+            <svg class="dash-donut" viewBox="0 0 200 200" aria-label="رسم بياني للجلسات والراحة">
+              <!-- Track -->
+              <circle cx="100" cy="100" r="80" fill="none"
+                stroke="rgba(255,255,255,0.04)" stroke-width="22" />
+              <!-- Rest segment -->
+              <circle id="donut-rest"  cx="100" cy="100" r="80" fill="none"
+                stroke="#3F424A" stroke-width="22"
+                stroke-dasharray="0 502.65" stroke-dashoffset="0"
+                transform="rotate(-90 100 100)" stroke-linecap="butt" />
+              <!-- Work segment -->
+              <circle id="donut-work"  cx="100" cy="100" r="80" fill="none"
+                stroke="var(--status-done)" stroke-width="22"
+                stroke-dasharray="0 502.65" stroke-dashoffset="0"
+                transform="rotate(-90 100 100)" stroke-linecap="butt" />
+              <!-- Center text -->
+              <text id="donut-center-value" x="100" y="95" text-anchor="middle"
+                fill="var(--text-primary)" font-size="32" font-weight="700"
+                style="font-variant-numeric: tabular-nums;">0</text>
+              <text x="100" y="120" text-anchor="middle"
+                fill="var(--text-muted)" font-size="11"
+                style="letter-spacing: 0.08em;">إجمالي الساعات</text>
+            </svg>
+            <!-- Tooltip element -->
+            <div class="dash-donut-tooltip hidden" id="donut-tooltip"></div>
+            <!-- Legend -->
+            <div class="dash-donut-legend">
+              <div class="dash-donut-legend-item">
+                <span class="dot work"></span>
+                <span class="lbl">عمل</span>
+                <span class="val" id="donut-work-hours">0</span>
+                <span class="unit">س</span>
               </div>
-            </div>
-            <!-- Card 2 -->
-            <div class="stat-card">
-              <div class="stat-card-icon" style="background: rgba(61,185,129,0.12); color: var(--status-done);">📁</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">المشاريع الجارية</span>
-                <span class="stat-card-value" id="dash-active-projects">0</span>
-              </div>
-            </div>
-            <!-- Card 3 -->
-            <div class="stat-card">
-              <div class="stat-card-icon" style="background: rgba(240,168,53,0.12); color: var(--status-doing);">⏳</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">مهام معلقة</span>
-                <span class="stat-card-value" id="dash-total-todo">0</span>
-              </div>
-            </div>
-            <!-- Card 4 -->
-            <div class="stat-card">
-              <div class="stat-card-icon" style="background: rgba(61,185,129,0.12); color: var(--status-done);">✅</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">مهام مكتملة</span>
-                <span class="stat-card-value" id="dash-total-done">0</span>
+              <div class="dash-donut-legend-item">
+                <span class="dot rest"></span>
+                <span class="lbl">راحة</span>
+                <span class="val" id="donut-rest-hours">0</span>
+                <span class="unit">س</span>
               </div>
             </div>
           </div>
 
-          <!-- Single Column Layout -->
-          <div class="dashboard-column-layout">
-
-
-
-            <!-- Productivity Card -->
-            <div class="dash-productivity-section">
-              <div class="dash-section-hd">
-                <span class="dash-section-title">📊 الإنتاجية والأنشطة</span>
-              </div>
-              <div class="dash-productivity-container">
-                <div class="prod-breakdown-title">إنجاز المهام العام</div>
-                <div id="dash-productivity-bar">
-                  <!-- Segmented progress bar rendered by JS -->
-                </div>
-
-                <div class="prod-breakdown-title" style="margin-top: 20px;">المهام النشطة مؤخراً</div>
-                <div class="dash-recent-tasks" id="dash-recent-tasks">
-                  <!-- Recent tasks rendered by JS -->
-                </div>
-              </div>
+          <!-- B. Inline Active Session Widget — hidden when no session running -->
+          <div class="dash-active-session hidden" id="dash-active-session" aria-live="polite">
+            <div class="active-session-left">
+              <span class="active-session-pulse" aria-hidden="true"></span>
+              <span class="active-session-label" id="active-session-label">جاري العمل الآن</span>
             </div>
-
-            <!-- Collapsible Projects Section -->
-            <div class="dash-projects-section" id="dash-projects-sec">
-              <div class="dash-section-hd" id="dash-projects-toggle" role="button" aria-expanded="true">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="dash-section-title">📁 المشاريع الجارية</span>
-                  <span class="dash-section-badge" id="dash-proj-badge">0</span>
-                </div>
-                <svg class="dash-section-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none"
-                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </div>
-              <div class="dash-proj-list" id="dash-proj-list">
-                <!-- Rendered by JS -->
-              </div>
+            <div class="active-session-timer">
+              <span id="active-session-minutes">25</span>
+              <span class="active-session-colon">:</span>
+              <span id="active-session-seconds">00</span>
             </div>
+            <div class="active-session-controls">
+              <button class="active-session-btn" type="button" id="active-session-pause" title="إيقاف مؤقت">⏸️</button>
+              <button class="active-session-btn" type="button" id="active-session-reset" title="إعادة تعيين">🔄</button>
+            </div>
+          </div>
 
+          <!-- C. Calendar Portal Card -->
+          <div class="dash-portal-card" id="dash-portal-calendar" role="button" tabindex="0">
+            <div class="portal-icon">📅</div>
+            <div class="portal-body">
+              <span class="portal-title">تقويم المهام</span>
+              <span class="portal-sub">شاهد كل مهامك مرتبة في عرض شهري شجري</span>
+            </div>
+            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
           </div>
 
         </div>
 
-        <!-- ── VIEW: HOURS TRACKER ── -->
-        <div class="view" id="view-hours">
-          <div class="view-toolbar">
-            <button class="toolbar-add-btn" id="btn-add-hours" aria-label="تسجيل ساعات جديدة">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
+        <!-- ── VIEW: CALENDAR MONTH ── -->
+        <div class="view" id="view-calendar">
+          <div class="calendar-toolbar">
+            <button class="toolbar-back-btn" id="btn-back-calendar" aria-label="رجوع" title="رجوع">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
               </svg>
-              <span>تسجيل ساعات جديدة</span>
             </button>
-            <div class="search-box" id="search-box-hours">
-              <button class="search-icon-btn" aria-label="بحث" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
+            <div class="calendar-month-nav">
+              <button class="cal-nav-btn" type="button" id="cal-prev-month" title="الشهر السابق">‹</button>
+              <span class="cal-month-label" id="cal-month-label">شهر / سنة</span>
+              <button class="cal-nav-btn" type="button" id="cal-next-month" title="الشهر التالي">›</button>
+            </div>
+            <button class="cal-today-btn" type="button" id="cal-today-btn">اليوم</button>
+          </div>
+
+          <div class="calendar-weekdays">
+            <span>السبت</span><span>الأحد</span><span>الإثنين</span>
+            <span>الثلاثاء</span><span>الأربعاء</span><span>الخميس</span><span>الجمعة</span>
+          </div>
+
+          <div class="calendar-grid" id="calendar-grid">
+            <!-- Days rendered by JS -->
+          </div>
+        </div>
+
+        <!-- ── VIEW: CALENDAR DAY DETAILS ── -->
+        <div class="view" id="view-day">
+          <div class="day-toolbar">
+            <button class="toolbar-back-btn" id="btn-back-day" aria-label="رجوع للتقويم" title="رجوع">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+              <span>رجوع</span>
+            </button>
+            <h2 class="day-title" id="day-title">— اليوم —</h2>
+          </div>
+          <div class="day-tree" id="day-tree">
+            <!-- Tree rendered by JS -->
+          </div>
+        </div>
+
+        <!-- ── VIEW: FOCUS (v8.0 — Fluid, borderless) ── -->
+        <div class="view" id="view-focus">
+
+          <!-- Top linear progress rail (3px, spans full width under the header) -->
+          <div class="focus-top-rail" aria-hidden="true">
+            <div class="focus-top-rail-fill" id="focus-progress-fill"></div>
+          </div>
+
+          <div class="focus-fluid">
+
+            <!-- Eyebrow + Status -->
+            <div class="focus-eyebrow-row">
+              <span class="focus-status-badge" id="focus-status-badge">جاهز للبدء 🌱</span>
+            </div>
+
+            <!-- Context selectors — custom dropdowns, fully themed -->
+            <div class="focus-selectors" id="focus-selectors">
+              <div class="focus-question">على أي مشروع هتشتغل دلوقتي؟ 🎯</div>
+              <div class="focus-selects-row">
+
+                <!-- Project dropdown -->
+                <div class="focus-dd" data-fdd="project">
+                  <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="focus-dd-icon">📁</span>
+                    <span class="focus-dd-text placeholder" data-placeholder="اختر المشروع">اختر المشروع</span>
+                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                  <div class="focus-dd-menu" role="listbox" aria-label="قائمة المشاريع"></div>
+                  <select id="focus-project-select" class="focus-dd-native" aria-hidden="true" tabindex="-1">
+                    <option value="">اختر المشروع</option>
+                  </select>
+                </div>
+
+                <!-- Task dropdown -->
+                <div class="focus-dd disabled" data-fdd="task">
+                  <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="focus-dd-icon">📋</span>
+                    <span class="focus-dd-text placeholder" data-placeholder="اختر المهمة (اختياري)">اختر المهمة (اختياري)</span>
+                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                  <div class="focus-dd-menu" role="listbox" aria-label="قائمة المهام"></div>
+                  <select id="focus-task-select" class="focus-dd-native" aria-hidden="true" tabindex="-1" disabled>
+                    <option value="">اختر المهمة (اختياري)</option>
+                  </select>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Pill-shaped duration toggles -->
+            <div class="focus-pills" id="focus-modes" role="group" aria-label="مدة الجلسة">
+              <button class="focus-pill active" type="button" id="btn-mode-quick"
+                data-work="25" data-break="5">
+                <span class="pill-emoji">🎯</span>
+                <span class="pill-label">جلسة سريعة</span>
+                <span class="pill-time">25 / 5</span>
               </button>
-              <input type="text" id="search-hours" placeholder="ابحث عن سجل..." autocomplete="off" />
+              <button class="focus-pill" type="button" id="btn-mode-deep"
+                data-work="50" data-break="15">
+                <span class="pill-emoji">⚡</span>
+                <span class="pill-label">تركيز مكثف</span>
+                <span class="pill-time">50 / 15</span>
+              </button>
+              <button class="focus-pill" type="button" id="btn-mode-flow"
+                data-work="90" data-break="20">
+                <span class="pill-emoji">🧠</span>
+                <span class="pill-label">غوص عميق</span>
+                <span class="pill-time">90 / 20</span>
+              </button>
             </div>
-          </div>
 
-          <!-- Summary Cards Row -->
-          <div class="hours-summary-grid">
-            <div class="hours-summary-card">
-              <div class="stat-card-icon" style="background: rgba(53,116,240,0.12); color: var(--accent);">📅</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">هذا الأسبوع</span>
-                <span class="hours-summary-value" id="hours-week">0</span>
-                <span class="hours-summary-unit">ساعة</span>
+            <!-- Big timer — minutes LEFT, seconds RIGHT (digital clock standard) -->
+            <div class="focus-bigtimer" id="focus-bigtimer">
+              <div class="focus-bigtimer-digits">
+                <span class="focus-bigtimer-minutes" id="focus-minutes">25</span>
+                <span class="focus-bigtimer-colon">:</span>
+                <span class="focus-bigtimer-seconds" id="focus-seconds">00</span>
+              </div>
+              <div class="focus-bigtimer-sub">
+                <span class="focus-bigtimer-label" id="focus-timer-label">وقت العمل</span>
               </div>
             </div>
-            <div class="hours-summary-card">
-              <div class="stat-card-icon" style="background: rgba(240,168,53,0.12); color: var(--status-doing);">🗓️</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">هذا الشهر</span>
-                <span class="hours-summary-value" id="hours-month">0</span>
-                <span class="hours-summary-unit">ساعة</span>
-              </div>
-            </div>
-            <div class="hours-summary-card">
-              <div class="stat-card-icon" style="background: rgba(61,185,129,0.12); color: var(--status-done);">⏱️</div>
-              <div class="stat-card-body">
-                <span class="stat-card-label">الإجمالي الكلي</span>
-                <span class="hours-summary-value" id="hours-total">0</span>
-                <span class="hours-summary-unit">ساعة</span>
-              </div>
-            </div>
-          </div>
 
-          <!-- Logs Grid -->
-          <div class="cards-grid hours-logs-grid" id="hours-logs-grid">
-            <!-- Hours log cards rendered by JS -->
+            <!-- Floating controls -->
+            <div class="focus-controls">
+              <button class="focus-btn-reset" type="button" id="btn-focus-reset" title="إعادة تعيين">🔄</button>
+              <button class="focus-btn-start" type="button" id="btn-focus-start">ابدأ الجلسة ▶️</button>
+            </div>
+
           </div>
         </div>
 

@@ -75,9 +75,14 @@ onAuthStateChanged(auth, async (user) => {
     state.tasks = [];
     state.allProjects = [];
     state.allTasks = [];
-    state.timeLogs = [];
     state.client = null;
     state.project = null;
+    // Stop focus timer if running
+    if (state.focusInterval) {
+      clearInterval(state.focusInterval);
+      state.focusInterval = null;
+      state.focusRunning = false;
+    }
 
     // Hide main screen, show login screen
     if (loginScreen) loginScreen.classList.remove('hidden');
@@ -152,7 +157,7 @@ if (sidebar && toggleBtn) {
 // ── Sidebar Nav Item Click Handlers ──────────────────────────
 const navDashboard = document.getElementById('nav-dashboard');
 const navClients   = document.getElementById('nav-clients');
-const navHours     = document.getElementById('nav-hours');
+const navFocus     = document.getElementById('nav-focus');
 
 if (navDashboard) {
   navDashboard.addEventListener('click', () => navigateTo('dashboard'));
@@ -160,8 +165,8 @@ if (navDashboard) {
 if (navClients) {
   navClients.addEventListener('click', () => navigateTo('clients'));
 }
-if (navHours) {
-  navHours.addEventListener('click', () => navigateTo('hours'));
+if (navFocus) {
+  navFocus.addEventListener('click', () => navigateTo('focus'));
 }
 
 // ── Collapsible Dashboard Projects Section Toggle ──
@@ -349,8 +354,6 @@ const tasksRef    = (cId, pId)                 => collection(db, 'clients', cId,
 const clientDoc   = (cId)                      => doc(db, 'clients', cId);
 const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'projects', pId);
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
-const timeLogsRef = ()                         => collection(db, 'timeLogs');
-const timeLogDoc  = (id)                       => doc(db, 'timeLogs', id);
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -374,9 +377,15 @@ const state = {
   deleteTarget: null,
   editTarget:   null,
   unsubscribe: null,
-  // Hours Tracker State (v6.0)
-  timeLogs:        [],
-  timeLogsUnsub:   null,
+  // Focus Timer State (v7.0)
+  focusInterval:        null,
+  focusRunning:         false,
+  focusTimeLeft:        25 * 60,
+  focusState:           'work',   // 'work' | 'break'
+  focusWorkMinutes:     25,
+  focusBreakMinutes:    5,
+  focusProjectId:       null,
+  focusTaskId:          null,
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -389,7 +398,6 @@ function cleanupListeners() {
   safeUnsub(state.dashUnsubTasks);     state.dashUnsubTasks = null;
   safeUnsub(state.projUnsub);          state.projUnsub = null;
   safeUnsub(state.taskUnsub);          state.taskUnsub = null;
-  safeUnsub(state.timeLogsUnsub);      state.timeLogsUnsub = null;
 }
 
 // ── Avatar Colors ──────────────────────────────────────────────
@@ -441,6 +449,17 @@ function formatMinutes(m) {
   const h = Math.floor(m / 60);
   const rem = m % 60;
   return rem ? `${h} س ${rem} د` : `${h} س`;
+}
+
+// Format hours as a compact human label (e.g. 1.5 → "1 س 30 د", 0.83 → "50 د")
+function formatHours(h) {
+  const total = Number(h) || 0;
+  if (total <= 0) return '0 س';
+  const totalMin = Math.round(total * 60);
+  if (totalMin < 60) return `${totalMin} د`;
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  return mm ? `${hh} س ${mm} د` : `${hh} س`;
 }
 
 // ── Toast ──────────────────────────────────────────────────────
@@ -531,11 +550,11 @@ function navigateTo(view, payload = {}) {
   // Update sidebar nav active states
   const showDashActive    = (view === 'dashboard') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
-  const showHoursActive   = (view === 'hours');
+  const showFocusActive   = (view === 'focus');
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
-  document.getElementById('nav-hours')?.classList.toggle('active', !!showHoursActive);
+  document.getElementById('nav-focus')?.classList.toggle('active', !!showFocusActive);
 
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -570,11 +589,11 @@ function navigateTo(view, payload = {}) {
     document.getElementById('view-projects').classList.add('active');
     subscribeProjects();
 
-  } else if (view === 'hours') {
+  } else if (view === 'focus') {
     state.client  = null;
     state.project = null;
-    document.getElementById('view-hours').classList.add('active');
-    subscribeHours();
+    document.getElementById('view-focus').classList.add('active');
+    subscribeFocus();
 
   } else if (view === 'tasks') {
     if (payload.client)  state.client  = payload.client;
@@ -785,8 +804,10 @@ function renderDashboard() {
       const pctClass     = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
 
       // Time spent badge — neutral accent color (not a warning)
-      const mins = project.totalMinutesSpent || 0;
-      const timeBadge = mins > 0 ? `<span class="proj-strip-pct-badge" style="color: var(--accent); border-color: rgba(53,116,240,0.2); background: rgba(53,116,240,0.06);" title="الوقت المستغرق">⏱️ ${formatMinutes(mins)}</span>` : '';
+      const projHours = Number(project.totalProjectHours) || 0;
+      const timeBadge = projHours > 0
+        ? `<span class="proj-strip-pct-badge" style="color: var(--accent); border-color: rgba(53,116,240,0.2); background: rgba(53,116,240,0.06);" title="إجمالي ساعات التركيز">⏱️ ${formatHours(projHours)}</span>`
+        : '';
 
       return `
         <div class="dash-proj-strip-row" data-id="${project.id}" data-client-id="${clientId || ''}" role="button" tabindex="0">
@@ -1093,8 +1114,10 @@ function renderProjects() {
     const progressClass = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
 
     // Time spent badge
-    const mins = project.totalMinutesSpent || 0;
-    const timeBadge = mins > 0 ? `<div class="time-spent-badge" style="margin-top: 0;" title="الوقت المستغرق">⏱️ ${formatMinutes(mins)}</div>` : '';
+    const projHours = Number(project.totalProjectHours) || 0;
+    const timeBadge = projHours > 0
+      ? `<div class="time-spent-badge" style="margin-top: 0;" title="إجمالي ساعات التركيز">⏱️ ${formatHours(projHours)}</div>`
+      : '';
 
     return `
       <div class="project-compact-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
@@ -1277,8 +1300,10 @@ function renderKanban() {
 }
 
 function taskCardHTML(task) {
-  const mins = task.totalMinutesSpent || 0;
-  const timeBadge = mins > 0 ? `<div class="time-spent-badge" title="الوقت المسجل للمهمة">⏱️ ${formatMinutes(mins)}</div>` : '';
+  const taskHours = Number(task.taskHoursSpent) || 0;
+  const timeBadge = taskHours > 0
+    ? `<div class="time-spent-badge" title="ساعات التركيز على المهمة">⏱️ ${formatHours(taskHours)}</div>`
+    : '';
 
   return `
     <div class="task-card" id="tc-${task.id}" draggable="true" data-id="${task.id}">
@@ -1420,8 +1445,8 @@ function updateHeader() {
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
-  } else if (state.view === 'hours') {
-    titleEl.textContent  = '📊 تتبع الساعات';
+  } else if (state.view === 'focus') {
+    titleEl.textContent  = '⏱️ جلسة التركيز';
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
@@ -1449,7 +1474,7 @@ function updateHeader() {
 function updateBreadcrumb() {
   const bc = document.getElementById('breadcrumb');
   if (!bc) return;
-  if (state.view === 'dashboard' || state.view === 'hours' || state.view === 'clients' || (state.view === 'projects' && !state.client)) {
+  if (state.view === 'dashboard' || state.view === 'focus' || state.view === 'clients' || (state.view === 'projects' && !state.client)) {
     bc.innerHTML = '';
     return;
   }
@@ -1579,39 +1604,6 @@ const MODAL_CONFIGS = {
           placeholder="تفاصيل إضافية عن المهمة..." maxlength="300"></textarea>
       </div>`,
   },
-  hours: {
-    title:      '⏱️ تسجيل ساعات عمل',
-    submitText: 'حفظ السجل',
-    fields: `
-      <div class="form-group">
-        <label class="form-label">العميل <span class="required">*</span></label>
-        <select id="f-client-id" class="form-select" required>
-          <option value="">-- اختر العميل --</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">المشروع <span class="required">*</span></label>
-        <select id="f-project-id" class="form-select" required disabled>
-          <option value="">-- اختر المشروع --</option>
-        </select>
-      </div>
-      <div class="form-row" style="display:flex; gap:10px;">
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">عدد الساعات <span class="required">*</span></label>
-          <input type="number" id="f-hours" class="form-input"
-            placeholder="مثال: 1.5" min="0.25" max="24" step="0.25" required />
-        </div>
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">التاريخ <span class="required">*</span></label>
-          <input type="date" id="f-date" class="form-input" required />
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">وصف العمل (اختياري)</label>
-        <textarea id="f-description" class="form-textarea"
-          placeholder="مثال: تصميم الصفحة الرئيسية ومراجعة المحتوى" maxlength="300"></textarea>
-      </div>`,
-  },
 };
 
 function readAsDataURL(file) {
@@ -1649,37 +1641,6 @@ function openModal(type, editId = null) {
       } else {
         cg.style.display = 'none';
       }
-    }
-  }
-
-  if (type === 'hours') {
-    // Populate client dropdown
-    const clientSel = document.getElementById('f-client-id');
-    const projectSel = document.getElementById('f-project-id');
-    if (clientSel) {
-      clientSel.innerHTML = '<option value="">-- اختر العميل --</option>' +
-        state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-      clientSel.addEventListener('change', () => {
-        const cId = clientSel.value;
-        if (!cId || !projectSel) return;
-        const projects = state.allProjects.filter(p => (p._clientId || p._ref?.parent?.parent?.id) === cId);
-        projectSel.innerHTML = '<option value="">-- اختر المشروع --</option>' +
-          projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-        if (projects.length > 0) {
-          projectSel.removeAttribute('disabled');
-        } else {
-          projectSel.setAttribute('disabled', 'true');
-        }
-      });
-    }
-    // Default date = today (YYYY-MM-DD format for <input type="date">)
-    const dateEl = document.getElementById('f-date');
-    if (dateEl) {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      dateEl.value = `${yyyy}-${mm}-${dd}`;
     }
   }
 
@@ -1732,9 +1693,6 @@ function prefillModalValues() {
     if (priorityEl) priorityEl.value = task.priority || '';
     const notesEl = document.getElementById('f-notes');
     if (notesEl) notesEl.value = task.notes || '';
-
-  } else if (type === 'hours') {
-    prefillHoursModalValues(id);
   }
 }
 
@@ -1843,71 +1801,6 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
         toast('تمت إضافة المهمة! 🎉', 'success');
       }
       closeModal();
-
-    } else if (currentModalType === 'hours') {
-      const clientId  = document.getElementById('f-client-id')?.value;
-      const projectId = document.getElementById('f-project-id')?.value;
-      const hoursRaw  = document.getElementById('f-hours')?.value;
-      const dateStr   = document.getElementById('f-date')?.value;
-      const desc      = document.getElementById('f-description')?.value.trim() || null;
-      const hours     = parseFloat(hoursRaw);
-
-      if (!clientId)  { toast('يرجى اختيار العميل', 'error');   btn.disabled = false; btn.textContent = orig; return; }
-      if (!projectId) { toast('يرجى اختيار المشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!hours || hours <= 0 || hours > 24) {
-        toast('يرجى إدخال عدد ساعات صحيح بين 0.25 و 24', 'error');
-        btn.disabled = false; btn.textContent = orig; return;
-      }
-      if (!dateStr) { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-
-      const logDate = new Date(dateStr + 'T12:00:00'); // noon to avoid TZ edge cases
-      const minutes = Math.round(hours * 60);
-
-      if (state.editTarget) {
-        // Edit: adjust the diff on project.totalMinutesSpent
-        const prev = state.timeLogs.find(l => l.id === state.editTarget.id);
-        const prevMinutes = prev ? Math.round((prev.hours || 0) * 60) : 0;
-        await updateDoc(timeLogDoc(state.editTarget.id), {
-          clientId, projectId, hours, date: logDate, description: desc
-        });
-        if (prev && prev.projectId === projectId && prev.clientId === clientId) {
-          // Same project — adjust the delta
-          const delta = minutes - prevMinutes;
-          if (delta !== 0) {
-            try {
-              await updateDoc(projectDoc(clientId, projectId), {
-                totalMinutesSpent: increment(delta)
-              });
-            } catch (e) { console.warn('Project totalMinutesSpent update failed:', e); }
-          }
-        } else if (prev) {
-          // Project changed — subtract from old, add to new
-          try {
-            await updateDoc(projectDoc(prev.clientId, prev.projectId), {
-              totalMinutesSpent: increment(-prevMinutes)
-            });
-          } catch (e) { console.warn('Old project decrement failed:', e); }
-          try {
-            await updateDoc(projectDoc(clientId, projectId), {
-              totalMinutesSpent: increment(minutes)
-            });
-          } catch (e) { console.warn('New project increment failed:', e); }
-        }
-        toast('تم تعديل السجل بنجاح! 🎉', 'success');
-      } else {
-        await addDoc(timeLogsRef(), {
-          clientId, projectId, hours, date: logDate, description: desc,
-          createdAt: serverTimestamp()
-        });
-        // Also bump the project's running total so badges stay in sync
-        try {
-          await updateDoc(projectDoc(clientId, projectId), {
-            totalMinutesSpent: increment(minutes)
-          });
-        } catch (e) { console.warn('Project totalMinutesSpent update failed:', e); }
-        toast(`تم تسجيل ${hours} ساعة بنجاح! ⏱️`, 'success');
-      }
-      closeModal();
     }
   } catch (err) {
     toast('حدث خطأ، تحقق من الاتصال', 'error'); console.error(err);
@@ -1923,7 +1816,7 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
 
 function openConfirm({ type, id, name, warning = '', clientId = null }) {
   state.deleteTarget = { type, id, clientId };
-  const titles = { client: 'حذف العميل', project: 'حذف المشروع', task: 'حذف المهمة', hours: 'حذف السجل' };
+  const titles = { client: 'حذف العميل', project: 'حذف المشروع', task: 'حذف المهمة' };
   document.getElementById('confirm-title').textContent    = titles[type] || 'حذف';
   document.getElementById('confirm-item-name').textContent = name || '';
   document.getElementById('confirm-warning').textContent  = warning;
@@ -1955,22 +1848,6 @@ document.getElementById('confirm-yes')?.addEventListener('click', async () => {
     } else if (target.type === 'task') {
       await deleteDoc(taskDoc(state.client.id, state.project.id, target.id));
       toast('تم حذف المهمة', 'info', '🗑️');
-
-    } else if (target.type === 'hours') {
-      // Reverse the project's totalMinutesSpent so it stays in sync
-      const log = state.timeLogs.find(l => l.id === target.id);
-      if (log && log.projectId && log.clientId) {
-        const minutes = Math.round((Number(log.hours) || 0) * 60);
-        if (minutes > 0) {
-          try {
-            await updateDoc(projectDoc(log.clientId, log.projectId), {
-              totalMinutesSpent: increment(-minutes)
-            });
-          } catch (e) { console.warn('Project decrement failed:', e); }
-        }
-      }
-      await deleteDoc(timeLogDoc(target.id));
-      toast('تم حذف السجل', 'info', '🗑️');
     }
   } catch (err) {
     toast('فشل الحذف', 'error'); console.error(err);
@@ -2034,7 +1911,6 @@ document.addEventListener('keydown', e => {
     if (state.view === 'clients')       openModal('client');
     else if (state.view === 'projects') openModal('project');
     else if (state.view === 'tasks')    openModal('task');
-    else if (state.view === 'hours')    openModal('hours');
   }
 });
 
@@ -2088,42 +1964,53 @@ setInterval(() => {
 }, 60000);
 
 // ════════════════════════════════════════════════════════════════
-//  HOURS TRACKER MODULE (v6.0)
+//  FOCUS TIMER MODULE (v7.0)
+//  3 modes (25/50/90), locked focus mode, auto-aggregate hours
+//  into the project (totalProjectHours) and the task (taskHoursSpent).
 // ════════════════════════════════════════════════════════════════
 
-// ── Date format: "السبت 12 يونيو" ──
-function formatHoursDate(ts) {
-  if (!ts) return '';
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  return d.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long' });
+// ── Soft completion chime (Web Audio, no asset needed) ──
+function playFocusChime(type = 'work-done') {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const tones = type === 'work-done'
+      ? [587.33, 880]   // D5 → A5 for work completion
+      : [440, 349.23];  // A4 → F4 for break completion
+    tones.forEach((freq, i) => {
+      setTimeout(() => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.10, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.30);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.30);
+      }, i * 160);
+    });
+  } catch (err) {
+    console.warn('Focus chime failed:', err);
+  }
 }
 
-// Round float hours to 2 decimals, drop trailing zeros
-function formatHoursValue(h) {
-  const n = Number(h) || 0;
-  return n.toFixed(2).replace(/\.?0+$/, '');
+// Round a float to N decimal places, drop trailing zeros
+function roundHours(value, decimals = 2) {
+  const f = Math.pow(10, decimals);
+  return Math.round(value * f) / f;
 }
 
-function subscribeHours() {
-  // Subscribe to timeLogs + clients + projects (the latter two so we can show names)
-  const logsQ = query(timeLogsRef(), orderBy('date', 'desc'));
-  state.timeLogsUnsub = onSnapshot(logsQ, snap => {
-    setOnline(); hideLoading();
-    state.timeLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderHours();
-  }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
-
-  // Clients (for names + total badge)
+function subscribeFocus() {
+  // We need clients (for badge) + all projects + all tasks
+  // to populate dropdowns and resolve clientId for writes.
   const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
   state.unsubscribe = onSnapshot(clientQ, snap => {
     setOnline(); hideLoading();
     state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const badge = document.getElementById('total-badge');
     if (badge) badge.textContent = state.clients.length;
-    renderHours();
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
-  // Projects across all clients (for project names + the modal selector)
   const projQ = query(collectionGroup(db, 'projects'));
   state.dashUnsubProjects = onSnapshot(projQ, snap => {
     setOnline(); hideLoading();
@@ -2132,158 +2019,417 @@ function subscribeHours() {
       _ref: d.ref,
       _clientId: d.ref.parent.parent.id
     }));
-    renderHours();
+    populateFocusProjectSelect();
   }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  const taskQ = query(collectionGroup(db, 'tasks'));
+  state.dashUnsubTasks = onSnapshot(taskQ, snap => {
+    setOnline(); hideLoading();
+    state.allTasks = snap.docs.map(d => ({
+      id: d.id, ...d.data(),
+      _projectId: d.ref.parent.parent.id,
+      _clientId: d.ref.parent.parent.parent.parent.id
+    }));
+    // If a project is currently selected, refresh its task list
+    const projectSel = document.getElementById('focus-project-select');
+    if (projectSel?.value) populateFocusTaskSelect(projectSel.value);
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  updateFocusDisplay();
 }
 
-function renderHours() {
-  if (state.view !== 'hours') return;
+function populateFocusProjectSelect() {
+  const sel = document.getElementById('focus-project-select');
+  if (!sel) return;
+  const prevValue = sel.value || state.focusProjectId || '';
+  // Only "active" (or undefined-status) projects per the plan
+  const projects = state.allProjects
+    .filter(p => p.status === 'active' || !p.status)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
 
-  // ── Summary calculations ──
-  const now = new Date();
-  // Week starts Saturday in Arab calendar — use 6 = Saturday
-  const dayOfWeek = now.getDay(); // 0=Sun ... 6=Sat
-  const daysSinceSat = (dayOfWeek + 1) % 7; // Sat=0, Sun=1, ..., Fri=6
-  const startOfWeek = new Date(now);
-  startOfWeek.setHours(0, 0, 0, 0);
-  startOfWeek.setDate(now.getDate() - daysSinceSat);
+  sel.innerHTML = '<option value="">اختر المشروع</option>' +
+    projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
 
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  if (prevValue && projects.some(p => p.id === prevValue)) {
+    sel.value = prevValue;
+    populateFocusTaskSelect(prevValue);
+  }
+  renderFocusDropdown('project');
+}
 
-  let weekHours = 0, monthHours = 0, totalHours = 0;
-  state.timeLogs.forEach(log => {
-    const h = Number(log.hours) || 0;
-    totalHours += h;
-    const d = log.date?.toDate ? log.date.toDate() : (log.date ? new Date(log.date) : null);
-    if (!d) return;
-    if (d >= startOfMonth) monthHours += h;
-    if (d >= startOfWeek)  weekHours  += h;
-  });
+function populateFocusTaskSelect(projectId) {
+  const sel = document.getElementById('focus-task-select');
+  if (!sel) return;
+  const prevValue = sel.value || state.focusTaskId || '';
 
-  const setStat = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = formatHoursValue(val);
-  };
-  setStat('hours-week',  weekHours);
-  setStat('hours-month', monthHours);
-  setStat('hours-total', totalHours);
-
-  // ── Logs grid ──
-  const grid = document.getElementById('hours-logs-grid');
-  if (!grid) return;
-
-  const q = state.search.toLowerCase();
-  const filtered = state.timeLogs.filter(log => {
-    if (!q) return true;
-    const client = state.clients.find(c => c.id === log.clientId);
-    const project = state.allProjects.find(p => p.id === log.projectId);
-    const haystack = [
-      client?.name || '',
-      project?.name || '',
-      log.description || ''
-    ].join(' ').toLowerCase();
-    return haystack.includes(q);
-  });
-
-  if (filtered.length === 0) {
-    grid.innerHTML = emptyStateHTML(
-      '⏱️',
-      state.search ? 'لا نتائج مطابقة' : 'لا توجد سجلات ساعات بعد',
-      state.search ? 'جرّب كلمة بحث مختلفة' : 'اضغط "تسجيل ساعات جديدة" لإضافة أول سجل'
-    );
+  if (!projectId) {
+    sel.innerHTML = '<option value="">اختر المهمة (اختياري)</option>';
+    sel.setAttribute('disabled', 'true');
+    setFocusDropdownDisabled('task', true);
+    renderFocusDropdown('task');
     return;
   }
+  // Open tasks for this project (todo + doing)
+  const tasks = state.allTasks
+    .filter(t => t._projectId === projectId && (t.status === 'todo' || t.status === 'doing'));
 
-  grid.innerHTML = filtered.map(log => {
-    const client  = state.clients.find(c => c.id === log.clientId);
-    const project = state.allProjects.find(p => p.id === log.projectId);
-    const clientName  = client  ? escapeHtml(client.name)  : 'عميل محذوف';
-    const projectName = project ? escapeHtml(project.name) : 'مشروع محذوف';
+  sel.innerHTML = '<option value="">اختر المهمة (اختياري)</option>' +
+    tasks.map(t => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join('');
+  if (tasks.length > 0) {
+    sel.removeAttribute('disabled');
+    setFocusDropdownDisabled('task', false);
+  } else {
+    sel.setAttribute('disabled', 'true');
+    setFocusDropdownDisabled('task', true);
+  }
 
-    return `
-      <div class="hours-log-card" data-id="${log.id}">
-        <div class="hours-log-top">
-          <div class="hours-log-meta">
-            <span class="hours-log-client">👤 ${clientName}</span>
-            <span class="hours-log-project" title="${projectName}">📁 ${projectName}</span>
-          </div>
-          <span class="hours-log-value">
-            <span class="hours-log-value-num">${formatHoursValue(log.hours)}</span>
-            <span class="hours-log-value-unit">س</span>
-          </span>
-        </div>
-        ${log.description ? `<div class="hours-log-desc">${escapeHtml(log.description)}</div>` : ''}
-        <div class="hours-log-footer">
-          <span class="hours-log-date">📅 ${formatHoursDate(log.date)}</span>
-          <div class="hours-log-actions">
-            <button class="hours-log-edit" data-id="${log.id}" title="تعديل السجل">✏️</button>
-            <button class="hours-log-del"  data-id="${log.id}" title="حذف السجل">🗑️</button>
-          </div>
-        </div>
+  if (prevValue && tasks.some(t => t.id === prevValue)) {
+    sel.value = prevValue;
+  }
+  renderFocusDropdown('task');
+}
+
+function updateFocusDisplay() {
+  const minEl   = document.getElementById('focus-minutes');
+  const secEl   = document.getElementById('focus-seconds');
+  const badgeEl = document.getElementById('focus-status-badge');
+  const labelEl = document.getElementById('focus-timer-label');
+  const timerEl = document.getElementById('focus-bigtimer');
+  const fill    = document.getElementById('focus-progress-fill');
+  if (!minEl) return;
+
+  // MM : SS display (minutes left, seconds right — LTR forced via CSS)
+  const totalSec = state.focusTimeLeft;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  minEl.textContent = String(m).padStart(2, '0');
+  if (secEl) secEl.textContent = String(s).padStart(2, '0');
+
+  // Status colour & label
+  if (state.focusState === 'work') {
+    timerEl?.classList.remove('break-mode');
+    if (labelEl) labelEl.textContent = 'وقت العمل';
+    if (badgeEl) {
+      badgeEl.className = 'focus-status-badge' + (state.focusRunning ? ' running' : '');
+      badgeEl.textContent = state.focusRunning ? 'جاري العمل 🔥' : 'جاهز للبدء 🌱';
+    }
+  } else {
+    timerEl?.classList.add('break-mode');
+    if (labelEl) labelEl.textContent = 'وقت الراحة';
+    if (badgeEl) {
+      badgeEl.className = 'focus-status-badge break';
+      badgeEl.textContent = 'وقت الراحة ☕';
+    }
+  }
+
+  // Top progress rail
+  if (fill) {
+    const total = (state.focusState === 'work' ? state.focusWorkMinutes : state.focusBreakMinutes) * 60;
+    const pct = total > 0 ? ((total - state.focusTimeLeft) / total) * 100 : 0;
+    fill.style.width = pct + '%';
+  }
+}
+
+function setFocusLocked(locked) {
+  const fluid = document.querySelector('.focus-fluid');
+  if (fluid) fluid.classList.toggle('locked', !!locked);
+}
+
+function setFocusMode(workMinutes, breakMinutes, btn) {
+  if (state.focusRunning) return; // don't allow mode change while running
+  state.focusWorkMinutes  = workMinutes;
+  state.focusBreakMinutes = breakMinutes;
+  state.focusState        = 'work';
+  state.focusTimeLeft     = workMinutes * 60;
+
+  document.querySelectorAll('.focus-mode-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  updateFocusDisplay();
+}
+
+function startFocusTimer() {
+  if (state.focusRunning) return;
+  const projectSel = document.getElementById('focus-project-select');
+  const taskSel    = document.getElementById('focus-task-select');
+
+  // Always require a project to bind the session to
+  if (state.focusState === 'work' && !projectSel?.value) {
+    toast('اختر المشروع الأول قبل بدء الجلسة 🎯', 'error');
+    const projDd = document.querySelector('.focus-dd[data-fdd="project"]');
+    projDd?.classList.add('shake');
+    setTimeout(() => projDd?.classList.remove('shake'), 400);
+    return;
+  }
+  state.focusProjectId = projectSel?.value || null;
+  state.focusTaskId    = taskSel?.value || null;
+
+  state.focusRunning = true;
+  const startBtn = document.getElementById('btn-focus-start');
+  if (startBtn) {
+    startBtn.textContent = 'إيقاف مؤقت ⏸️';
+    startBtn.classList.add('running');
+  }
+  setFocusLocked(true);
+
+  state.focusInterval = setInterval(focusTick, 1000);
+  updateFocusDisplay();
+}
+
+function pauseFocusTimer() {
+  if (!state.focusRunning) return;
+  clearInterval(state.focusInterval);
+  state.focusInterval = null;
+  state.focusRunning = false;
+  const startBtn = document.getElementById('btn-focus-start');
+  if (startBtn) {
+    startBtn.textContent = 'استئناف الجلسة ▶️';
+    startBtn.classList.remove('running');
+  }
+  setFocusLocked(false);
+  updateFocusDisplay();
+}
+
+function resetFocusTimer() {
+  clearInterval(state.focusInterval);
+  state.focusInterval = null;
+  state.focusRunning = false;
+  state.focusState = 'work';
+  state.focusTimeLeft = state.focusWorkMinutes * 60;
+  const startBtn = document.getElementById('btn-focus-start');
+  if (startBtn) {
+    startBtn.textContent = 'ابدأ الجلسة ▶️';
+    startBtn.classList.remove('running');
+  }
+  setFocusLocked(false);
+  updateFocusDisplay();
+}
+
+function focusTick() {
+  if (state.focusTimeLeft > 0) {
+    state.focusTimeLeft--;
+    updateFocusDisplay();
+  } else {
+    completeFocusCycle();
+  }
+}
+
+async function completeFocusCycle() {
+  clearInterval(state.focusInterval);
+  state.focusInterval = null;
+  state.focusRunning = false;
+
+  if (state.focusState === 'work') {
+    // Work session done → save hours, then switch to break
+    playFocusChime('work-done');
+    const minutes = state.focusWorkMinutes;
+    const hours   = roundHours(minutes / 60);
+
+    if (state.focusProjectId) {
+      await saveFocusHours(state.focusProjectId, state.focusTaskId, hours);
+    }
+    toast(`أحسنت! انتهت جلسة العمل (${hours} ساعة) — وقت الراحة ☕`, 'success', '🎉');
+
+    // Switch to break
+    state.focusState = 'break';
+    state.focusTimeLeft = state.focusBreakMinutes * 60;
+    // Auto-resume in break mode
+    state.focusRunning = true;
+    state.focusInterval = setInterval(focusTick, 1000);
+    setFocusLocked(true);
+    updateFocusDisplay();
+  } else {
+    // Break done → go back to work, idle
+    playFocusChime('break-done');
+    toast('انتهت الراحة! جاهز لجلسة جديدة 🚀', 'info', '⏱️');
+
+    state.focusState = 'work';
+    state.focusTimeLeft = state.focusWorkMinutes * 60;
+    const startBtn = document.getElementById('btn-focus-start');
+    if (startBtn) {
+      startBtn.textContent = 'ابدأ الجلسة ▶️';
+      startBtn.classList.remove('running');
+    }
+    setFocusLocked(false);
+    updateFocusDisplay();
+  }
+}
+
+async function saveFocusHours(projectId, taskId, hours) {
+  try {
+    const project = state.allProjects.find(p => p.id === projectId);
+    if (!project) {
+      console.warn('Focus save: project not found', projectId);
+      return;
+    }
+    const clientId = project._clientId || project._ref?.parent?.parent?.id;
+    if (!clientId) {
+      console.warn('Focus save: clientId missing for project', project);
+      return;
+    }
+
+    // Bump the project's running hour total
+    await updateDoc(projectDoc(clientId, projectId), {
+      totalProjectHours: increment(hours)
+    });
+
+    // Optionally bump the task's hours too — only if a task was linked
+    if (taskId) {
+      try {
+        await updateDoc(taskDoc(clientId, projectId, taskId), {
+          taskHoursSpent: increment(hours)
+        });
+      } catch (taskErr) {
+        // Task might have been deleted mid-session
+        console.warn('Focus save: task update failed:', taskErr);
+      }
+    }
+  } catch (err) {
+    console.error('Focus save: failed', err);
+    toast('فشل حفظ الساعات في قاعدة البيانات', 'error');
+  }
+}
+
+// ── Wire up Focus Timer DOM (idempotent) ──
+(function setupFocusTimer() {
+  const projectSel = document.getElementById('focus-project-select');
+  const taskSel    = document.getElementById('focus-task-select');
+  const btnQuick   = document.getElementById('btn-mode-quick');
+  const btnDeep    = document.getElementById('btn-mode-deep');
+  const btnFlow    = document.getElementById('btn-mode-flow');
+  const btnStart   = document.getElementById('btn-focus-start');
+  const btnReset   = document.getElementById('btn-focus-reset');
+
+  if (projectSel) {
+    projectSel.addEventListener('change', () => {
+      state.focusProjectId = projectSel.value || null;
+      state.focusTaskId = null;
+      populateFocusTaskSelect(projectSel.value);
+    });
+  }
+  if (taskSel) {
+    taskSel.addEventListener('change', () => {
+      state.focusTaskId = taskSel.value || null;
+    });
+  }
+  if (btnQuick) btnQuick.addEventListener('click', () => setFocusMode(25, 5,  btnQuick));
+  if (btnDeep)  btnDeep .addEventListener('click', () => setFocusMode(50, 15, btnDeep));
+  if (btnFlow)  btnFlow .addEventListener('click', () => setFocusMode(90, 20, btnFlow));
+
+  if (btnStart) {
+    btnStart.addEventListener('click', () => {
+      if (state.focusRunning) pauseFocusTimer();
+      else startFocusTimer();
+    });
+  }
+  if (btnReset) btnReset.addEventListener('click', resetFocusTimer);
+})();
+
+// ════════════════════════════════════════════════════════════════
+//  CUSTOM DROPDOWN (Focus tab)
+//  A themed replacement for the native <select>. We keep the
+//  native element hidden underneath so existing change handlers
+//  and form semantics still work — we just replace the visuals.
+// ════════════════════════════════════════════════════════════════
+
+function getFocusDropdown(key) {
+  return document.querySelector(`.focus-dd[data-fdd="${key}"]`);
+}
+
+function setFocusDropdownDisabled(key, disabled) {
+  const dd = getFocusDropdown(key);
+  if (!dd) return;
+  dd.classList.toggle('disabled', !!disabled);
+  if (disabled) closeFocusDropdown(dd);
+}
+
+function renderFocusDropdown(key) {
+  const dd = getFocusDropdown(key);
+  if (!dd) return;
+  const sel  = dd.querySelector('.focus-dd-native');
+  const menu = dd.querySelector('.focus-dd-menu');
+  const text = dd.querySelector('.focus-dd-text');
+  if (!sel || !menu || !text) return;
+
+  const opts        = Array.from(sel.options);
+  const placeholder = opts[0]?.value === '' ? opts[0].textContent : 'اختر';
+  const realOpts    = opts.filter(o => o.value !== '');
+  const current     = sel.value;
+  const currentOpt  = opts.find(o => o.value === current);
+
+  // Trigger label
+  if (currentOpt && currentOpt.value) {
+    text.textContent = currentOpt.textContent;
+    text.classList.remove('placeholder');
+  } else {
+    text.textContent = text.dataset.placeholder || placeholder;
+    text.classList.add('placeholder');
+  }
+
+  // Menu items
+  if (realOpts.length === 0) {
+    menu.innerHTML = '<div class="focus-dd-empty">لا توجد عناصر</div>';
+    return;
+  }
+  // Add a "clear" option at the top so the user can unset
+  const clearLabel = key === 'task' ? '— بدون مهمة —' : '— بدون —';
+  menu.innerHTML = `
+    <div class="focus-dd-item${!current ? ' selected' : ''}" data-value="">${escapeHtml(clearLabel)}</div>
+    ${realOpts.map(o => `
+      <div class="focus-dd-item${o.value === current ? ' selected' : ''}" data-value="${escapeHtml(o.value)}">
+        ${escapeHtml(o.textContent)}
       </div>
-    `;
-  }).join('');
+    `).join('')}
+  `;
 
-  // Bind delete/edit
-  grid.querySelectorAll('.hours-log-del').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const log = state.timeLogs.find(l => l.id === btn.dataset.id);
-      openConfirm({
-        type: 'hours',
-        id: btn.dataset.id,
-        name: `${formatHoursValue(log?.hours || 0)} ساعة — ${formatHoursDate(log?.date)}`,
-        warning: 'سيتم خصم هذه الساعات من إجمالي المشروع',
-      });
-    });
-  });
-  grid.querySelectorAll('.hours-log-edit').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      openModal('hours', btn.dataset.id);
+  menu.querySelectorAll('.focus-dd-item').forEach(item => {
+    item.addEventListener('click', () => {
+      sel.value = item.dataset.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      closeFocusDropdown(dd);
     });
   });
 }
 
-// Prefill the hours modal when editing
-function prefillHoursModalValues(id) {
-  const log = state.timeLogs.find(l => l.id === id);
-  if (!log) return;
-
-  const clientSel  = document.getElementById('f-client-id');
-  const projectSel = document.getElementById('f-project-id');
-  const hoursEl    = document.getElementById('f-hours');
-  const dateEl     = document.getElementById('f-date');
-  const descEl     = document.getElementById('f-description');
-
-  if (clientSel) {
-    clientSel.value = log.clientId || '';
-    // Trigger change to populate projects
-    clientSel.dispatchEvent(new Event('change'));
-  }
-  if (projectSel) projectSel.value = log.projectId || '';
-  if (hoursEl)    hoursEl.value = log.hours ?? '';
-  if (dateEl && log.date) {
-    const d = log.date.toDate ? log.date.toDate() : new Date(log.date);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    dateEl.value = `${yyyy}-${mm}-${dd}`;
-  }
-  if (descEl) descEl.value = log.description || '';
+function openFocusDropdown(dd) {
+  if (dd.classList.contains('disabled')) return;
+  closeAllFocusDropdowns();
+  const trigger = dd.querySelector('.focus-dd-trigger');
+  const menu    = dd.querySelector('.focus-dd-menu');
+  trigger?.setAttribute('aria-expanded', 'true');
+  menu?.classList.add('open');
 }
 
-// ── Wire up Hours buttons (idempotent guard) ──
-const btnAddHours = document.getElementById('btn-add-hours');
-if (btnAddHours) {
-  btnAddHours.addEventListener('click', () => openModal('hours'));
+function closeFocusDropdown(dd) {
+  const trigger = dd.querySelector('.focus-dd-trigger');
+  const menu    = dd.querySelector('.focus-dd-menu');
+  trigger?.setAttribute('aria-expanded', 'false');
+  menu?.classList.remove('open');
 }
 
-const searchHoursInput = document.getElementById('search-hours');
-if (searchHoursInput) {
-  searchHoursInput.addEventListener('input', e => {
-    state.search = e.target.value;
-    if (state.view === 'hours') renderHours();
+function closeAllFocusDropdowns() {
+  document.querySelectorAll('.focus-dd').forEach(closeFocusDropdown);
+}
+
+// Wire triggers + outside-click close (once)
+(function initFocusDropdowns() {
+  document.querySelectorAll('.focus-dd').forEach(dd => {
+    const trigger = dd.querySelector('.focus-dd-trigger');
+    if (!trigger) return;
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = trigger.getAttribute('aria-expanded') === 'true';
+      if (isOpen) closeFocusDropdown(dd);
+      else openFocusDropdown(dd);
+    });
+    // Initial render in case there's already content
+    renderFocusDropdown(dd.dataset.fdd);
   });
-}
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.focus-dd')) closeAllFocusDropdowns();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAllFocusDropdowns();
+  });
+})();
+
 
