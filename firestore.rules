@@ -28,7 +28,7 @@ service cloud.firestore {
       }
     }
 
-    // ── collectionGroup queries (Dashboard + Focus mode) ──
+    // ── collectionGroup queries (Dashboard + Hours tab) ──
     // The dashboard uses collectionGroup('projects') and collectionGroup('tasks')
     // — those need their OWN rules even though paths above already grant access.
     match /{path=**}/projects/{projectId} {
@@ -37,6 +37,12 @@ service cloud.firestore {
 
     match /{path=**}/tasks/{taskId} {
       allow read: if isOwner();
+    }
+
+    // ── Time Logs (v6.0 Hours Tracker) ──
+    // Top-level collection. Each doc = one logged work session.
+    match /timeLogs/{logId} {
+      allow read, write: if isOwner();
     }
   }
 }

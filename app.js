@@ -349,6 +349,8 @@ const tasksRef    = (cId, pId)                 => collection(db, 'clients', cId,
 const clientDoc   = (cId)                      => doc(db, 'clients', cId);
 const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'projects', pId);
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
+const timeLogsRef = ()                         => collection(db, 'timeLogs');
+const timeLogDoc  = (id)                       => doc(db, 'timeLogs', id);
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -568,11 +570,11 @@ function navigateTo(view, payload = {}) {
     document.getElementById('view-projects').classList.add('active');
     subscribeProjects();
 
-  } else if (view === 'focus') {
+  } else if (view === 'hours') {
     state.client  = null;
     state.project = null;
-    document.getElementById('view-focus').classList.add('active');
-    subscribeFocusMode();
+    document.getElementById('view-hours').classList.add('active');
+    subscribeHours();
 
   } else if (view === 'tasks') {
     if (payload.client)  state.client  = payload.client;
@@ -896,7 +898,6 @@ function renderDashboard() {
       });
     }
   }
-  populatePomoSelectors();
 }
 
 // ── Animate counter number ──
@@ -1093,7 +1094,7 @@ function renderProjects() {
 
     // Time spent badge
     const mins = project.totalMinutesSpent || 0;
-    const timeBadge = mins > 0 ? `<div class="pomo-time-badge" style="margin-top: 0;" title="الوقت المستغرق">⏱️ ${formatMinutes(mins)}</div>` : '';
+    const timeBadge = mins > 0 ? `<div class="time-spent-badge" style="margin-top: 0;" title="الوقت المستغرق">⏱️ ${formatMinutes(mins)}</div>` : '';
 
     return `
       <div class="project-compact-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
@@ -1277,14 +1278,13 @@ function renderKanban() {
 
 function taskCardHTML(task) {
   const mins = task.totalMinutesSpent || 0;
-  const timeBadge = mins > 0 ? `<div class="pomo-time-badge" title="الوقت المسجل للمهمة">⏱️ ${formatMinutes(mins)}</div>` : '';
+  const timeBadge = mins > 0 ? `<div class="time-spent-badge" title="الوقت المسجل للمهمة">⏱️ ${formatMinutes(mins)}</div>` : '';
 
   return `
     <div class="task-card" id="tc-${task.id}" draggable="true" data-id="${task.id}">
       <div class="card-top" style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
         <div class="card-title">${escapeHtml(task.title)}</div>
         <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
-          <button class="card-focus-btn" data-id="${task.id}" title="بدء تركيز بومودورو">⏱️</button>
           <button class="card-edit-btn" data-id="${task.id}" title="تعديل المهمة">✏️</button>
           <button class="card-menu-btn" data-id="${task.id}" title="حذف المهمة">✕</button>
         </div>
@@ -1311,18 +1311,6 @@ function bindTaskCardEvents(colEl) {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       openModal('task', btn.dataset.id);
-    });
-  });
-
-  colEl.querySelectorAll('.card-focus-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const task = state.tasks.find(t => t.id === btn.dataset.id);
-      if (task && state.project) {
-        linkPomoTask(state.project.id, state.project.name, task.id, task.title);
-        toast(`تم ربط المهمة "‎${task.title}‏" بمؤقت البومودورو ⏱️`, 'success');
-        navigateTo('focus'); // Navigate to focus mode so they see the linked timer
-      }
     });
   });
 
@@ -1432,8 +1420,8 @@ function updateHeader() {
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
-  } else if (state.view === 'focus') {
-    titleEl.textContent  = '⏱️ جلسة التركيز';
+  } else if (state.view === 'hours') {
+    titleEl.textContent  = '📊 تتبع الساعات';
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
@@ -1461,7 +1449,7 @@ function updateHeader() {
 function updateBreadcrumb() {
   const bc = document.getElementById('breadcrumb');
   if (!bc) return;
-  if (state.view === 'dashboard' || state.view === 'focus' || state.view === 'clients' || (state.view === 'projects' && !state.client)) {
+  if (state.view === 'dashboard' || state.view === 'hours' || state.view === 'clients' || (state.view === 'projects' && !state.client)) {
     bc.innerHTML = '';
     return;
   }
@@ -1591,6 +1579,39 @@ const MODAL_CONFIGS = {
           placeholder="تفاصيل إضافية عن المهمة..." maxlength="300"></textarea>
       </div>`,
   },
+  hours: {
+    title:      '⏱️ تسجيل ساعات عمل',
+    submitText: 'حفظ السجل',
+    fields: `
+      <div class="form-group">
+        <label class="form-label">العميل <span class="required">*</span></label>
+        <select id="f-client-id" class="form-select" required>
+          <option value="">-- اختر العميل --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">المشروع <span class="required">*</span></label>
+        <select id="f-project-id" class="form-select" required disabled>
+          <option value="">-- اختر المشروع --</option>
+        </select>
+      </div>
+      <div class="form-row" style="display:flex; gap:10px;">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">عدد الساعات <span class="required">*</span></label>
+          <input type="number" id="f-hours" class="form-input"
+            placeholder="مثال: 1.5" min="0.25" max="24" step="0.25" required />
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">التاريخ <span class="required">*</span></label>
+          <input type="date" id="f-date" class="form-input" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">وصف العمل (اختياري)</label>
+        <textarea id="f-description" class="form-textarea"
+          placeholder="مثال: تصميم الصفحة الرئيسية ومراجعة المحتوى" maxlength="300"></textarea>
+      </div>`,
+  },
 };
 
 function readAsDataURL(file) {
@@ -1628,6 +1649,37 @@ function openModal(type, editId = null) {
       } else {
         cg.style.display = 'none';
       }
+    }
+  }
+
+  if (type === 'hours') {
+    // Populate client dropdown
+    const clientSel = document.getElementById('f-client-id');
+    const projectSel = document.getElementById('f-project-id');
+    if (clientSel) {
+      clientSel.innerHTML = '<option value="">-- اختر العميل --</option>' +
+        state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      clientSel.addEventListener('change', () => {
+        const cId = clientSel.value;
+        if (!cId || !projectSel) return;
+        const projects = state.allProjects.filter(p => (p._clientId || p._ref?.parent?.parent?.id) === cId);
+        projectSel.innerHTML = '<option value="">-- اختر المشروع --</option>' +
+          projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        if (projects.length > 0) {
+          projectSel.removeAttribute('disabled');
+        } else {
+          projectSel.setAttribute('disabled', 'true');
+        }
+      });
+    }
+    // Default date = today (YYYY-MM-DD format for <input type="date">)
+    const dateEl = document.getElementById('f-date');
+    if (dateEl) {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      dateEl.value = `${yyyy}-${mm}-${dd}`;
     }
   }
 
@@ -1680,6 +1732,9 @@ function prefillModalValues() {
     if (priorityEl) priorityEl.value = task.priority || '';
     const notesEl = document.getElementById('f-notes');
     if (notesEl) notesEl.value = task.notes || '';
+
+  } else if (type === 'hours') {
+    prefillHoursModalValues(id);
   }
 }
 
@@ -1788,6 +1843,71 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
         toast('تمت إضافة المهمة! 🎉', 'success');
       }
       closeModal();
+
+    } else if (currentModalType === 'hours') {
+      const clientId  = document.getElementById('f-client-id')?.value;
+      const projectId = document.getElementById('f-project-id')?.value;
+      const hoursRaw  = document.getElementById('f-hours')?.value;
+      const dateStr   = document.getElementById('f-date')?.value;
+      const desc      = document.getElementById('f-description')?.value.trim() || null;
+      const hours     = parseFloat(hoursRaw);
+
+      if (!clientId)  { toast('يرجى اختيار العميل', 'error');   btn.disabled = false; btn.textContent = orig; return; }
+      if (!projectId) { toast('يرجى اختيار المشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!hours || hours <= 0 || hours > 24) {
+        toast('يرجى إدخال عدد ساعات صحيح بين 0.25 و 24', 'error');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
+      if (!dateStr) { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      const logDate = new Date(dateStr + 'T12:00:00'); // noon to avoid TZ edge cases
+      const minutes = Math.round(hours * 60);
+
+      if (state.editTarget) {
+        // Edit: adjust the diff on project.totalMinutesSpent
+        const prev = state.timeLogs.find(l => l.id === state.editTarget.id);
+        const prevMinutes = prev ? Math.round((prev.hours || 0) * 60) : 0;
+        await updateDoc(timeLogDoc(state.editTarget.id), {
+          clientId, projectId, hours, date: logDate, description: desc
+        });
+        if (prev && prev.projectId === projectId && prev.clientId === clientId) {
+          // Same project — adjust the delta
+          const delta = minutes - prevMinutes;
+          if (delta !== 0) {
+            try {
+              await updateDoc(projectDoc(clientId, projectId), {
+                totalMinutesSpent: increment(delta)
+              });
+            } catch (e) { console.warn('Project totalMinutesSpent update failed:', e); }
+          }
+        } else if (prev) {
+          // Project changed — subtract from old, add to new
+          try {
+            await updateDoc(projectDoc(prev.clientId, prev.projectId), {
+              totalMinutesSpent: increment(-prevMinutes)
+            });
+          } catch (e) { console.warn('Old project decrement failed:', e); }
+          try {
+            await updateDoc(projectDoc(clientId, projectId), {
+              totalMinutesSpent: increment(minutes)
+            });
+          } catch (e) { console.warn('New project increment failed:', e); }
+        }
+        toast('تم تعديل السجل بنجاح! 🎉', 'success');
+      } else {
+        await addDoc(timeLogsRef(), {
+          clientId, projectId, hours, date: logDate, description: desc,
+          createdAt: serverTimestamp()
+        });
+        // Also bump the project's running total so badges stay in sync
+        try {
+          await updateDoc(projectDoc(clientId, projectId), {
+            totalMinutesSpent: increment(minutes)
+          });
+        } catch (e) { console.warn('Project totalMinutesSpent update failed:', e); }
+        toast(`تم تسجيل ${hours} ساعة بنجاح! ⏱️`, 'success');
+      }
+      closeModal();
     }
   } catch (err) {
     toast('حدث خطأ، تحقق من الاتصال', 'error'); console.error(err);
@@ -1803,7 +1923,7 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
 
 function openConfirm({ type, id, name, warning = '', clientId = null }) {
   state.deleteTarget = { type, id, clientId };
-  const titles = { client: 'حذف العميل', project: 'حذف المشروع', task: 'حذف المهمة' };
+  const titles = { client: 'حذف العميل', project: 'حذف المشروع', task: 'حذف المهمة', hours: 'حذف السجل' };
   document.getElementById('confirm-title').textContent    = titles[type] || 'حذف';
   document.getElementById('confirm-item-name').textContent = name || '';
   document.getElementById('confirm-warning').textContent  = warning;
@@ -1835,6 +1955,22 @@ document.getElementById('confirm-yes')?.addEventListener('click', async () => {
     } else if (target.type === 'task') {
       await deleteDoc(taskDoc(state.client.id, state.project.id, target.id));
       toast('تم حذف المهمة', 'info', '🗑️');
+
+    } else if (target.type === 'hours') {
+      // Reverse the project's totalMinutesSpent so it stays in sync
+      const log = state.timeLogs.find(l => l.id === target.id);
+      if (log && log.projectId && log.clientId) {
+        const minutes = Math.round((Number(log.hours) || 0) * 60);
+        if (minutes > 0) {
+          try {
+            await updateDoc(projectDoc(log.clientId, log.projectId), {
+              totalMinutesSpent: increment(-minutes)
+            });
+          } catch (e) { console.warn('Project decrement failed:', e); }
+        }
+      }
+      await deleteDoc(timeLogDoc(target.id));
+      toast('تم حذف السجل', 'info', '🗑️');
     }
   } catch (err) {
     toast('فشل الحذف', 'error'); console.error(err);
@@ -1898,6 +2034,7 @@ document.addEventListener('keydown', e => {
     if (state.view === 'clients')       openModal('client');
     else if (state.view === 'projects') openModal('project');
     else if (state.view === 'tasks')    openModal('task');
+    else if (state.view === 'hours')    openModal('hours');
   }
 });
 
@@ -1949,3 +2086,204 @@ setInterval(() => {
     if (el) el.scrollTop = top;
   });
 }, 60000);
+
+// ════════════════════════════════════════════════════════════════
+//  HOURS TRACKER MODULE (v6.0)
+// ════════════════════════════════════════════════════════════════
+
+// ── Date format: "السبت 12 يونيو" ──
+function formatHoursDate(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+// Round float hours to 2 decimals, drop trailing zeros
+function formatHoursValue(h) {
+  const n = Number(h) || 0;
+  return n.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function subscribeHours() {
+  // Subscribe to timeLogs + clients + projects (the latter two so we can show names)
+  const logsQ = query(timeLogsRef(), orderBy('date', 'desc'));
+  state.timeLogsUnsub = onSnapshot(logsQ, snap => {
+    setOnline(); hideLoading();
+    state.timeLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderHours();
+  }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+
+  // Clients (for names + total badge)
+  const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
+  state.unsubscribe = onSnapshot(clientQ, snap => {
+    setOnline(); hideLoading();
+    state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const badge = document.getElementById('total-badge');
+    if (badge) badge.textContent = state.clients.length;
+    renderHours();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  // Projects across all clients (for project names + the modal selector)
+  const projQ = query(collectionGroup(db, 'projects'));
+  state.dashUnsubProjects = onSnapshot(projQ, snap => {
+    setOnline(); hideLoading();
+    state.allProjects = snap.docs.map(d => ({
+      id: d.id, ...d.data(),
+      _ref: d.ref,
+      _clientId: d.ref.parent.parent.id
+    }));
+    renderHours();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+}
+
+function renderHours() {
+  if (state.view !== 'hours') return;
+
+  // ── Summary calculations ──
+  const now = new Date();
+  // Week starts Saturday in Arab calendar — use 6 = Saturday
+  const dayOfWeek = now.getDay(); // 0=Sun ... 6=Sat
+  const daysSinceSat = (dayOfWeek + 1) % 7; // Sat=0, Sun=1, ..., Fri=6
+  const startOfWeek = new Date(now);
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(now.getDate() - daysSinceSat);
+
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  let weekHours = 0, monthHours = 0, totalHours = 0;
+  state.timeLogs.forEach(log => {
+    const h = Number(log.hours) || 0;
+    totalHours += h;
+    const d = log.date?.toDate ? log.date.toDate() : (log.date ? new Date(log.date) : null);
+    if (!d) return;
+    if (d >= startOfMonth) monthHours += h;
+    if (d >= startOfWeek)  weekHours  += h;
+  });
+
+  const setStat = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = formatHoursValue(val);
+  };
+  setStat('hours-week',  weekHours);
+  setStat('hours-month', monthHours);
+  setStat('hours-total', totalHours);
+
+  // ── Logs grid ──
+  const grid = document.getElementById('hours-logs-grid');
+  if (!grid) return;
+
+  const q = state.search.toLowerCase();
+  const filtered = state.timeLogs.filter(log => {
+    if (!q) return true;
+    const client = state.clients.find(c => c.id === log.clientId);
+    const project = state.allProjects.find(p => p.id === log.projectId);
+    const haystack = [
+      client?.name || '',
+      project?.name || '',
+      log.description || ''
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = emptyStateHTML(
+      '⏱️',
+      state.search ? 'لا نتائج مطابقة' : 'لا توجد سجلات ساعات بعد',
+      state.search ? 'جرّب كلمة بحث مختلفة' : 'اضغط "تسجيل ساعات جديدة" لإضافة أول سجل'
+    );
+    return;
+  }
+
+  grid.innerHTML = filtered.map(log => {
+    const client  = state.clients.find(c => c.id === log.clientId);
+    const project = state.allProjects.find(p => p.id === log.projectId);
+    const clientName  = client  ? escapeHtml(client.name)  : 'عميل محذوف';
+    const projectName = project ? escapeHtml(project.name) : 'مشروع محذوف';
+
+    return `
+      <div class="hours-log-card" data-id="${log.id}">
+        <div class="hours-log-top">
+          <div class="hours-log-meta">
+            <span class="hours-log-client">👤 ${clientName}</span>
+            <span class="hours-log-project" title="${projectName}">📁 ${projectName}</span>
+          </div>
+          <span class="hours-log-value">
+            <span class="hours-log-value-num">${formatHoursValue(log.hours)}</span>
+            <span class="hours-log-value-unit">س</span>
+          </span>
+        </div>
+        ${log.description ? `<div class="hours-log-desc">${escapeHtml(log.description)}</div>` : ''}
+        <div class="hours-log-footer">
+          <span class="hours-log-date">📅 ${formatHoursDate(log.date)}</span>
+          <div class="hours-log-actions">
+            <button class="hours-log-edit" data-id="${log.id}" title="تعديل السجل">✏️</button>
+            <button class="hours-log-del"  data-id="${log.id}" title="حذف السجل">🗑️</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Bind delete/edit
+  grid.querySelectorAll('.hours-log-del').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const log = state.timeLogs.find(l => l.id === btn.dataset.id);
+      openConfirm({
+        type: 'hours',
+        id: btn.dataset.id,
+        name: `${formatHoursValue(log?.hours || 0)} ساعة — ${formatHoursDate(log?.date)}`,
+        warning: 'سيتم خصم هذه الساعات من إجمالي المشروع',
+      });
+    });
+  });
+  grid.querySelectorAll('.hours-log-edit').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openModal('hours', btn.dataset.id);
+    });
+  });
+}
+
+// Prefill the hours modal when editing
+function prefillHoursModalValues(id) {
+  const log = state.timeLogs.find(l => l.id === id);
+  if (!log) return;
+
+  const clientSel  = document.getElementById('f-client-id');
+  const projectSel = document.getElementById('f-project-id');
+  const hoursEl    = document.getElementById('f-hours');
+  const dateEl     = document.getElementById('f-date');
+  const descEl     = document.getElementById('f-description');
+
+  if (clientSel) {
+    clientSel.value = log.clientId || '';
+    // Trigger change to populate projects
+    clientSel.dispatchEvent(new Event('change'));
+  }
+  if (projectSel) projectSel.value = log.projectId || '';
+  if (hoursEl)    hoursEl.value = log.hours ?? '';
+  if (dateEl && log.date) {
+    const d = log.date.toDate ? log.date.toDate() : new Date(log.date);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    dateEl.value = `${yyyy}-${mm}-${dd}`;
+  }
+  if (descEl) descEl.value = log.description || '';
+}
+
+// ── Wire up Hours buttons (idempotent guard) ──
+const btnAddHours = document.getElementById('btn-add-hours');
+if (btnAddHours) {
+  btnAddHours.addEventListener('click', () => openModal('hours'));
+}
+
+const searchHoursInput = document.getElementById('search-hours');
+if (searchHoursInput) {
+  searchHoursInput.addEventListener('input', e => {
+    state.search = e.target.value;
+    if (state.view === 'hours') renderHours();
+  });
+}
+

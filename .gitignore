@@ -1,5 +1,6 @@
-# Firebase config - DO NOT COMMIT
-firebase-config.js
+# Firebase web config is public by design — the apiKey is NOT a secret.
+# Real security comes from Firestore Rules (see firestore.rules).
+# So firebase-config.js IS committed to the repo so GitHub Pages can load it.
 
 # OS files
 .DS_Store
