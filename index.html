@@ -117,7 +117,7 @@
             <span class="db-dot offline" id="db-dot" title="حالة الاتصال"></span>
             <span id="db-status-text" style="font-size: 11px; color: var(--text-muted);">غير متصل</span>
           </div>
-          <span class="version-tag">v3.6</span>
+          <span class="version-tag">v9.2</span>
         </div>
         <button class="btn-signout" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -157,31 +157,27 @@
 
           <!-- Welcome Row -->
           <div class="dash-welcome-row" style="margin-bottom: 20px;">
-            <h2 id="dash-greeting" class="dash-welcome-title" style="font-size: 16px; font-weight: 700; color: var(--text-primary);"></h2>
+            <h2 id="dash-greeting" class="dash-welcome-title"
+              style="font-size: 16px; font-weight: 700; color: var(--text-primary);"></h2>
           </div>
 
           <!-- A. Donut chart: work hours vs rest hours -->
           <div class="dash-donut-wrap">
             <svg class="dash-donut" viewBox="0 0 200 200" aria-label="رسم بياني للجلسات والراحة">
               <!-- Track -->
-              <circle cx="100" cy="100" r="80" fill="none"
-                stroke="rgba(255,255,255,0.04)" stroke-width="22" />
+              <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="22" />
               <!-- Rest segment -->
-              <circle id="donut-rest"  cx="100" cy="100" r="80" fill="none"
-                stroke="#3F424A" stroke-width="22"
-                stroke-dasharray="0 502.65" stroke-dashoffset="0"
-                transform="rotate(-90 100 100)" stroke-linecap="butt" />
+              <circle id="donut-rest" cx="100" cy="100" r="80" fill="none" stroke="#3F424A" stroke-width="22"
+                stroke-dasharray="0 502.65" stroke-dashoffset="0" transform="rotate(-90 100 100)"
+                stroke-linecap="butt" />
               <!-- Work segment -->
-              <circle id="donut-work"  cx="100" cy="100" r="80" fill="none"
-                stroke="var(--status-done)" stroke-width="22"
-                stroke-dasharray="0 502.65" stroke-dashoffset="0"
-                transform="rotate(-90 100 100)" stroke-linecap="butt" />
+              <circle id="donut-work" cx="100" cy="100" r="80" fill="none" stroke="var(--status-done)" stroke-width="22"
+                stroke-dasharray="0 502.65" stroke-dashoffset="0" transform="rotate(-90 100 100)"
+                stroke-linecap="butt" />
               <!-- Center text -->
-              <text id="donut-center-value" x="100" y="95" text-anchor="middle"
-                fill="var(--text-primary)" font-size="32" font-weight="700"
-                style="font-variant-numeric: tabular-nums;">0</text>
-              <text x="100" y="120" text-anchor="middle"
-                fill="var(--text-muted)" font-size="11"
+              <text id="donut-center-value" x="100" y="95" text-anchor="middle" fill="var(--text-primary)"
+                font-size="32" font-weight="700" style="font-variant-numeric: tabular-nums;">0</text>
+              <text x="100" y="120" text-anchor="middle" fill="var(--text-muted)" font-size="11"
                 style="letter-spacing: 0.08em;">إجمالي الساعات</text>
             </svg>
             <!-- Tooltip element -->
@@ -227,8 +223,8 @@
               <span class="portal-title">تقويم المهام</span>
               <span class="portal-sub">شاهد كل مهامك مرتبة في عرض شهري شجري</span>
             </div>
-            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </div>
@@ -239,7 +235,8 @@
         <div class="view" id="view-calendar">
           <div class="calendar-toolbar">
             <button class="toolbar-back-btn" id="btn-back-calendar" aria-label="رجوع" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                stroke-linejoin="round">
                 <line x1="19" y1="12" x2="5" y2="12" />
                 <polyline points="12 19 5 12 12 5" />
               </svg>
@@ -266,16 +263,16 @@
         <div class="view" id="view-day">
           <div class="day-toolbar">
             <button class="toolbar-back-btn" id="btn-back-day" aria-label="رجوع للتقويم" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                stroke-linejoin="round">
                 <line x1="19" y1="12" x2="5" y2="12" />
                 <polyline points="12 19 5 12 12 5" />
               </svg>
-              <span>رجوع</span>
             </button>
             <h2 class="day-title" id="day-title">— اليوم —</h2>
           </div>
-          <div class="day-tree" id="day-tree">
-            <!-- Tree rendered by JS -->
+          <div class="day-blocks" id="day-blocks">
+            <!-- Client+Project compact blocks rendered by JS -->
           </div>
         </div>
 
@@ -304,8 +301,8 @@
                   <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
                     <span class="focus-dd-icon">📁</span>
                     <span class="focus-dd-text placeholder" data-placeholder="اختر المشروع">اختر المشروع</span>
-                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                   </button>
@@ -319,9 +316,10 @@
                 <div class="focus-dd disabled" data-fdd="task">
                   <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
                     <span class="focus-dd-icon">📋</span>
-                    <span class="focus-dd-text placeholder" data-placeholder="اختر المهمة (اختياري)">اختر المهمة (اختياري)</span>
-                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <span class="focus-dd-text placeholder" data-placeholder="اختر المهمة (اختياري)">اختر المهمة
+                      (اختياري)</span>
+                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                   </button>
@@ -336,20 +334,17 @@
 
             <!-- Pill-shaped duration toggles -->
             <div class="focus-pills" id="focus-modes" role="group" aria-label="مدة الجلسة">
-              <button class="focus-pill active" type="button" id="btn-mode-quick"
-                data-work="25" data-break="5">
+              <button class="focus-pill active" type="button" id="btn-mode-quick" data-work="25" data-break="5">
                 <span class="pill-emoji">🎯</span>
                 <span class="pill-label">جلسة سريعة</span>
                 <span class="pill-time">25 / 5</span>
               </button>
-              <button class="focus-pill" type="button" id="btn-mode-deep"
-                data-work="50" data-break="15">
+              <button class="focus-pill" type="button" id="btn-mode-deep" data-work="50" data-break="15">
                 <span class="pill-emoji">⚡</span>
                 <span class="pill-label">تركيز مكثف</span>
                 <span class="pill-time">50 / 15</span>
               </button>
-              <button class="focus-pill" type="button" id="btn-mode-flow"
-                data-work="90" data-break="20">
+              <button class="focus-pill" type="button" id="btn-mode-flow" data-work="90" data-break="20">
                 <span class="pill-emoji">🧠</span>
                 <span class="pill-label">غوص عميق</span>
                 <span class="pill-time">90 / 20</span>
@@ -372,6 +367,11 @@
             <div class="focus-controls">
               <button class="focus-btn-reset" type="button" id="btn-focus-reset" title="إعادة تعيين">🔄</button>
               <button class="focus-btn-start" type="button" id="btn-focus-start">ابدأ الجلسة ▶️</button>
+              <button class="premium-ide-btn focus-instant-log" type="button" id="btn-focus-instant-log"
+                title="إضافة وقت الجلسة المحددة فوراً للمشروع/التاسك">
+                <span>⚡</span>
+                <span>إضافة الوقت فوراً</span>
+              </button>
             </div>
 
           </div>

@@ -27,6 +27,7 @@ import {
   query,
   orderBy,
   getDocs,
+  setDoc,
   writeBatch,
   increment
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -354,6 +355,7 @@ const tasksRef    = (cId, pId)                 => collection(db, 'clients', cId,
 const clientDoc   = (cId)                      => doc(db, 'clients', cId);
 const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'projects', pId);
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
+const userStatsDoc = ()                        => doc(db, 'meta', 'userStats');
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -368,11 +370,18 @@ const state = {
   navigationSource: 'dashboard', // 'dashboard' | 'clients' | 'projects-all'
   dashUnsubProjects: null,
   dashUnsubTasks:    null,
+  dashUnsubStats:    null,
   projUnsub:         null,
   taskUnsub:         null,
   draggedId:   null,
   draggedEntityId:   null,
   draggedEntityType: null,
+  dayDraggedId:        null,
+  dayDraggedClientId:  null,
+  dayDraggedProjectId: null,
+  dayDragKind:         null,    // 'task' | 'block'
+  dayDraggedBlockClient:  null,
+  dayDraggedBlockProject: null,
   search:      '',
   deleteTarget: null,
   editTarget:   null,
@@ -386,6 +395,10 @@ const state = {
   focusBreakMinutes:    5,
   focusProjectId:       null,
   focusTaskId:          null,
+  // Calendar state (v9.2)
+  calendarCursor:       null,     // Date pointing at the displayed month
+  dayDate:              null,     // Date selected for day-details view
+  totalRestHours:       Number(localStorage.getItem('totalRestHours')) || 0,
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -396,6 +409,7 @@ function cleanupListeners() {
   safeUnsub(state.unsubscribe);        state.unsubscribe = null;
   safeUnsub(state.dashUnsubProjects);  state.dashUnsubProjects = null;
   safeUnsub(state.dashUnsubTasks);     state.dashUnsubTasks = null;
+  safeUnsub(state.dashUnsubStats);     state.dashUnsubStats = null;
   safeUnsub(state.projUnsub);          state.projUnsub = null;
   safeUnsub(state.taskUnsub);          state.taskUnsub = null;
 }
@@ -600,6 +614,19 @@ function navigateTo(view, payload = {}) {
     if (payload.project) state.project = payload.project;
     document.getElementById('view-tasks').classList.add('active');
     subscribeTasks();
+
+  } else if (view === 'calendar') {
+    state.client  = null;
+    state.project = null;
+    if (!state.calendarCursor) state.calendarCursor = new Date();
+    document.getElementById('view-calendar').classList.add('active');
+    subscribeCalendar();
+
+  } else if (view === 'day') {
+    document.getElementById('view-day').classList.add('active');
+    if (payload.date instanceof Date) state.dayDate = payload.date;
+    subscribeCalendar();   // shares same listeners as calendar
+    renderDayView();
   }
 
   updateHeader();
@@ -615,6 +642,17 @@ function subscribeDashboard() {
   // Unsubscribe any previous dashboard listeners
   if (state.dashUnsubProjects) { state.dashUnsubProjects(); state.dashUnsubProjects = null; }
   if (state.dashUnsubTasks)    { state.dashUnsubTasks();    state.dashUnsubTasks    = null; }
+  if (state.dashUnsubStats)    { state.dashUnsubStats();    state.dashUnsubStats    = null; }
+
+  // 0a. User-stats document (holds totalRestHours)
+  state.dashUnsubStats = onSnapshot(userStatsDoc(), snap => {
+    if (snap.exists()) {
+      const v = Number(snap.data().totalRestHours) || 0;
+      state.totalRestHours = v;
+      localStorage.setItem('totalRestHours', String(v));
+      if (state.view === 'dashboard') renderDashDonut();
+    }
+  }, err => console.error('userStats listener:', err));
 
   // 0. Also subscribe to clients so we can look up client names
   const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
@@ -750,7 +788,67 @@ function renderDashboard() {
     greetEl.textContent = text;
   }
 
-  // ── Count stats ──
+  // ── Donut: work vs rest ──
+  renderDashDonut();
+  // ── Active session widget mirror ──
+  syncDashActiveSession();
+  return;
+}
+
+function renderDashDonut() {
+  const workSvg  = document.getElementById('donut-work');
+  const restSvg  = document.getElementById('donut-rest');
+  const centerEl = document.getElementById('donut-center-value');
+  const workLbl  = document.getElementById('donut-work-hours');
+  const restLbl  = document.getElementById('donut-rest-hours');
+  if (!workSvg || !restSvg) return;
+
+  const workHours = state.allProjects.reduce((sum, p) => sum + (Number(p.totalProjectHours) || 0), 0);
+  const restHours = Number(state.totalRestHours) || 0;
+  const total     = workHours + restHours;
+
+  const CIRC = 2 * Math.PI * 80;   // ~502.65
+  let workArc = 0, restArc = 0;
+  if (total > 0) {
+    workArc = (workHours / total) * CIRC;
+    restArc = (restHours / total) * CIRC;
+  }
+  workSvg.setAttribute('stroke-dasharray', `${workArc} ${CIRC - workArc}`);
+  workSvg.setAttribute('stroke-dashoffset', '0');
+  // Rest segment starts where the work one ends
+  restSvg.setAttribute('stroke-dasharray', `${restArc} ${CIRC - restArc}`);
+  restSvg.setAttribute('stroke-dashoffset', String(-workArc));
+
+  if (centerEl) centerEl.textContent = formatHoursShort(workHours + restHours);
+  if (workLbl)  workLbl.textContent  = formatHoursShort(workHours);
+  if (restLbl)  restLbl.textContent  = formatHoursShort(restHours);
+
+  // Tooltip hovers
+  const tip = document.getElementById('donut-tooltip');
+  if (tip) {
+    const wrap = document.querySelector('.dash-donut-wrap');
+    const show = (e, text) => {
+      tip.textContent = text;
+      tip.classList.remove('hidden');
+      const r = wrap.getBoundingClientRect();
+      tip.style.left = (e.clientX - r.left) + 'px';
+      tip.style.top  = (e.clientY - r.top - 6) + 'px';
+    };
+    const hide = () => tip.classList.add('hidden');
+    workSvg.onmousemove = (e) => show(e, `🎯 ساعات الجلسات: ${formatHours(workHours)}`);
+    restSvg.onmousemove = (e) => show(e, `☕ وقت الراحة: ${formatHours(restHours)}`);
+    workSvg.onmouseleave = hide;
+    restSvg.onmouseleave = hide;
+  }
+}
+
+function formatHoursShort(h) {
+  const n = Number(h) || 0;
+  if (n < 10) return n.toFixed(1).replace(/\.0$/, '');
+  return String(Math.round(n));
+}
+function _legacyRenderDashboard_unused() {
+  if (state.view !== 'dashboard') return;
   const totalClients   = state.clients.length;
   const activeProjects = state.allProjects.filter(p => p.status === 'active' || !p.status);
   const totalTodo      = state.allTasks.filter(t => t.status === 'todo' || t.status === 'doing').length;
@@ -920,6 +1018,487 @@ function renderDashboard() {
     }
   }
 }
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIVE SESSION MIRROR (Dashboard widget)
+// ════════════════════════════════════════════════════════════════
+
+function syncDashActiveSession() {
+  const widget = document.getElementById('dash-active-session');
+  if (!widget) return;
+
+  // Show only when a timer is actively running OR paused mid-session
+  const hasSession = state.focusRunning
+    || (state.focusTimeLeft !== state.focusWorkMinutes * 60
+        && state.focusTimeLeft !== state.focusBreakMinutes * 60);
+
+  if (!hasSession) {
+    widget.classList.add('hidden');
+    return;
+  }
+  widget.classList.remove('hidden');
+  widget.classList.toggle('break-mode', state.focusState === 'break');
+
+  const minEl = document.getElementById('active-session-minutes');
+  const secEl = document.getElementById('active-session-seconds');
+  const lblEl = document.getElementById('active-session-label');
+  const m = Math.floor(state.focusTimeLeft / 60);
+  const s = state.focusTimeLeft % 60;
+  if (minEl) minEl.textContent = String(m).padStart(2, '0');
+  if (secEl) secEl.textContent = String(s).padStart(2, '0');
+  if (lblEl) {
+    if (state.focusState === 'break') {
+      lblEl.textContent = state.focusRunning ? 'وقت الراحة الآن ☕' : 'جلسة راحة موقوفة';
+    } else {
+      lblEl.textContent = state.focusRunning ? 'جاري العمل الآن 🔥' : 'جلسة موقوفة';
+    }
+  }
+
+  const pauseBtn = document.getElementById('active-session-pause');
+  if (pauseBtn) pauseBtn.textContent = state.focusRunning ? '⏸️' : '▶️';
+}
+
+(function setupActiveSessionControls() {
+  const pauseBtn = document.getElementById('active-session-pause');
+  const resetBtn = document.getElementById('active-session-reset');
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      if (state.focusRunning) pauseFocusTimer();
+      else                    startFocusTimer();
+    });
+  }
+  if (resetBtn) resetBtn.addEventListener('click', () => resetFocusTimer());
+})();
+
+// ════════════════════════════════════════════════════════════════
+//  CALENDAR + DAY VIEW (v9.2)
+// ════════════════════════════════════════════════════════════════
+
+function subscribeCalendar() {
+  // Reuse same listeners as the dashboard — we need clients, projects, tasks
+  if (state.dashUnsubProjects || state.dashUnsubTasks || state.unsubscribe) {
+    // Already loaded by dashboard subscriptions — just render
+    renderCalendar();
+    if (state.view === 'day') renderDayView();
+    return;
+  }
+
+  const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
+  state.unsubscribe = onSnapshot(clientQ, snap => {
+    setOnline(); hideLoading();
+    state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const badge = document.getElementById('total-badge');
+    if (badge) badge.textContent = state.clients.length;
+    renderCalendar();
+    if (state.view === 'day') renderDayView();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  state.dashUnsubProjects = onSnapshot(query(collectionGroup(db, 'projects')), snap => {
+    setOnline(); hideLoading();
+    state.allProjects = snap.docs.map(d => ({ id: d.id, ...d.data(), _ref: d.ref, _clientId: d.ref.parent.parent.id }));
+    renderCalendar();
+    if (state.view === 'day') renderDayView();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+
+  state.dashUnsubTasks = onSnapshot(query(collectionGroup(db, 'tasks')), snap => {
+    setOnline(); hideLoading();
+    state.allTasks = snap.docs.map(d => ({
+      id: d.id, ...d.data(),
+      _projectId: d.ref.parent.parent.id,
+      _clientId:  d.ref.parent.parent.parent.parent.id
+    }));
+    renderCalendar();
+    if (state.view === 'day') renderDayView();
+  }, err => { setOffline(); hideLoading(); console.error(err); });
+}
+
+function parseDateField(v) {
+  if (!v) return null;
+  if (typeof v.toDate === 'function') return v.toDate();
+  if (v instanceof Date) return v;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function sameYMD(a, b) {
+  return a.getFullYear() === b.getFullYear()
+      && a.getMonth() === b.getMonth()
+      && a.getDate() === b.getDate();
+}
+
+function tasksOnDate(date) {
+  const target = startOfDay(date).getTime();
+  return state.allTasks.filter(t => {
+    const sd = parseDateField(t.startDate);
+    if (!sd) return false;
+    const start = startOfDay(sd).getTime();
+    const ed = parseDateField(t.endDate);
+    const end = ed ? startOfDay(ed).getTime() : start;
+    return target >= start && target <= end;
+  });
+}
+
+function renderCalendar() {
+  if (state.view !== 'calendar' && state.view !== 'day') return;
+
+  const grid  = document.getElementById('calendar-grid');
+  const label = document.getElementById('cal-month-label');
+  if (!grid || !label) return;
+
+  const cursor = state.calendarCursor || new Date();
+  const year   = cursor.getFullYear();
+  const month  = cursor.getMonth();
+
+  label.textContent = cursor.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+
+  // Saturday-first layout (Arabic week): JS Sunday=0..Saturday=6 → shift to (day+1)%7
+  const firstOfMonth   = new Date(year, month, 1);
+  const startWeekday   = (firstOfMonth.getDay() + 1) % 7;
+  const daysInMonth    = new Date(year, month + 1, 0).getDate();
+  const today          = startOfDay(new Date());
+
+  // Pad with trailing days of previous month
+  const prevMonthDays  = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i = startWeekday - 1; i >= 0; i--) {
+    cells.push({ date: new Date(year, month - 1, prevMonthDays - i), other: true });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ date: new Date(year, month, d), other: false });
+  }
+  while (cells.length % 7 !== 0) {
+    const i = cells.length - (startWeekday + daysInMonth) + 1;
+    cells.push({ date: new Date(year, month + 1, i), other: true });
+  }
+
+  grid.innerHTML = cells.map(({ date, other }) => {
+    const isToday = sameYMD(date, today);
+    const tasksToday = tasksOnDate(date);
+    const visible = tasksToday.slice(0, 3);
+    const more = tasksToday.length - visible.length;
+
+    const chips = visible.map(t => `
+      <div class="cal-task-chip status-${t.status || 'todo'}" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
+    `).join('');
+
+    return `
+      <div class="cal-day ${other ? 'other-month' : ''} ${isToday ? 'today' : ''}"
+           data-date="${date.toISOString()}" role="button" tabindex="0">
+        <div class="cal-day-num">
+          <span>${date.getDate()}</span>
+          ${tasksToday.length > 0 ? `<span class="cal-day-count">${tasksToday.length}</span>` : ''}
+        </div>
+        <div class="cal-day-tasks">
+          ${chips}
+          ${more > 0 ? `<div class="cal-day-more">+${more} مهام أخرى</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.cal-day[data-date]').forEach(cell => {
+    const handler = () => {
+      const d = new Date(cell.dataset.date);
+      navigateTo('day', { date: d });
+    };
+    cell.addEventListener('click', handler);
+    cell.addEventListener('keydown', e => { if (e.key === 'Enter') handler(); });
+  });
+}
+
+function renderDayView() {
+  if (state.view !== 'day') return;
+  const titleEl = document.getElementById('day-title');
+  const blocks  = document.getElementById('day-blocks');
+  if (!titleEl || !blocks) return;
+
+  const date = state.dayDate || new Date();
+  titleEl.textContent = date.toLocaleDateString('ar-EG', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+
+  const items = tasksOnDate(date);
+  if (items.length === 0) {
+    blocks.innerHTML = `
+      <div class="day-empty" style="grid-column: 1 / -1;">
+        <div class="day-empty-icon">📭</div>
+        <p>لا توجد مهام في هذا اليوم</p>
+      </div>`;
+    return;
+  }
+
+  // Group: (clientId, projectId) → tasks[]
+  const groupMap = new Map();   // key = `${cid}::${pid}`
+  for (const t of items) {
+    const cid = t._clientId || 'unknown';
+    const pid = t._projectId || 'unknown';
+    const key = `${cid}::${pid}`;
+    if (!groupMap.has(key)) {
+      groupMap.set(key, { clientId: cid, projectId: pid, tasks: [] });
+    }
+    groupMap.get(key).tasks.push(t);
+  }
+
+  // Sort tasks inside each block: doing > todo > done, then title
+  const statusRank = { doing: 0, todo: 1, done: 2 };
+  for (const g of groupMap.values()) {
+    g.tasks.sort((a, b) => {
+      const sa = statusRank[a.status] ?? 1;
+      const sb = statusRank[b.status] ?? 1;
+      if (sa !== sb) return sa - sb;
+      return (a.title || '').localeCompare(b.title || '', 'ar');
+    });
+  }
+
+  // Order blocks by the project's saved `order` field (v14.0)
+  const orderedGroups = [...groupMap.values()].sort((a, b) => {
+    const ap = state.allProjects.find(p => p.id === a.projectId);
+    const bp = state.allProjects.find(p => p.id === b.projectId);
+    const ao = ap?.order ?? 9999;
+    const bo = bp?.order ?? 9999;
+    return ao - bo;
+  });
+
+  blocks.innerHTML = orderedGroups.map(({ clientId, projectId, tasks }) => {
+    const client      = state.clients.find(c => c.id === clientId);
+    const project     = state.allProjects.find(p => p.id === projectId);
+    const clientName  = client  ? escapeHtml(client.name)  : '— عميل غير معروف —';
+    const projectName = project ? escapeHtml(project.name) : '— مشروع —';
+
+    // Avatar: client photo if available, else colored initials
+    const avatarStyle = client?.avatarUrl
+      ? 'background: transparent;'
+      : `background: ${escapeHtml(client?.color || '#3574F0')};`;
+    const avatarInner = client?.avatarUrl
+      ? `<img src="${client.avatarUrl}" alt="${clientName}" />`
+      : escapeHtml(getInitials(client?.name || '—'));
+
+    const doneCount = tasks.filter(t => t.status === 'done').length;
+    const cards = tasks.length
+      ? tasks.map(dayTaskCardHTML).join('')
+      : `<div class="day-block-empty">لا توجد مهام بعد</div>`;
+
+    return `
+      <div class="day-block" draggable="true"
+           data-client="${clientId}" data-project="${projectId}">
+        <div class="day-block-header" title="اسحب هذا الكارت لإعادة ترتيب المشاريع">
+          <div class="day-block-avatar" style="${avatarStyle}">${avatarInner}</div>
+          <div class="day-block-titles">
+            <div class="day-block-project">${projectName}</div>
+            <div class="day-block-client" title="${clientName}">👤 ${clientName}</div>
+          </div>
+        </div>
+        <div class="day-block-body">
+          ${cards}
+        </div>
+        <div class="day-block-meta">
+          <span>${doneCount} / ${tasks.length} مكتملة</span>
+          <span class="day-block-count-badge">${tasks.length} مهمة</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  bindDayBlockEvents();
+}
+
+function dayTaskCardHTML(task) {
+  const status    = task.status || 'todo';
+  const taskHours = Number(task.taskHoursSpent) || 0;
+  const timeBadge = taskHours > 0
+    ? `<span class="day-task-meta-time">⏱️ ${formatHours(taskHours)}</span>` : '';
+  const statusLabel = { todo: 'مطلوب', doing: 'جاري', done: 'تم' }[status] || '';
+
+  return `
+    <div class="day-task-card status-${status}"
+         draggable="true"
+         data-id="${task.id}"
+         data-client="${task._clientId || ''}"
+         data-project="${task._projectId || ''}">
+      <div class="day-task-card-title" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</div>
+      <div class="day-task-card-meta">
+        <span>● ${statusLabel}</span>
+        ${timeBadge}
+      </div>
+    </div>`;
+}
+
+function bindDayBlockEvents() {
+  // Card drag start/end + double-click to open the project's kanban
+  document.querySelectorAll('#day-blocks .day-task-card').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      // Stop the parent .day-block dragstart from also firing
+      e.stopPropagation();
+      state.dayDraggedId        = card.dataset.id;
+      state.dayDraggedClientId  = card.dataset.client;
+      state.dayDraggedProjectId = card.dataset.project;
+      state.dayDragKind         = 'task';
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', card.dataset.id); } catch (_) {}
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      state.dayDraggedId = null;
+      state.dayDraggedClientId = null;
+      state.dayDraggedProjectId = null;
+      state.dayDragKind = null;
+      document.querySelectorAll('#day-blocks .day-block').forEach(b => b.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target'));
+    });
+    card.addEventListener('dblclick', () => {
+      const client  = state.clients.find(c => c.id === card.dataset.client);
+      const project = state.allProjects.find(p => p.id === card.dataset.project);
+      if (client && project) navigateTo('tasks', { client, project, fromDashboard: true });
+    });
+  });
+
+  // ── Block-level DnD: both task strict-same-project + block reorder (v14.0) ──
+  document.querySelectorAll('#day-blocks .day-block').forEach(block => {
+    const targetClient  = block.dataset.client;
+    const targetProject = block.dataset.project;
+
+    // The block itself is draggable → start block-reorder
+    block.addEventListener('dragstart', e => {
+      // If a task card inside started the drag, skip (it set dayDragKind='task' already)
+      if (state.dayDragKind === 'task') return;
+      state.dayDragKind             = 'block';
+      state.dayDraggedBlockClient   = targetClient;
+      state.dayDraggedBlockProject  = targetProject;
+      block.classList.add('dragging');
+      e.dataTransfer.effectAllowed  = 'move';
+      try { e.dataTransfer.setData('text/plain', `block:${targetProject}`); } catch (_) {}
+    });
+
+    block.addEventListener('dragend', () => {
+      block.classList.remove('dragging');
+      state.dayDraggedBlockClient  = null;
+      state.dayDraggedBlockProject = null;
+      state.dayDragKind            = null;
+      document.querySelectorAll('#day-blocks .day-block').forEach(b => b.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target'));
+    });
+
+    block.addEventListener('dragover', e => {
+      if (state.dayDragKind === 'block') {
+        // Block reorder — accept any other block
+        if (state.dayDraggedBlockProject === targetProject) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        block.classList.add('block-drag-target');
+      } else {
+        // Task drag — strict same project
+        const sameProject = state.dayDraggedClientId === targetClient
+                         && state.dayDraggedProjectId === targetProject;
+        if (sameProject) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          block.classList.add('drag-over');
+          block.classList.remove('drop-forbidden');
+        } else {
+          e.dataTransfer.dropEffect = 'none';
+          block.classList.add('drop-forbidden');
+          block.classList.remove('drag-over');
+        }
+      }
+    });
+
+    block.addEventListener('dragleave', e => {
+      if (!block.contains(e.relatedTarget)) {
+        block.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target');
+      }
+    });
+
+    block.addEventListener('drop', async e => {
+      block.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target');
+
+      if (state.dayDragKind === 'block') {
+        const fromProject = state.dayDraggedBlockProject;
+        if (!fromProject || fromProject === targetProject) return;
+        e.preventDefault();
+        await reorderDayProjectBlocks(fromProject, targetProject);
+        return;
+      }
+
+      // Task drop — strict same-project
+      const sameProject = state.dayDraggedClientId === targetClient
+                       && state.dayDraggedProjectId === targetProject;
+      if (!sameProject) return;   // silent cancel — strict v13.0 rule
+      e.preventDefault();
+    });
+  });
+}
+
+async function reorderDayProjectBlocks(fromProjectId, toProjectId) {
+  // Get the current displayed order of projects in #day-blocks
+  const blockEls  = [...document.querySelectorAll('#day-blocks .day-block')];
+  const orderIds  = blockEls.map(b => b.dataset.project);
+
+  const fromIdx = orderIds.indexOf(fromProjectId);
+  const toIdx   = orderIds.indexOf(toProjectId);
+  if (fromIdx === -1 || toIdx === -1) return;
+
+  // Splice the dragged id to the target position
+  orderIds.splice(fromIdx, 1);
+  orderIds.splice(toIdx, 0, fromProjectId);
+
+  // Persist new order to each project's doc
+  const batch = writeBatch(db);
+  orderIds.forEach((pid, idx) => {
+    const proj = state.allProjects.find(p => p.id === pid);
+    if (!proj) return;
+    const cid = proj._clientId || proj._ref?.parent?.parent?.id;
+    if (!cid) return;
+    // Optimistic in-memory update so renderDayView() shows the new order immediately
+    proj.order = idx;
+    batch.update(projectDoc(cid, pid), { order: idx });
+  });
+
+  // Re-render right away (optimistic)
+  renderDayView();
+
+  try {
+    await batch.commit();
+  } catch (err) {
+    console.error('Failed to save project block order:', err);
+    toast('فشل حفظ الترتيب الجديد', 'error');
+  }
+}
+
+// ── Wire calendar controls (idempotent) ──
+(function setupCalendarControls() {
+  const portal = document.getElementById('dash-portal-calendar');
+  if (portal) {
+    const go = () => navigateTo('calendar');
+    portal.addEventListener('click', go);
+    portal.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  }
+
+  const prev = document.getElementById('cal-prev-month');
+  const next = document.getElementById('cal-next-month');
+  const today = document.getElementById('cal-today-btn');
+  const backCal = document.getElementById('btn-back-calendar');
+  const backDay = document.getElementById('btn-back-day');
+
+  if (prev)  prev .addEventListener('click', () => {
+    const c = state.calendarCursor || new Date();
+    state.calendarCursor = new Date(c.getFullYear(), c.getMonth() - 1, 1);
+    renderCalendar();
+  });
+  if (next)  next .addEventListener('click', () => {
+    const c = state.calendarCursor || new Date();
+    state.calendarCursor = new Date(c.getFullYear(), c.getMonth() + 1, 1);
+    renderCalendar();
+  });
+  if (today) today.addEventListener('click', () => {
+    state.calendarCursor = new Date();
+    renderCalendar();
+  });
+  if (backCal) backCal.addEventListener('click', () => navigateTo('dashboard'));
+  if (backDay) backDay.addEventListener('click', () => navigateTo('calendar'));
+})();
 
 // ── Animate counter number ──
 function animateCount(id, target) {
@@ -1468,6 +2047,16 @@ function updateHeader() {
       <div class="stat-pill"><span class="dot done"></span><span id="stat-done">0</span></div>`;
     actionsEl.innerHTML = '';
     renderKanban();
+
+  } else if (state.view === 'calendar') {
+    titleEl.textContent = '📅 تقويم المهام';
+    statsEl.innerHTML   = '';
+    actionsEl.innerHTML = '';
+
+  } else if (state.view === 'day') {
+    titleEl.textContent = '📅 تفاصيل اليوم';
+    statsEl.innerHTML   = '';
+    actionsEl.innerHTML = '';
   }
 }
 
@@ -1598,6 +2187,16 @@ const MODAL_CONFIGS = {
           <option value="low">🟢 منخفض</option>
         </select>
       </div>
+      <div class="form-group" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label class="form-label">تاريخ البدء <span class="required">*</span></label>
+          <input type="date" id="f-start-date" class="form-input" required />
+        </div>
+        <div style="flex:1;">
+          <label class="form-label">تاريخ الانتهاء (اختياري)</label>
+          <input type="date" id="f-end-date" class="form-input" />
+        </div>
+      </div>
       <div class="form-group">
         <label class="form-label">ملاحظات (اختياري)</label>
         <textarea id="f-notes" class="form-textarea"
@@ -1644,10 +2243,16 @@ function openModal(type, editId = null) {
     }
   }
 
+  if (type === 'task' && !state.editTarget) {
+    // Default startDate to today
+    const sd = document.getElementById('f-start-date');
+    if (sd) sd.value = new Date().toISOString().slice(0, 10);
+  }
+
   if (state.editTarget) {
     prefillModalValues();
   }
-  
+
   document.getElementById('modal-overlay').classList.remove('hidden');
   setTimeout(() => document.querySelector('#modal-body input, #modal-body textarea')?.focus(), 60);
 }
@@ -1693,6 +2298,12 @@ function prefillModalValues() {
     if (priorityEl) priorityEl.value = task.priority || '';
     const notesEl = document.getElementById('f-notes');
     if (notesEl) notesEl.value = task.notes || '';
+    const sdEl = document.getElementById('f-start-date');
+    const edEl = document.getElementById('f-end-date');
+    const sd = parseDateField(task.startDate);
+    const ed = parseDateField(task.endDate);
+    if (sdEl) sdEl.value = sd ? sd.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    if (edEl) edEl.value = ed ? ed.toISOString().slice(0, 10) : '';
   }
 }
 
@@ -1787,16 +2398,27 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       const title    = document.getElementById('f-title').value.trim();
       const priority = document.getElementById('f-priority')?.value || null;
       const notes    = document.getElementById('f-notes')?.value.trim() || null;
+      const sdStr    = document.getElementById('f-start-date')?.value;
+      const edStr    = document.getElementById('f-end-date')?.value;
       if (!title) { toast('يرجى إدخال عنوان المهمة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!sdStr) { toast('يرجى تحديد تاريخ البدء', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      const startDate = new Date(sdStr + 'T00:00:00');
+      const endDate   = edStr ? new Date(edStr + 'T00:00:00') : null;
+      if (endDate && endDate < startDate) {
+        toast('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء', 'error');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
 
       if (state.editTarget) {
         await updateDoc(taskDoc(state.client.id, state.project.id, state.editTarget.id), {
-          title, priority, notes
+          title, priority, notes, startDate, endDate
         });
         toast('تم تعديل المهمة بنجاح! 🎉', 'success');
       } else {
         await addDoc(tasksRef(state.client.id, state.project.id), {
-          title, priority, notes, status: 'todo', createdAt: serverTimestamp()
+          title, priority, notes, startDate, endDate,
+          status: 'todo', createdAt: serverTimestamp()
         });
         toast('تمت إضافة المهمة! 🎉', 'success');
       }
@@ -2090,6 +2712,9 @@ function populateFocusTaskSelect(projectId) {
 }
 
 function updateFocusDisplay() {
+  // Always mirror to dashboard widget (cheap, no-op when not on dashboard)
+  syncDashActiveSession();
+
   const minEl   = document.getElementById('focus-minutes');
   const secEl   = document.getElementById('focus-seconds');
   const badgeEl = document.getElementById('focus-status-badge');
@@ -2142,7 +2767,7 @@ function setFocusMode(workMinutes, breakMinutes, btn) {
   state.focusState        = 'work';
   state.focusTimeLeft     = workMinutes * 60;
 
-  document.querySelectorAll('.focus-mode-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.focus-pill').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   updateFocusDisplay();
 }
@@ -2152,16 +2777,19 @@ function startFocusTimer() {
   const projectSel = document.getElementById('focus-project-select');
   const taskSel    = document.getElementById('focus-task-select');
 
-  // Always require a project to bind the session to
-  if (state.focusState === 'work' && !projectSel?.value) {
+  // Allow resuming a paused session (project already bound) without re-picking
+  const resuming = !!state.focusProjectId;
+
+  // Always require a project to bind the session to (first start only)
+  if (!resuming && state.focusState === 'work' && !projectSel?.value) {
     toast('اختر المشروع الأول قبل بدء الجلسة 🎯', 'error');
     const projDd = document.querySelector('.focus-dd[data-fdd="project"]');
     projDd?.classList.add('shake');
     setTimeout(() => projDd?.classList.remove('shake'), 400);
     return;
   }
-  state.focusProjectId = projectSel?.value || null;
-  state.focusTaskId    = taskSel?.value || null;
+  state.focusProjectId = state.focusProjectId || projectSel?.value || null;
+  state.focusTaskId    = state.focusTaskId    || taskSel?.value    || null;
 
   state.focusRunning = true;
   const startBtn = document.getElementById('btn-focus-start');
@@ -2195,6 +2823,8 @@ function resetFocusTimer() {
   state.focusRunning = false;
   state.focusState = 'work';
   state.focusTimeLeft = state.focusWorkMinutes * 60;
+  state.focusProjectId = null;
+  state.focusTaskId    = null;
   const startBtn = document.getElementById('btn-focus-start');
   if (startBtn) {
     startBtn.textContent = 'ابدأ الجلسة ▶️';
@@ -2238,7 +2868,21 @@ async function completeFocusCycle() {
     setFocusLocked(true);
     updateFocusDisplay();
   } else {
-    // Break done → go back to work, idle
+    // Break done → accumulate rest hours, then go back to work idle
+    const restHours = roundHours(state.focusBreakMinutes / 60);
+    state.totalRestHours = roundHours((Number(state.totalRestHours) || 0) + restHours);
+    localStorage.setItem('totalRestHours', String(state.totalRestHours));
+    // Persist to Firestore (atomic, multi-device safe via increment)
+    try {
+      await setDoc(userStatsDoc(), {
+        totalRestHours: increment(restHours),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.error('Failed to persist rest hours to Firestore:', err);
+    }
+    if (state.view === 'dashboard') renderDashDonut();
+
     playFocusChime('break-done');
     toast('انتهت الراحة! جاهز لجلسة جديدة 🚀', 'info', '⏱️');
 
@@ -2322,6 +2966,52 @@ async function saveFocusHours(projectId, taskId, hours) {
     });
   }
   if (btnReset) btnReset.addEventListener('click', resetFocusTimer);
+
+  // ── Instant log: dump the currently selected preset (25 / 50 / 90) ──
+  const btnInstant = document.getElementById('btn-focus-instant-log');
+  if (btnInstant) {
+    btnInstant.addEventListener('click', async () => {
+      const minutes = Number(state.focusWorkMinutes) || 0;
+      if (minutes <= 0) {
+        toast('اختر أحد الجلسات الجاهزة أولاً', 'error');
+        return;
+      }
+
+      const projectSelEl = document.getElementById('focus-project-select');
+      const taskSelEl    = document.getElementById('focus-task-select');
+      const projectId    = projectSelEl?.value || state.focusProjectId;
+      const taskId       = taskSelEl?.value    || state.focusTaskId || null;
+
+      if (!projectId) {
+        toast('اختر المشروع أولاً قبل تسجيل الوقت', 'error');
+        const projDd = document.querySelector('.focus-dd[data-fdd="project"]');
+        projDd?.classList.add('shake');
+        setTimeout(() => projDd?.classList.remove('shake'), 400);
+        return;
+      }
+      if (!taskId) {
+        toast('اختر التاسك أولاً قبل تسجيل الوقت', 'error');
+        const taskDd = document.querySelector('.focus-dd[data-fdd="task"]');
+        taskDd?.classList.add('shake');
+        setTimeout(() => taskDd?.classList.remove('shake'), 400);
+        return;
+      }
+
+      btnInstant.disabled = true;
+      const hours = roundHours(minutes / 60);
+      try {
+        await saveFocusHours(projectId, taskId, hours);
+        btnInstant.classList.add('flash-success');
+        setTimeout(() => btnInstant.classList.remove('flash-success'), 700);
+        toast(`✅ تم تسجيل ${minutes} دقيقة (${hours} ساعة) للجلسة المحددة`, 'success');
+      } catch (err) {
+        console.error('Instant log failed:', err);
+        toast('فشل الحفظ، تحقق من الاتصال', 'error');
+      } finally {
+        btnInstant.disabled = false;
+      }
+    });
+  }
 })();
 
 // ════════════════════════════════════════════════════════════════
