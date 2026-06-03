@@ -28,6 +28,24 @@ service cloud.firestore {
       }
     }
 
+    // ── Finance Hub (v22.0) ──
+    match /incomeSources/{srcId} {
+      allow read, write: if isOwner();
+    }
+    match /expenses/{expId} {
+      allow read, write: if isOwner();
+    }
+    // ── Finance Hub (v25.0 — Dynamic Buckets) ──
+    match /budget_buckets/{bucketId} {
+      allow read, write: if isOwner();
+    }
+    match /transactions/{txId} {
+      allow read, write: if isOwner();
+    }
+    match /meta/{docId} {
+      allow read, write: if isOwner();
+    }
+
     // ── collectionGroup queries (Dashboard + Focus tab) ──
     // The dashboard uses collectionGroup('projects') and collectionGroup('tasks')
     // — those need their OWN rules even though paths above already grant access.

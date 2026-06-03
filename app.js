@@ -159,6 +159,7 @@ if (sidebar && toggleBtn) {
 const navDashboard = document.getElementById('nav-dashboard');
 const navClients   = document.getElementById('nav-clients');
 const navFocus     = document.getElementById('nav-focus');
+const navFinance   = document.getElementById('nav-finance');
 
 if (navDashboard) {
   navDashboard.addEventListener('click', () => navigateTo('dashboard'));
@@ -168,6 +169,9 @@ if (navClients) {
 }
 if (navFocus) {
   navFocus.addEventListener('click', () => navigateTo('focus'));
+}
+if (navFinance) {
+  navFinance.addEventListener('click', () => navigateTo('finance'));
 }
 
 // ── Collapsible Dashboard Projects Section Toggle ──
@@ -356,6 +360,14 @@ const clientDoc   = (cId)                      => doc(db, 'clients', cId);
 const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'projects', pId);
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
 const userStatsDoc = ()                        => doc(db, 'meta', 'userStats');
+// v22.0 — Finance hub collections
+const incomeSourcesRef = ()                    => collection(db, 'incomeSources');
+const incomeSourceDoc  = (id)                  => doc(db, 'incomeSources', id);
+// v25.0 — Dynamic budget buckets + transactions (replaces hardcoded categories)
+const bucketsRef       = ()                    => collection(db, 'budget_buckets');
+const bucketDoc        = (id)                  => doc(db, 'budget_buckets', id);
+const transactionsRef  = ()                    => collection(db, 'transactions');
+const transactionDoc   = (id)                  => doc(db, 'transactions', id);
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -399,6 +411,15 @@ const state = {
   calendarCursor:       null,     // Date pointing at the displayed month
   dayDate:              null,     // Date selected for day-details view
   totalRestHours:       Number(localStorage.getItem('totalRestHours')) || 0,
+  // Finance Hub (v22.0 → v25.0 dynamic buckets)
+  incomeSources:        [],
+  buckets:              [],       // budget_buckets — dynamic categories
+  transactions:         [],       // replaces flat `expenses`
+  financeUnsubIncome:   null,
+  financeUnsubBuckets:  null,
+  financeUnsubTx:       null,
+  financeCursor:        null,     // Date pointing at the displayed finance month
+  financeShowArchived:  false,    // toggle to reveal archived buckets
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -410,12 +431,15 @@ function cleanupListeners() {
   const safeUnsub = (fn) => {
     try { if (typeof fn === 'function') fn(); } catch (e) { console.error('Unsub failed:', e); }
   };
-  safeUnsub(state.unsubscribe);        state.unsubscribe = null;
-  safeUnsub(state.dashUnsubProjects);  state.dashUnsubProjects = null;
-  safeUnsub(state.dashUnsubTasks);     state.dashUnsubTasks = null;
-  safeUnsub(state.dashUnsubStats);     state.dashUnsubStats = null;
-  safeUnsub(state.projUnsub);          state.projUnsub = null;
-  safeUnsub(state.taskUnsub);          state.taskUnsub = null;
+  safeUnsub(state.unsubscribe);          state.unsubscribe = null;
+  safeUnsub(state.dashUnsubProjects);    state.dashUnsubProjects = null;
+  safeUnsub(state.dashUnsubTasks);       state.dashUnsubTasks = null;
+  safeUnsub(state.dashUnsubStats);       state.dashUnsubStats = null;
+  safeUnsub(state.projUnsub);            state.projUnsub = null;
+  safeUnsub(state.taskUnsub);            state.taskUnsub = null;
+  safeUnsub(state.financeUnsubIncome);   state.financeUnsubIncome = null;
+  safeUnsub(state.financeUnsubBuckets);  state.financeUnsubBuckets = null;
+  safeUnsub(state.financeUnsubTx);       state.financeUnsubTx = null;
   cancelPendingRenders();
 }
 
@@ -518,6 +542,17 @@ function formatHours(h) {
   const hh = Math.floor(totalMin / 60);
   const mm = totalMin % 60;
   return mm ? `${hh} س ${mm} د` : `${hh} س`;
+}
+
+// v22.0 — Mono "Xh Ym" format for the dark-theme card tag (e.g. 1.5 → "1h 30m").
+function formatHoursHm(h) {
+  const total = Number(h) || 0;
+  if (total <= 0) return '0h';
+  const totalMin = Math.round(total * 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  return mm ? `${hh}h ${mm}m` : `${hh}h`;
 }
 
 // ── Toast ──────────────────────────────────────────────────────
@@ -631,10 +666,12 @@ function navigateTo(view, payload = {}) {
   const showDashActive    = (view === 'dashboard') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
   const showFocusActive   = (view === 'focus');
+  const showFinanceActive = (view === 'finance');
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
   document.getElementById('nav-focus')?.classList.toggle('active', !!showFocusActive);
+  document.getElementById('nav-finance')?.classList.toggle('active', !!showFinanceActive);
 
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -693,6 +730,13 @@ function navigateTo(view, payload = {}) {
     if (payload.date instanceof Date) state.dayDate = payload.date;
     subscribeCalendar();   // shares same listeners as calendar
     renderDayView();
+
+  } else if (view === 'finance') {
+    state.client  = null;
+    state.project = null;
+    if (!state.financeCursor) state.financeCursor = new Date();
+    document.getElementById('view-finance').classList.add('active');
+    subscribeFinance();
   }
 
   updateHeader();
@@ -708,17 +752,6 @@ function subscribeDashboard() {
   // Unsubscribe any previous dashboard listeners
   if (state.dashUnsubProjects) { state.dashUnsubProjects(); state.dashUnsubProjects = null; }
   if (state.dashUnsubTasks)    { state.dashUnsubTasks();    state.dashUnsubTasks    = null; }
-  if (state.dashUnsubStats)    { state.dashUnsubStats();    state.dashUnsubStats    = null; }
-
-  // 0a. User-stats document (holds totalRestHours)
-  state.dashUnsubStats = onSnapshot(userStatsDoc(), snap => {
-    if (snap.exists()) {
-      const v = Number(snap.data().totalRestHours) || 0;
-      state.totalRestHours = v;
-      localStorage.setItem('totalRestHours', String(v));
-      if (state.view === 'dashboard') renderDashDonut();
-    }
-  }, err => console.error('userStats listener:', err));
 
   // 0. Also subscribe to clients so we can look up client names
   const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
@@ -865,64 +898,11 @@ function renderDashboard() {
     greetEl.textContent = text;
   }
 
-  // ── Donut: work vs rest ──
-  renderDashDonut();
+  // v22.0 — Old donut deleted. Hours tracking now lives entirely on the
+  // per-project linear gauge inside the kanban toolbar.
   // ── Active session widget mirror ──
   syncDashActiveSession();
   return;
-}
-
-function renderDashDonut() {
-  const workSvg  = document.getElementById('donut-work');
-  const restSvg  = document.getElementById('donut-rest');
-  const centerEl = document.getElementById('donut-center-value');
-  const workLbl  = document.getElementById('donut-work-hours');
-  const restLbl  = document.getElementById('donut-rest-hours');
-  if (!workSvg || !restSvg) return;
-
-  const workHours = state.allProjects.reduce((sum, p) => sum + (Number(p.totalProjectHours) || 0), 0);
-  const restHours = Number(state.totalRestHours) || 0;
-  const total     = workHours + restHours;
-
-  const CIRC = 2 * Math.PI * 80;   // ~502.65
-  let workArc = 0, restArc = 0;
-  if (total > 0) {
-    workArc = (workHours / total) * CIRC;
-    restArc = (restHours / total) * CIRC;
-  }
-  workSvg.setAttribute('stroke-dasharray', `${workArc} ${CIRC - workArc}`);
-  workSvg.setAttribute('stroke-dashoffset', '0');
-  // Rest segment starts where the work one ends
-  restSvg.setAttribute('stroke-dasharray', `${restArc} ${CIRC - restArc}`);
-  restSvg.setAttribute('stroke-dashoffset', String(-workArc));
-
-  if (centerEl) centerEl.textContent = formatHoursShort(workHours + restHours);
-  if (workLbl)  workLbl.textContent  = formatHoursShort(workHours);
-  if (restLbl)  restLbl.textContent  = formatHoursShort(restHours);
-
-  // Tooltip hovers
-  const tip = document.getElementById('donut-tooltip');
-  if (tip) {
-    const wrap = document.querySelector('.dash-donut-wrap');
-    const show = (e, text) => {
-      tip.textContent = text;
-      tip.classList.remove('hidden');
-      const r = wrap.getBoundingClientRect();
-      tip.style.left = (e.clientX - r.left) + 'px';
-      tip.style.top  = (e.clientY - r.top - 6) + 'px';
-    };
-    const hide = () => tip.classList.add('hidden');
-    workSvg.onmousemove = (e) => show(e, `🎯 ساعات الجلسات: ${formatHours(workHours)}`);
-    restSvg.onmousemove = (e) => show(e, `☕ وقت الراحة: ${formatHours(restHours)}`);
-    workSvg.onmouseleave = hide;
-    restSvg.onmouseleave = hide;
-  }
-}
-
-function formatHoursShort(h) {
-  const n = Number(h) || 0;
-  if (n < 10) return n.toFixed(1).replace(/\.0$/, '');
-  return String(Math.round(n));
 }
 function _legacyRenderDashboard_unused() {
   if (state.view !== 'dashboard') return;
@@ -1484,6 +1464,39 @@ function bindDayBlockEvents() {
   });
 
   // ── Block-level DnD: both task strict-same-project + block reorder (v14.0) ──
+  // v22.0 — A global cleanup helper so stuck state (e.g. snapshot mid-drag
+  // wiping the source DOM node before its dragend fires) can never poison
+  // the next drag.
+  const clearBlockDragState = () => {
+    state.dayDraggedBlockClient  = null;
+    state.dayDraggedBlockProject = null;
+    state.dayDragKind            = null;
+    document.getElementById('day-blocks')?.classList.remove('is-dragging');
+    document.querySelectorAll('#day-blocks .day-block').forEach(b =>
+      b.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target', 'dragging'));
+  };
+
+  // v22.0 — Container-level dragover so a drop anywhere inside #day-blocks
+  // counts (not just on a block). Stops the OS "no-drop" cursor when the
+  // pointer skims gap space between cards mid-reorder.
+  const blocksContainer = document.getElementById('day-blocks');
+  if (blocksContainer && !blocksContainer._dnDWired) {
+    blocksContainer._dnDWired = true;
+    blocksContainer.addEventListener('dragover', e => {
+      if (state.dayDragKind === 'block') {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }
+    });
+    blocksContainer.addEventListener('drop', e => {
+      // If the drop didn't land on a child block, clean up so we don't stay stuck
+      if (state.dayDragKind === 'block') {
+        e.preventDefault();
+        clearBlockDragState();
+      }
+    });
+  }
+
   document.querySelectorAll('#day-blocks .day-block').forEach(block => {
     const targetClient  = block.dataset.client;
     const targetProject = block.dataset.project;
@@ -1503,13 +1516,7 @@ function bindDayBlockEvents() {
     });
 
     block.addEventListener('dragend', () => {
-      block.classList.remove('dragging');
-      // v21.0 — Drop the container guard so normal hover/transition resumes
-      document.getElementById('day-blocks')?.classList.remove('is-dragging');
-      state.dayDraggedBlockClient  = null;
-      state.dayDraggedBlockProject = null;
-      state.dayDragKind            = null;
-      document.querySelectorAll('#day-blocks .day-block').forEach(b => b.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target'));
+      clearBlockDragState();
     });
 
     block.addEventListener('dragover', e => {
@@ -1519,7 +1526,7 @@ function bindDayBlockEvents() {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         block.classList.add('block-drag-target');
-      } else {
+      } else if (state.dayDragKind === 'task') {
         // Task drag — strict same project
         const sameProject = state.dayDraggedClientId === targetClient
                          && state.dayDraggedProjectId === targetProject;
@@ -1547,8 +1554,11 @@ function bindDayBlockEvents() {
 
       if (state.dayDragKind === 'block') {
         const fromProject = state.dayDraggedBlockProject;
-        if (!fromProject || fromProject === targetProject) return;
         e.preventDefault();
+        // Snapshot the source id BEFORE we clear, because clearBlockDragState
+        // (or the snapshot-driven re-render that follows) will wipe state.
+        clearBlockDragState();
+        if (!fromProject || fromProject === targetProject) return;
         await reorderDayProjectBlocks(fromProject, targetProject);
         return;
       }
@@ -1629,6 +1639,439 @@ async function reorderDayProjectBlocks(fromProjectId, toProjectId) {
   });
   if (backCal) backCal.addEventListener('click', () => navigateTo('dashboard'));
   if (backDay) backDay.addEventListener('click', () => navigateTo('calendar'));
+})();
+
+// ════════════════════════════════════════════════════════════════
+//  FINANCE HUB (v25.0 — Dynamic Buckets)
+//  Income sources stay (salaries + freelance hours×rate). Expenses
+//  were re-modelled into:
+//    - budget_buckets  — user-defined categories with optional
+//      targetBudget and active/archived status.
+//    - transactions    — each spend points at a bucketId; the bucket's
+//      name/colour/icon are looked up live, never hardcoded.
+//  Archived buckets disappear from the spend dropdown and headline
+//  cards but their historic transactions stay intact.
+// ════════════════════════════════════════════════════════════════
+
+// Palette cycled through new buckets so each gets a distinct
+// PhpStorm-friendly accent without the user having to pick one.
+const BUCKET_PALETTE = [
+  { color: '#E891C8', icon: '👰' },
+  { color: '#E05C5C', icon: '🏠' },
+  { color: '#F0A835', icon: '🍔' },
+  { color: '#5C8DEC', icon: '🧠' },
+  { color: '#3DB981', icon: '🛠️' },
+  { color: '#B58CDC', icon: '🎯' },
+  { color: '#54C6C2', icon: '🧾' },
+  { color: '#D1A45A', icon: '✈️' },
+];
+
+function bucketPaletteEntry(seed) {
+  // Stable hash from id so the same bucket always gets the same colour.
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return BUCKET_PALETTE[Math.abs(h) % BUCKET_PALETTE.length];
+}
+
+function bucketVisual(bucket) {
+  if (!bucket) return { color: '#6F727A', icon: '🗂️', label: '— محذوف —' };
+  const fallback = bucketPaletteEntry(bucket.id || bucket.bucketName || '');
+  return {
+    color: bucket.color || fallback.color,
+    icon:  bucket.icon  || fallback.icon,
+    label: bucket.bucketName || '— بدون اسم —',
+  };
+}
+
+// Format money — Arabic-friendly, tabular, with thousands grouping.
+function formatMoney(n) {
+  const v = Number(n) || 0;
+  const rounded = Math.round(v * 100) / 100;
+  const hasDec  = rounded % 1 !== 0;
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: hasDec ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(rounded);
+}
+
+function subscribeFinance() {
+  // Need clients/projects too so we can resolve freelance sources
+  if (!state.dashUnsubProjects && !state.unsubscribe) {
+    const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
+    state.unsubscribe = onSnapshot(clientQ, snap => {
+      setOnline(); hideLoading();
+      state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      debounceRender(renderFinance);
+    }, err => { setOffline(); hideLoading(); console.error(err); });
+
+    state.dashUnsubProjects = onSnapshot(query(collectionGroup(db, 'projects')), snap => {
+      setOnline(); hideLoading();
+      state.allProjects = snap.docs.map(d => ({
+        id: d.id, ...d.data(), _ref: d.ref, _clientId: d.ref.parent.parent.id,
+      }));
+      debounceRender(renderFinance);
+    }, err => { setOffline(); hideLoading(); console.error(err); });
+  } else {
+    hideLoading();
+    debounceRender(renderFinance);
+  }
+
+  state.financeUnsubIncome = onSnapshot(query(incomeSourcesRef(), orderBy('createdAt', 'desc')), snap => {
+    state.incomeSources = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    debounceRender(renderFinance);
+  }, err => { console.error('income sources listener:', err); toast('فشل تحميل مصادر الدخل', 'error'); });
+
+  state.financeUnsubBuckets = onSnapshot(query(bucketsRef(), orderBy('createdAt', 'desc')), snap => {
+    state.buckets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    debounceRender(renderFinance);
+  }, err => {
+    console.error('buckets listener:', err);
+    if (err?.code === 'permission-denied') {
+      toast('⚠️ Firestore rules ناقصة لـ budget_buckets — انشر الـ rules', 'error');
+    }
+  });
+
+  state.financeUnsubTx = onSnapshot(query(transactionsRef(), orderBy('date', 'desc')), snap => {
+    state.transactions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    debounceRender(renderFinance);
+  }, err => {
+    console.error('transactions listener:', err);
+    if (err?.code === 'permission-denied') {
+      toast('⚠️ Firestore rules ناقصة لـ transactions — انشر الـ rules', 'error');
+    }
+  });
+}
+
+// v26.0 — Single source of truth for a freelance income row's earnings.
+// Picks pricingType off the linked project first; legacy income docs that
+// still store hourlyRate locally keep working as a last-resort fallback.
+function computeFreelanceEarning(source) {
+  const proj = state.allProjects.find(p => p.id === source.projectId);
+  if (!proj) return 0;
+  let ptype = proj.pricingType;
+  if (!ptype) {
+    if (Number(proj.hourlyRate) > 0)              ptype = 'hourly';
+    else if (Number(proj.projectFixedPrice) > 0)  ptype = 'fixed';
+    else if (Number(source.hourlyRate) > 0)       ptype = 'hourly-legacy';
+    else return 0;
+  }
+  if (ptype === 'fixed') {
+    return Number(proj.projectFixedPrice) || 0;
+  }
+  const rate  = Number(proj.hourlyRate) || Number(source.hourlyRate) || 0;
+  const hours = Number(proj.totalProjectHours) || 0;
+  return rate * hours;
+}
+
+// ── Computed totals ──────────────────────────────────────────────
+function computeFinanceTotals() {
+  // Salary income: every salary source contributes its monthlyAmount.
+  const salaryTotal = state.incomeSources
+    .filter(s => s.type === 'salary')
+    .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
+
+  // v26.0 — Freelance income now reads pricingType from the project doc.
+  // Hourly  → totalProjectHours × hourlyRate
+  // Fixed   → projectFixedPrice as-is, hours are personal-effort signal only.
+  // Backward compat: if project has no pricingType, fall back to source.hourlyRate.
+  const freelanceTotal = state.incomeSources
+    .filter(s => s.type === 'freelance')
+    .reduce((sum, s) => sum + computeFreelanceEarning(s), 0);
+
+  const totalIncome = salaryTotal + freelanceTotal;
+
+  // Per-bucket spend (dynamic — keyed by bucketId, falls back to "unassigned")
+  const byBucket = new Map();
+  state.transactions.forEach(t => {
+    const id = t.bucketId || '__unassigned__';
+    byBucket.set(id, (byBucket.get(id) || 0) + (Number(t.amount) || 0));
+  });
+  const totalExpense = state.transactions
+    .reduce((a, t) => a + (Number(t.amount) || 0), 0);
+
+  return {
+    salaryTotal, freelanceTotal, totalIncome,
+    byBucket, totalExpense,
+    net: totalIncome - totalExpense,
+  };
+}
+
+// ── Top-level finance render ──────────────────────────────────────
+function renderFinance() {
+  if (state.view !== 'finance') return;
+
+  const tag = document.getElementById('finance-month-tag');
+  if (tag) {
+    const cur = state.financeCursor || new Date();
+    tag.textContent = cur.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+  }
+
+  const t = computeFinanceTotals();
+
+  // 3 fixed headline cards (dynamic per-bucket cards render below)
+  setText('fin-stat-income', formatMoney(t.totalIncome));
+  setText('fin-stat-income-sub', `راتب ${formatMoney(t.salaryTotal)} • مشاريع ${formatMoney(t.freelanceTotal)}`);
+  setText('fin-stat-spent', formatMoney(t.totalExpense));
+  setText('fin-stat-spent-sub', `${state.transactions.length} عملية`);
+  setText('fin-stat-net', formatMoney(t.net));
+  const netEl = document.getElementById('fin-stat-net');
+  if (netEl) {
+    netEl.classList.toggle('negative', t.net < 0);
+    netEl.classList.toggle('positive', t.net >= 0);
+  }
+  setText('fin-stat-net-sub', t.net >= 0 ? 'مساحة آمنة' : 'تجاوز الميزانية ⚠️');
+
+  renderFinanceBuckets(t);
+  renderFinanceIncomeList();
+  renderFinanceTransactions();
+}
+
+// ── Dynamic bucket cards ──────────────────────────────────────────
+function renderFinanceBuckets(totals) {
+  const grid = document.getElementById('fin-buckets-grid');
+  if (!grid) return;
+
+  const visible = state.buckets.filter(b =>
+    state.financeShowArchived ? b.status === 'archived' : b.status !== 'archived');
+
+  // Counter label + archive toggle text
+  const cnt = document.getElementById('fin-buckets-count');
+  if (cnt) {
+    const activeN   = state.buckets.filter(b => b.status !== 'archived').length;
+    const archivedN = state.buckets.filter(b => b.status === 'archived').length;
+    cnt.textContent = `${activeN} نشط${archivedN ? ` • ${archivedN} مؤرشف` : ''}`;
+  }
+  const toggleBtn = document.getElementById('fin-buckets-toggle-archived');
+  if (toggleBtn) {
+    toggleBtn.textContent = state.financeShowArchived ? '↩️ النشطة' : '🗄️ المؤرشفة';
+    toggleBtn.classList.toggle('active', state.financeShowArchived);
+  }
+
+  if (visible.length === 0) {
+    grid.innerHTML = `
+      <div class="finance-empty" style="grid-column: 1 / -1;">
+        <div class="finance-empty-icon">🗂️</div>
+        <div class="finance-empty-text">
+          ${state.financeShowArchived ? 'لا يوجد أوعية مؤرشفة' : 'لا يوجد أوعية صرف بعد'}
+        </div>
+        <div class="finance-empty-sub">
+          ${state.financeShowArchived
+            ? 'ارجع للنشطة وأنشئ أو ادفع لوعاء جديد'
+            : 'اضغط "وعاء جديد" لإنشاء أول صندوق صرف ديناميكي'}
+        </div>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = visible.map(b => {
+    const vis     = bucketVisual(b);
+    const spent   = totals.byBucket.get(b.id) || 0;
+    const target  = Number(b.targetBudget) || 0;
+    const pct     = target > 0 ? Math.min(100, Math.round((spent / target) * 100)) : 0;
+    const overBud = target > 0 && spent > target;
+    const isArch  = b.status === 'archived';
+
+    return `
+      <div class="bucket-card ${isArch ? 'is-archived' : ''}" data-id="${b.id}"
+           style="--bk-color:${vis.color};">
+        <div class="bucket-card-head">
+          <div class="bucket-icon">${vis.icon}</div>
+          <div class="bucket-name" title="${escapeHtml(vis.label)}">${escapeHtml(vis.label)}</div>
+          <div class="bucket-actions">
+            <button class="bucket-action-btn" data-act="edit"    data-id="${b.id}" title="تعديل">✏️</button>
+            <button class="bucket-action-btn" data-act="archive" data-id="${b.id}"
+              title="${isArch ? 'استعادة' : 'أرشفة'}">${isArch ? '♻️' : '🗄️'}</button>
+            <button class="bucket-action-btn danger" data-act="delete" data-id="${b.id}" title="حذف نهائي">✕</button>
+          </div>
+        </div>
+        <div class="bucket-amounts">
+          <span class="bucket-spent">${formatMoney(spent)}</span>
+          ${target > 0
+            ? `<span class="bucket-sep">/</span><span class="bucket-target">${formatMoney(target)}</span>`
+            : `<span class="bucket-target muted">— بدون سقف —</span>`}
+        </div>
+        ${target > 0 ? `
+          <div class="bucket-track"><div class="bucket-fill ${overBud ? 'over' : ''}"
+               style="width:${pct}%"></div></div>
+          <div class="bucket-meta">
+            <span>${pct}% من الهدف</span>
+            ${overBud ? '<span class="bucket-warn">تجاوز ⚠️</span>' : ''}
+          </div>` : ''}
+      </div>`;
+  }).join('');
+
+  // Wire action buttons
+  grid.querySelectorAll('.bucket-action-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id  = btn.dataset.id;
+      const act = btn.dataset.act;
+      const bucket = state.buckets.find(b => b.id === id);
+      if (!bucket) return;
+
+      if (act === 'edit') {
+        openModal('bucket', id);
+      } else if (act === 'archive') {
+        try {
+          const newStatus = bucket.status === 'archived' ? 'active' : 'archived';
+          await updateDoc(bucketDoc(id), { status: newStatus });
+          toast(newStatus === 'archived' ? 'تم أرشفة الوعاء' : 'تم استعادة الوعاء', 'info');
+        } catch (err) { console.error(err); toast('فشل التحديث', 'error'); }
+      } else if (act === 'delete') {
+        const txCount = state.transactions.filter(t => t.bucketId === id).length;
+        const msg = txCount > 0
+          ? `هذا الوعاء عليه ${txCount} عملية. الحذف النهائي ينظف الوعاء فقط ويبقي العمليات بدون ارتباط. متأكد؟`
+          : 'حذف نهائي للوعاء؟';
+        if (!confirm(msg)) return;
+        try { await deleteDoc(bucketDoc(id)); toast('تم الحذف', 'info', '🗑️'); }
+        catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+      }
+    });
+  });
+}
+
+function setText(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+
+// ── Income sources list ──────────────────────────────────────────
+function renderFinanceIncomeList() {
+  const list = document.getElementById('fin-income-list');
+  const cnt  = document.getElementById('fin-income-count');
+  if (!list) return;
+  cnt && (cnt.textContent = `${state.incomeSources.length} مصدر`);
+
+  if (state.incomeSources.length === 0) {
+    list.innerHTML = `
+      <div class="finance-empty">
+        <div class="finance-empty-icon">💼</div>
+        <div class="finance-empty-text">لا توجد مصادر دخل بعد</div>
+        <div class="finance-empty-sub">اضغط "مصدر دخل" لإضافة راتب أو ربط مشروع حر</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = state.incomeSources.map(src => {
+    if (src.type === 'salary') {
+      const monthly = Number(src.monthlyAmount) || 0;
+      return `
+        <div class="finance-income-row" data-id="${src.id}" data-kind="salary">
+          <div class="finance-income-icon salary-icon">🏢</div>
+          <div class="finance-income-body">
+            <div class="finance-income-title">${escapeHtml(src.label || 'راتب')}</div>
+            <div class="finance-income-sub">راتب شهري ثابت</div>
+          </div>
+          <div class="finance-income-amount">${formatMoney(monthly)}</div>
+          <button class="finance-row-del" data-id="${src.id}" data-kind="income" title="حذف">✕</button>
+        </div>`;
+    }
+    // freelance — v26.0 reads pricingType off the project doc
+    const proj   = state.allProjects.find(p => p.id === src.projectId);
+    const earned = computeFreelanceEarning(src);
+    const projName = proj ? proj.name : '— مشروع غير موجود —';
+    const ptype  = proj?.pricingType || (Number(proj?.hourlyRate) ? 'hourly' : (Number(proj?.projectFixedPrice) ? 'fixed' : null));
+    let breakdown;
+    if (ptype === 'fixed') {
+      breakdown = `سعر ثابت ${formatMoney(proj.projectFixedPrice)} • مجهود ${formatHoursHm(proj.totalProjectHours)}`;
+    } else if (ptype === 'hourly' || ptype === 'hourly-legacy') {
+      const rate = Number(proj?.hourlyRate) || Number(src.hourlyRate) || 0;
+      breakdown = `${formatMoney(rate)}/س × ${formatHoursHm(proj?.totalProjectHours)}`;
+    } else {
+      breakdown = '⚠️ المشروع بدون تسعير — افتحه وفعّل سعر';
+    }
+    return `
+      <div class="finance-income-row" data-id="${src.id}" data-kind="freelance">
+        <div class="finance-income-icon freelance-icon">💻</div>
+        <div class="finance-income-body">
+          <div class="finance-income-title">${escapeHtml(src.label || projName)}</div>
+          <div class="finance-income-sub">${escapeHtml(projName)} • ${breakdown}</div>
+        </div>
+        <div class="finance-income-amount">${formatMoney(earned)}</div>
+        <button class="finance-row-del" data-id="${src.id}" data-kind="income" title="حذف">✕</button>
+      </div>`;
+  }).join('');
+
+  // Wire delete buttons
+  list.querySelectorAll('.finance-row-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('حذف هذا المصدر؟')) return;
+      try {
+        await deleteDoc(incomeSourceDoc(btn.dataset.id));
+        toast('تم حذف المصدر', 'info', '🗑️');
+      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+    });
+  });
+}
+
+// ── Transactions feed ────────────────────────────────────────────
+function renderFinanceTransactions() {
+  const list = document.getElementById('fin-tx-list');
+  const cnt  = document.getElementById('fin-tx-count');
+  if (!list) return;
+  cnt && (cnt.textContent = `${state.transactions.length} معاملة`);
+
+  if (state.transactions.length === 0) {
+    list.innerHTML = `
+      <div class="finance-empty">
+        <div class="finance-empty-icon">📋</div>
+        <div class="finance-empty-text">لا توجد معاملات مسجلة بعد</div>
+        <div class="finance-empty-sub">اضغط "تسجيل مصروف" لإضافة أول عملية</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = state.transactions.slice(0, 80).map(tx => {
+    const bucket = state.buckets.find(b => b.id === tx.bucketId);
+    const vis    = bucketVisual(bucket);
+    const date   = parseDateField(tx.date);
+    const dateLabel = date ? date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '—';
+    const proj   = tx.projectId ? state.allProjects.find(p => p.id === tx.projectId) : null;
+    const projTag = proj ? ` • 📁 ${escapeHtml(proj.name)}` : '';
+    return `
+      <div class="finance-tx-row" data-id="${tx.id}" data-bucket="${tx.bucketId || ''}">
+        <div class="finance-tx-icon" style="background:${vis.color}26; color:${vis.color}; border-color:${vis.color}55;">${vis.icon}</div>
+        <div class="finance-tx-body">
+          <div class="finance-tx-title">${escapeHtml(tx.title || '—')}</div>
+          <div class="finance-tx-sub">${escapeHtml(vis.label)} • ${dateLabel}${projTag}</div>
+        </div>
+        <div class="finance-tx-amount">-${formatMoney(tx.amount)}</div>
+        <button class="finance-row-del" data-id="${tx.id}" data-kind="tx" title="حذف">✕</button>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.finance-row-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('حذف هذه المعاملة؟')) return;
+      try {
+        await deleteDoc(transactionDoc(btn.dataset.id));
+        toast('تم حذف المعاملة', 'info', '🗑️');
+      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+    });
+  });
+
+  // Click row body to edit
+  list.querySelectorAll('.finance-tx-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('.finance-row-del')) return;
+      openModal('transaction', row.dataset.id);
+    });
+  });
+}
+
+// ── Wire toolbar buttons ─────────────────────────────────────────
+(function setupFinanceControls() {
+  const btnTx     = document.getElementById('btn-add-expense');
+  const btnInc    = document.getElementById('btn-add-income');
+  const btnBucket = document.getElementById('btn-add-bucket');
+  const btnArch   = document.getElementById('fin-buckets-toggle-archived');
+  if (btnTx)     btnTx    .addEventListener('click', () => openModal('transaction'));
+  if (btnInc)    btnInc   .addEventListener('click', () => openModal('incomeSource'));
+  if (btnBucket) btnBucket.addEventListener('click', () => openModal('bucket'));
+  if (btnArch)   btnArch  .addEventListener('click', () => {
+    state.financeShowArchived = !state.financeShowArchived;
+    renderFinance();
+  });
 })();
 
 // ── Animate counter number ──
@@ -1823,11 +2266,11 @@ function renderProjects() {
     const pct          = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
     const progressClass = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
 
-    // Time spent badge
+    // v22.0 — Project-card hours tag: compact "Xh Ym" mono format pulled
+    // live from totalProjectHours. Shown even at 0h so the user always sees
+    // the time signal on the external project card before opening it.
     const projHours = Number(project.totalProjectHours) || 0;
-    const timeBadge = projHours > 0
-      ? `<div class="time-spent-badge" style="margin-top: 0;" title="إجمالي ساعات التركيز">⏱️ ${formatHours(projHours)}</div>`
-      : '';
+    const timeBadge = `<div class="project-card-hours-tag" title="إجمالي الوقت المستغرق على المشروع">⏱ ${formatHoursHm(projHours)}</div>`;
 
     return `
       <div class="project-compact-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
@@ -2284,6 +2727,11 @@ function updateHeader() {
     titleEl.textContent = '📅 تفاصيل اليوم';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
+
+  } else if (state.view === 'finance') {
+    titleEl.textContent = '💰 المركز المالي';
+    statsEl.innerHTML   = '';
+    actionsEl.innerHTML = '';
   }
 }
 
@@ -2395,6 +2843,26 @@ const MODAL_CONFIGS = {
           <option value="completed">⚫ مكتمل</option>
         </select>
       </div>
+      <!-- v26.0 — Flexible pricing: hourly OR fixed (or both, hourly wins).
+           At save time exactly one becomes pricingType. -->
+      <div class="form-group">
+        <label class="form-label">التسعير (املأ واحد على الأقل لتفعيل الحسابات المالية)</label>
+        <div class="pricing-row">
+          <div class="pricing-field" data-kind="hourly">
+            <label class="pricing-sub-label">💵 سعر الساعة</label>
+            <input type="number" id="f-hourly-rate" class="form-input pricing-input"
+              step="0.01" min="0" placeholder="0" />
+          </div>
+          <div class="pricing-field" data-kind="fixed">
+            <label class="pricing-sub-label">📦 السعر الإجمالي الثابت</label>
+            <input type="number" id="f-fixed-price" class="form-input pricing-input"
+              step="0.01" min="0" placeholder="0" />
+          </div>
+        </div>
+        <small class="pricing-hint">
+          الحقل الممتلئ هو الـ <code>pricingType</code> النشط للحسابات. لو الاتنين فاضيين، المشروع شخصي.
+        </small>
+      </div>
       <div class="form-group">
         <label class="form-label">روابط سريعة (اختياري)</label>
         <div id="proj-links-list" class="proj-links-list">
@@ -2403,6 +2871,105 @@ const MODAL_CONFIGS = {
         <button type="button" id="proj-links-add" class="btn-ghost proj-links-add-btn">
           ＋ إضافة رابط
         </button>
+      </div>`,
+  },
+  bucket: {
+    title:      '🗂️ إضافة وعاء صرف',
+    submitText: 'إنشاء الوعاء',
+    fields: `
+      <div class="form-group">
+        <label class="form-label">اسم الوعاء <span class="required">*</span></label>
+        <input type="text" id="f-bkt-name" class="form-input"
+          placeholder="مثال: تجهيزات الفرح" maxlength="60" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">الميزانية المرصودة (اختياري)</label>
+        <input type="number" id="f-bkt-target" class="form-input" step="0.01" min="0"
+          placeholder="اتركها فاضي لو الوعاء بدون سقف" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">أيقونة (اختياري)</label>
+        <input type="text" id="f-bkt-icon" class="form-input"
+          placeholder="🎯  أو أي إيموجي" maxlength="4" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">الحالة</label>
+        <select id="f-bkt-status" class="form-select">
+          <option value="active">🟢 نشط</option>
+          <option value="archived">🗄️ مؤرشف</option>
+        </select>
+      </div>`,
+  },
+  transaction: {
+    title:      '💸 تسجيل مصروف',
+    submitText: 'تسجيل المصروف',
+    fields: `
+      <div class="form-group">
+        <label class="form-label">بيان المصروف <span class="required">*</span></label>
+        <input type="text" id="f-tx-title" class="form-input"
+          placeholder="مثال: دفعة حجز القاعة" maxlength="100" required />
+      </div>
+      <div class="form-group" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label class="form-label">المبلغ <span class="required">*</span></label>
+          <input type="number" id="f-tx-amount" class="form-input" step="0.01" min="0"
+            placeholder="0" required />
+        </div>
+        <div style="flex:1;">
+          <label class="form-label">التاريخ <span class="required">*</span></label>
+          <input type="date" id="f-tx-date" class="form-input" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">الوعاء (يقرأ النشطة فقط) <span class="required">*</span></label>
+        <select id="f-tx-bucket" class="form-select" required>
+          <!-- populated dynamically from active buckets -->
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">مشروع مرتبط (اختياري — لو ميزانية مشروع)</label>
+        <select id="f-tx-project" class="form-select">
+          <!-- populated dynamically -->
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">ملاحظات (اختياري)</label>
+        <textarea id="f-tx-notes" class="form-textarea"
+          placeholder="تفاصيل إضافية..." maxlength="240"></textarea>
+      </div>`,
+  },
+  incomeSource: {
+    title:      '💼 إضافة مصدر دخل',
+    submitText: 'إضافة المصدر',
+    fields: `
+      <div class="form-group">
+        <label class="form-label">نوع المصدر <span class="required">*</span></label>
+        <select id="f-inc-type" class="form-select" required>
+          <option value="salary">🏢 راتب شهري ثابت</option>
+          <option value="freelance">💻 مشروع حر (ساعات × سعر)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">التسمية <span class="required">*</span></label>
+        <input type="text" id="f-inc-label" class="form-input"
+          placeholder="مثال: شركة النور — راتب أساسي" maxlength="80" required />
+      </div>
+      <div class="form-group" id="inc-salary-group">
+        <label class="form-label">الراتب الشهري <span class="required">*</span></label>
+        <input type="number" id="f-inc-monthly" class="form-input" step="0.01" min="0"
+          placeholder="0" />
+      </div>
+      <div class="form-group" id="inc-freelance-group" style="display:none;">
+        <label class="form-label">المشروع <span class="required">*</span></label>
+        <select id="f-inc-project" class="form-select">
+          <!-- populated dynamically -->
+        </select>
+        <label class="form-label" style="margin-top:10px;">سعر الساعة <span class="required">*</span></label>
+        <input type="number" id="f-inc-rate" class="form-input" step="0.01" min="0"
+          placeholder="0" />
+        <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
+          الإيراد المحسوب = سعر الساعة × إجمالي ساعات المشروع (totalProjectHours) لحظياً.
+        </small>
       </div>`,
   },
   task: {
@@ -2483,6 +3050,23 @@ function bindProjectLinksControls() {
   });
 }
 
+// v26.0 — Highlight the pricing field that's actually carrying a value, so
+// the user gets visual confirmation which path the maths will take.
+function bindPricingActiveGlow() {
+  const rateEl  = document.getElementById('f-hourly-rate');
+  const priceEl = document.getElementById('f-fixed-price');
+  if (!rateEl || !priceEl) return;
+  const sync = () => {
+    const rateOn  = rateEl.value.trim()  !== '' && Number(rateEl.value)  > 0;
+    const priceOn = priceEl.value.trim() !== '' && Number(priceEl.value) > 0;
+    rateEl.closest('.pricing-field') ?.classList.toggle('is-active', rateOn);
+    priceEl.closest('.pricing-field')?.classList.toggle('is-active', priceOn);
+  };
+  rateEl.addEventListener('input', sync);
+  priceEl.addEventListener('input', sync);
+  sync();
+}
+
 // Collect non-empty {label, url} pairs from the modal. URL is required;
 // label falls back to the URL's hostname.
 function collectProjectLinks() {
@@ -2529,12 +3113,71 @@ function openModal(type, editId = null) {
       }
     }
     bindProjectLinksControls();
+    bindPricingActiveGlow();
   }
 
   if (type === 'task' && !state.editTarget) {
     // Default startDate to today (LOCAL — not UTC, fixes day-1 bug)
     const sd = document.getElementById('f-start-date');
     if (sd) sd.value = toLocalISODate(new Date());
+  }
+
+  if (type === 'transaction') {
+    if (!state.editTarget) {
+      const d = document.getElementById('f-tx-date');
+      if (d) d.value = toLocalISODate(new Date());
+    }
+    // Active buckets only — archived hidden by design
+    const bSel = document.getElementById('f-tx-bucket');
+    if (bSel) {
+      const active = state.buckets.filter(b => b.status !== 'archived');
+      if (active.length === 0) {
+        bSel.innerHTML = `<option value="">⚠️ لا يوجد أوعية نشطة — أنشئ وعاء أولاً</option>`;
+      } else {
+        bSel.innerHTML = active.map(b => {
+          const vis = bucketVisual(b);
+          return `<option value="${b.id}">${vis.icon} ${escapeHtml(vis.label)}</option>`;
+        }).join('');
+      }
+    }
+    // Optional project link
+    const pSel = document.getElementById('f-tx-project');
+    if (pSel) {
+      pSel.innerHTML = `<option value="">— بدون ربط —</option>` +
+        state.allProjects.map(p => {
+          const c = state.clients.find(cl => cl.id === p._clientId);
+          const label = c ? `${p.name} — ${c.name}` : p.name;
+          return `<option value="${p.id}">${escapeHtml(label)}</option>`;
+        }).join('');
+    }
+  }
+
+  if (type === 'incomeSource') {
+    // Populate project dropdown and wire type toggle
+    const sel = document.getElementById('f-inc-project');
+    if (sel) {
+      sel.innerHTML = state.allProjects.map(p => {
+        const c = state.clients.find(cl => cl.id === p._clientId);
+        const label = c ? `${p.name} — ${c.name}` : p.name;
+        return `<option value="${p.id}">${escapeHtml(label)}</option>`;
+      }).join('');
+    }
+    const typeSel = document.getElementById('f-inc-type');
+    const sg = document.getElementById('inc-salary-group');
+    const fg = document.getElementById('inc-freelance-group');
+    const toggle = () => {
+      const isSalary = typeSel.value === 'salary';
+      if (sg) sg.style.display = isSalary ? '' : 'none';
+      if (fg) fg.style.display = isSalary ? 'none' : '';
+      const monthly = document.getElementById('f-inc-monthly');
+      const rate    = document.getElementById('f-inc-rate');
+      if (monthly) monthly.required = isSalary;
+      if (rate)    rate.required    = !isSalary;
+    };
+    if (typeSel) {
+      typeSel.addEventListener('change', toggle);
+      toggle();
+    }
   }
 
   if (state.editTarget) {
@@ -2578,10 +3221,69 @@ function prefillModalValues() {
     const statusEl = document.getElementById('f-status');
     if (statusEl) statusEl.value = project.status || 'active';
 
+    // v26.0 — Pricing prefill (both fields surface; pricingType is inferred at save)
+    const rateEl  = document.getElementById('f-hourly-rate');
+    const priceEl = document.getElementById('f-fixed-price');
+    if (rateEl)  rateEl.value  = project.hourlyRate        ?? '';
+    if (priceEl) priceEl.value = project.projectFixedPrice ?? '';
+    bindPricingActiveGlow();   // re-evaluate the glow state after prefill
+
     // Prefill quick links
     const linksList = document.getElementById('proj-links-list');
     if (linksList && Array.isArray(project.links)) {
       linksList.innerHTML = project.links.map(l => projLinkRowHTML(l.label, l.url)).join('');
+    }
+
+  } else if (type === 'bucket') {
+    const b = state.buckets.find(x => x.id === id);
+    if (!b) return;
+    document.getElementById('f-bkt-name').value   = b.bucketName  || '';
+    document.getElementById('f-bkt-target').value = b.targetBudget ?? '';
+    document.getElementById('f-bkt-icon').value   = b.icon || '';
+    document.getElementById('f-bkt-status').value = b.status || 'active';
+
+  } else if (type === 'transaction') {
+    const tx = state.transactions.find(x => x.id === id);
+    if (!tx) return;
+    document.getElementById('f-tx-title').value  = tx.title  || '';
+    document.getElementById('f-tx-amount').value = tx.amount ?? '';
+    const date = parseDateField(tx.date);
+    document.getElementById('f-tx-date').value   = toLocalISODate(date || new Date());
+    const bSel = document.getElementById('f-tx-bucket');
+    // If the linked bucket is archived, surface it in the dropdown so the
+    // user can still see it during edit (otherwise the option would be missing).
+    if (bSel && tx.bucketId) {
+      const exists = [...bSel.options].some(o => o.value === tx.bucketId);
+      if (!exists) {
+        const b = state.buckets.find(x => x.id === tx.bucketId);
+        const vis = bucketVisual(b);
+        const opt = document.createElement('option');
+        opt.value = tx.bucketId;
+        opt.textContent = `${vis.icon} ${vis.label} (مؤرشف)`;
+        bSel.appendChild(opt);
+      }
+      bSel.value = tx.bucketId;
+    }
+    const pSel = document.getElementById('f-tx-project');
+    if (pSel) pSel.value = tx.projectId || '';
+    const nEl = document.getElementById('f-tx-notes');
+    if (nEl) nEl.value = tx.notes || '';
+
+  } else if (type === 'incomeSource') {
+    const src = state.incomeSources.find(s => s.id === id);
+    if (!src) return;
+    const typeSel = document.getElementById('f-inc-type');
+    if (typeSel) {
+      typeSel.value = src.type || 'salary';
+      typeSel.dispatchEvent(new Event('change'));
+    }
+    document.getElementById('f-inc-label').value = src.label || '';
+    if (src.type === 'salary') {
+      document.getElementById('f-inc-monthly').value = src.monthlyAmount ?? '';
+    } else {
+      const projSel = document.getElementById('f-inc-project');
+      if (projSel && src.projectId) projSel.value = src.projectId;
+      document.getElementById('f-inc-rate').value = src.hourlyRate ?? '';
     }
 
   } else if (type === 'task') {
@@ -2688,18 +3390,37 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       const cId = state.client?.id || (state.editTarget && state.editTarget.clientId) || document.getElementById('f-client-id')?.value;
       if (!cId) { toast('يرجى تحديد العميل أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
 
+      // v26.0 — Flexible pricing. Both inputs are optional visually, but if
+      // both are empty we treat this as a personal/unpaid project.
+      const rateRaw  = document.getElementById('f-hourly-rate')?.value;
+      const priceRaw = document.getElementById('f-fixed-price')?.value;
+      const hourlyRate        = rateRaw  !== '' && rateRaw  != null ? Number(rateRaw)  : null;
+      const projectFixedPrice = priceRaw !== '' && priceRaw != null ? Number(priceRaw) : null;
+      if (hourlyRate != null && !(hourlyRate > 0)) {
+        toast('سعر الساعة لازم يكون أكبر من صفر', 'error');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
+      if (projectFixedPrice != null && !(projectFixedPrice > 0)) {
+        toast('السعر الإجمالي لازم يكون أكبر من صفر', 'error');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
+      // Infer pricingType: hourly wins when both filled; null when neither.
+      let pricingType = null;
+      if (hourlyRate != null)        pricingType = 'hourly';
+      else if (projectFixedPrice != null) pricingType = 'fixed';
+
       const links = collectProjectLinks();
 
+      const payload = {
+        name, description: desc || null, status, links,
+        hourlyRate, projectFixedPrice, pricingType,
+      };
+
       if (state.editTarget) {
-        await updateDoc(projectDoc(cId, state.editTarget.id), {
-          name, description: desc || null, status, links
-        });
+        await updateDoc(projectDoc(cId, state.editTarget.id), payload);
         toast('تم تعديل المشروع بنجاح! 🎉', 'success');
       } else {
-        await addDoc(projectsRef(cId), {
-          name, description: desc || null, status, links,
-          createdAt: serverTimestamp()
-        });
+        await addDoc(projectsRef(cId), { ...payload, createdAt: serverTimestamp() });
         toast('تمت إضافة المشروع! 🎉', 'success');
       }
       closeModal();
@@ -2750,6 +3471,78 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
           status: 'todo', createdAt: serverTimestamp()
         });
         toast('تمت إضافة المهمة! 🎉', 'success');
+      }
+      closeModal();
+
+    } else if (currentModalType === 'bucket') {
+      const name = document.getElementById('f-bkt-name').value.trim();
+      const target = document.getElementById('f-bkt-target').value;
+      const icon = document.getElementById('f-bkt-icon').value.trim() || null;
+      const status = document.getElementById('f-bkt-status').value || 'active';
+      if (!name) { toast('يرجى إدخال اسم الوعاء', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      const payload = {
+        bucketName: name,
+        targetBudget: target === '' ? null : Number(target),
+        icon, status,
+      };
+      if (state.editTarget) {
+        await updateDoc(bucketDoc(state.editTarget.id), payload);
+        toast('تم تعديل الوعاء', 'success');
+      } else {
+        await addDoc(bucketsRef(), { ...payload, createdAt: serverTimestamp() });
+        toast('تم إنشاء الوعاء', 'success', '🗂️');
+      }
+      closeModal();
+
+    } else if (currentModalType === 'transaction') {
+      const title    = document.getElementById('f-tx-title').value.trim();
+      const amount   = Number(document.getElementById('f-tx-amount').value);
+      const bucketId = document.getElementById('f-tx-bucket').value || null;
+      const projectId = document.getElementById('f-tx-project')?.value || null;
+      const dateStr  = document.getElementById('f-tx-date').value;
+      const notes    = document.getElementById('f-tx-notes')?.value.trim() || null;
+      if (!title)         { toast('يرجى إدخال البيان', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!(amount > 0))  { toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!bucketId)      { toast('اختر وعاء صرف نشط أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!dateStr)       { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      const date = fromLocalISODate(dateStr);
+
+      const payload = { title, amount, bucketId, projectId: projectId || null, date, notes };
+      if (state.editTarget) {
+        await updateDoc(transactionDoc(state.editTarget.id), payload);
+        toast('تم تعديل المعاملة', 'success');
+      } else {
+        await addDoc(transactionsRef(), { ...payload, createdAt: serverTimestamp() });
+        toast('تم تسجيل المعاملة', 'success', '💸');
+      }
+      closeModal();
+
+    } else if (currentModalType === 'incomeSource') {
+      const incType = document.getElementById('f-inc-type').value;
+      const label   = document.getElementById('f-inc-label').value.trim();
+      if (!label) { toast('يرجى إدخال تسمية المصدر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      let payload = { type: incType, label };
+      if (incType === 'salary') {
+        const monthly = Number(document.getElementById('f-inc-monthly').value);
+        if (!(monthly > 0)) { toast('الراتب الشهري يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+        payload.monthlyAmount = monthly;
+      } else {
+        const projectId = document.getElementById('f-inc-project').value;
+        const rate      = Number(document.getElementById('f-inc-rate').value);
+        if (!projectId)   { toast('يرجى اختيار مشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+        if (!(rate > 0))  { toast('سعر الساعة يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+        payload.projectId  = projectId;
+        payload.hourlyRate = rate;
+      }
+
+      if (state.editTarget) {
+        await updateDoc(incomeSourceDoc(state.editTarget.id), payload);
+        toast('تم تعديل مصدر الدخل', 'success');
+      } else {
+        await addDoc(incomeSourcesRef(), { ...payload, createdAt: serverTimestamp() });
+        toast('تمت إضافة مصدر الدخل', 'success', '💼');
       }
       closeModal();
     }
@@ -3182,8 +3975,6 @@ async function completeFocusCycle() {
     } catch (err) {
       console.error('Failed to persist rest hours to Firestore:', err);
     }
-    if (state.view === 'dashboard') renderDashDonut();
-
     playFocusChime('break-done');
     toast('انتهت الراحة! جاهز لجلسة جديدة 🚀', 'info', '⏱️');
 

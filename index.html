@@ -95,12 +95,15 @@
         <span>جلسة التركيز</span>
       </div>
 
+      <span class="nav-label">المالية</span>
+
+      <div class="nav-item" id="nav-finance" title="المركز المالي">
+        <span class="nav-icon">💰</span>
+        <span>المركز المالي</span>
+      </div>
+
       <span class="nav-label">قريباً</span>
 
-      <div class="nav-item disabled" title="قريباً">
-        <span class="nav-icon">💰</span>
-        <span>المصاريف</span>
-      </div>
       <div class="nav-item disabled" title="قريباً">
         <span class="nav-icon">🥗</span>
         <span>التغذية</span>
@@ -161,43 +164,8 @@
               style="font-size: 16px; font-weight: 700; color: var(--text-primary);"></h2>
           </div>
 
-          <!-- A. Donut chart: work hours vs rest hours -->
-          <div class="dash-donut-wrap">
-            <svg class="dash-donut" viewBox="0 0 200 200" aria-label="رسم بياني للجلسات والراحة">
-              <!-- Track -->
-              <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="22" />
-              <!-- Rest segment -->
-              <circle id="donut-rest" cx="100" cy="100" r="80" fill="none" stroke="#3F424A" stroke-width="22"
-                stroke-dasharray="0 502.65" stroke-dashoffset="0" transform="rotate(-90 100 100)"
-                stroke-linecap="butt" />
-              <!-- Work segment -->
-              <circle id="donut-work" cx="100" cy="100" r="80" fill="none" stroke="var(--status-done)" stroke-width="22"
-                stroke-dasharray="0 502.65" stroke-dashoffset="0" transform="rotate(-90 100 100)"
-                stroke-linecap="butt" />
-              <!-- Center text -->
-              <text id="donut-center-value" x="100" y="95" text-anchor="middle" fill="var(--text-primary)"
-                font-size="32" font-weight="700" style="font-variant-numeric: tabular-nums;">0</text>
-              <text x="100" y="120" text-anchor="middle" fill="var(--text-muted)" font-size="11"
-                style="letter-spacing: 0.08em;">إجمالي الساعات</text>
-            </svg>
-            <!-- Tooltip element -->
-            <div class="dash-donut-tooltip hidden" id="donut-tooltip"></div>
-            <!-- Legend -->
-            <div class="dash-donut-legend">
-              <div class="dash-donut-legend-item">
-                <span class="dot work"></span>
-                <span class="lbl">عمل</span>
-                <span class="val" id="donut-work-hours">0</span>
-                <span class="unit">س</span>
-              </div>
-              <div class="dash-donut-legend-item">
-                <span class="dot rest"></span>
-                <span class="lbl">راحة</span>
-                <span class="val" id="donut-rest-hours">0</span>
-                <span class="unit">س</span>
-              </div>
-            </div>
-          </div>
+          <!-- v22.0 — Old work/rest donut removed; project-hours gauge in the
+               kanban toolbar is now the single source of truth for time. -->
 
           <!-- B. Inline Active Session Widget — hidden when no session running -->
           <div class="dash-active-session hidden" id="dash-active-session" aria-live="polite">
@@ -273,6 +241,95 @@
           </div>
           <div class="day-blocks" id="day-blocks">
             <!-- Client+Project compact blocks rendered by JS -->
+          </div>
+        </div>
+
+        <!-- ── VIEW: FINANCE HUB (v25.0 — Dynamic Buckets) ── -->
+        <div class="view" id="view-finance">
+          <div class="finance-toolbar">
+            <div class="finance-toolbar-left">
+              <h2 class="finance-title">💰 المركز المالي</h2>
+              <span class="finance-month-tag" id="finance-month-tag">—</span>
+            </div>
+            <div class="finance-toolbar-actions">
+              <button class="toolbar-add-btn finance-add-income" id="btn-add-income" type="button" aria-label="إضافة مصدر دخل">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>مصدر دخل</span>
+              </button>
+              <button class="toolbar-add-btn finance-add-bucket" id="btn-add-bucket" type="button" aria-label="إضافة وعاء صرف">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>وعاء جديد</span>
+              </button>
+              <button class="toolbar-add-btn" id="btn-add-expense" type="button" aria-label="تسجيل مصروف">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>تسجيل مصروف</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- A. Headline micro-cards (3 fixed: Income / Spent / Net) -->
+          <div class="finance-stats-row finance-stats-3">
+            <div class="finance-stat-card stat-income">
+              <span class="finance-stat-label">إجمالي الدخل المتاح</span>
+              <span class="finance-stat-value" id="fin-stat-income">0</span>
+              <span class="finance-stat-sub" id="fin-stat-income-sub">رواتب + مشاريع</span>
+            </div>
+            <div class="finance-stat-card stat-fixed">
+              <span class="finance-stat-label">💸 إجمالي الصرف</span>
+              <span class="finance-stat-value" id="fin-stat-spent">0</span>
+              <span class="finance-stat-sub" id="fin-stat-spent-sub">0 عملية</span>
+            </div>
+            <div class="finance-stat-card stat-net">
+              <span class="finance-stat-label">المتبقي الصافي</span>
+              <span class="finance-stat-value" id="fin-stat-net">0</span>
+              <span class="finance-stat-sub" id="fin-stat-net-sub">مساحة آمنة</span>
+            </div>
+          </div>
+
+          <!-- B. Dynamic Bucket Grid -->
+          <div class="finance-buckets-block">
+            <div class="finance-buckets-header">
+              <div class="finance-buckets-titlebox">
+                <span class="finance-panel-title">🗂️ أوعية الصرف</span>
+                <span class="finance-panel-sub" id="fin-buckets-count">0 نشط</span>
+              </div>
+              <button class="finance-mini-btn" id="fin-buckets-toggle-archived" type="button">🗄️ المؤرشفة</button>
+            </div>
+            <div class="finance-buckets-grid" id="fin-buckets-grid">
+              <!-- Bucket cards rendered by JS -->
+            </div>
+          </div>
+
+          <!-- C. Income Sources + D. Transactions Feed -->
+          <div class="finance-bottom-grid">
+            <div class="finance-panel" id="fin-income-panel">
+              <div class="finance-panel-header">
+                <span class="finance-panel-title">💼 مصادر الدخل</span>
+                <span class="finance-panel-sub" id="fin-income-count">0 مصدر</span>
+              </div>
+              <div class="finance-income-list" id="fin-income-list">
+                <!-- Income source rows rendered by JS -->
+              </div>
+            </div>
+
+            <div class="finance-panel" id="fin-tx-panel">
+              <div class="finance-panel-header">
+                <span class="finance-panel-title">📋 سجل المعاملات</span>
+                <span class="finance-panel-sub" id="fin-tx-count">0 معاملة</span>
+              </div>
+              <div class="finance-tx-list" id="fin-tx-list">
+                <!-- Transaction rows rendered by JS -->
+              </div>
+            </div>
           </div>
         </div>
 
@@ -433,7 +490,7 @@
         <div class="view" id="view-tasks">
           <div id="board-area">
             <div class="board-toolbar">
-              <div style="display:flex; align-items:center; gap:10px;">
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:nowrap; min-width:0; flex:1 1 auto;">
                 <button class="toolbar-back-btn" id="btn-back-tasks" aria-label="رجوع" title="رجوع">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
                     stroke-linejoin="round">
