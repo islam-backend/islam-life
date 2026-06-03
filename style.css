@@ -358,6 +358,46 @@ html, body {
   padding: 4px 0;
 }
 
+/* ═══════════════════════════════════════════════
+   v19.5 / v22.0 — PROJECT HOURS GAUGE (Kanban toolbar)
+   v22.0: rebalanced widths so the "+ مهمة جديدة" button never wraps —
+   the gauge gives up width first, the button is always whole.
+   ═══════════════════════════════════════════════ */
+.project-hours-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  max-width: 220px;
+  flex: 0 1 200px;          /* shrink before the button does */
+  margin-inline-start: 8px;
+}
+.project-hours-gauge-label {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-hours-gauge-track {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.project-hours-gauge-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #5C8DEC);
+  border-radius: 99px;
+  transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* â”€â”€ Expandable Search Box â”€â”€ */
 .search-box {
   display: flex;
@@ -2225,6 +2265,39 @@ html, body {
   z-index: 1;
 }
 
+/* v16.0 — High-density quick-links strip inside the project card.
+   Sharp-cornered chips that link out to Figma docs, GitHub, etc. */
+.proj-compact-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+  position: relative;
+  z-index: 2;
+}
+.proj-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(53,116,240,0.08);
+  border: 1px solid rgba(53,116,240,0.22);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: var(--transition);
+}
+.proj-link-chip:hover {
+  background: rgba(53,116,240,0.18);
+  border-color: var(--accent);
+}
+
 /* Progress bar inside card */
 .proj-compact-progress-wrap {
   display: flex;
@@ -2917,6 +2990,65 @@ html, body {
 .pill-label { font-size: 13px; }
 .pill-time  { font-size: 11px; opacity: 0.65; margin-right: 4px; }
 
+/* ═══════════════════════════════════════════════
+   v17.0 — "Where am I?" context feed
+   High-density two-row panel inside the focus view.
+   ═══════════════════════════════════════════════ */
+.focus-context {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin: 14px auto 4px;
+  width: min(560px, 100%);
+  overflow: hidden;
+}
+.focus-context-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  min-width: 0;
+}
+.focus-context-now  { background: rgba(53,116,240,0.05); }
+.focus-context-next { background: transparent; }
+.focus-context-divider {
+  height: 1px;
+  background: var(--border-light);
+}
+.focus-context-icon {
+  font-size: 14px;
+  width: 22px;
+  flex-shrink: 0;
+  text-align: center;
+}
+.focus-context-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.focus-context-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.focus-context-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+.focus-context-next .focus-context-value {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* ── Big MM:SS timer (minutes LEFT, seconds RIGHT — digital clock standard) ── */
 .focus-bigtimer {
   display: flex;
@@ -2980,12 +3112,15 @@ html, body {
   gap: 14px;
   margin-top: 4px;
 }
+/* v14.6 — Sharp-cornered premium buttons (4px). Start + Instant-Log share
+   this base so they sit side-by-side with identical visual weight, both
+   wrapped in the same accent glow halo. */
 .focus-btn-start {
   height: 50px;
-  padding: 0 36px;
+  padding: 0 28px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
   border: none;
-  border-radius: 99px;
+  border-radius: 4px;
   color: #fff;
   font-family: inherit;
   font-size: 14px;
@@ -2993,20 +3128,113 @@ html, body {
   letter-spacing: 0.02em;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 6px 20px rgba(53,116,240,0.35);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 6px 20px rgba(53,116,240,0.35),
+    0 0 28px rgba(53,116,240,0.25);
+  min-width: 180px;
 }
 .focus-btn-start:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(53,116,240,0.35);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.08) inset,
+    0 12px 28px rgba(53,116,240,0.45),
+    0 0 36px rgba(53,116,240,0.35);
 }
 .focus-btn-start:active { transform: translateY(0); }
+.focus-btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
 .focus-btn-start.running {
   background: rgba(255,255,255,0.04);
   color: var(--text-primary);
-  box-shadow: none;
+  box-shadow: 0 0 0 1px var(--border) inset;
 }
 .focus-btn-start.running:hover {
   background: rgba(255,255,255,0.08);
+  box-shadow: 0 0 0 1px var(--text-muted) inset;
+}
+
+/* Instant-Log: same base, accent-tinted variant for semantic separation */
+.focus-btn-instant {
+  background: linear-gradient(135deg, #4F84F4 0%, #3574F0 100%);
+}
+.focus-btn-instant.flash-success {
+  animation: flashSuccess 0.7s ease;
+}
+
+/* ═══════════════════════════════════════════════
+   v14.6 — DAILY SESSIONS FEED (today-only tags)
+   ═══════════════════════════════════════════════ */
+.daily-sessions-feed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+  width: min(720px, 100%);
+  margin-inline: auto;
+  padding: 4px 0;
+  justify-content: center;
+}
+.daily-sessions-feed.hidden { display: none !important; }
+
+.session-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #2B2D31;
+  color: var(--text-secondary);
+  border: 1px solid #3F424A;
+  border-radius: 4px;
+  padding: 4px 8px 4px 10px;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.session-tag:hover {
+  border-color: #5C6168;
+  background: #313438;
+}
+.session-tag-proj {
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.session-tag-sep {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.session-tag-dur {
+  color: var(--accent);
+  font-weight: 600;
+}
+.session-tag-time {
+  color: var(--text-muted);
+}
+.session-tag-x {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-inline-start: 2px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.session-tag-x:hover {
+  color: var(--danger);
+  background: rgba(224,92,92,0.12);
 }
 .focus-btn-reset {
   width: 44px;
@@ -3267,7 +3495,9 @@ html, body {
   width: 18px;
   height: 18px;
   color: var(--text-muted);
-  transform: scaleX(-1);   /* RTL flip */
+  /* v17.0 — In RTL, "forward into" points LEFT (◁). The polyline in the
+     SVG is already a left chevron, so no flip is needed. The previous
+     scaleX(-1) was inverting the natural direction. */
   flex-shrink: 0;
 }
 
@@ -3349,13 +3579,18 @@ html, body {
   letter-spacing: 0.02em;
 }
 
+/* v19.0 — Strict grid: 7 equal columns, fixed-height rows. No matter how
+   many tasks land on a single day, no cell can stretch — the row geometry
+   stays perfectly aligned. */
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 126px;
   gap: 8px;
 }
 .cal-day {
-  min-height: 92px;
+  height: 126px;            /* fixed — kills row reflow when tasks pile up */
+  box-sizing: border-box;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -3366,10 +3601,16 @@ html, body {
   cursor: pointer;
   transition: var(--transition);
   position: relative;
+  overflow: hidden;         /* clips anything beyond the cell */
 }
+/* v16.0 — match .entity-card:hover on the Clients page exactly:
+   accent border + lift + soft shadow. Keep the existing background for
+   readability of the day's chips. */
 .cal-day:hover {
-  border-color: var(--border);
+  border-color: var(--accent);
   background: var(--bg-card-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
 .cal-day.other-month { opacity: 0.35; }
 .cal-day.today {
@@ -3377,12 +3618,15 @@ html, body {
   box-shadow: 0 0 0 1px var(--accent), 0 6px 18px rgba(53,116,240,0.25);
 }
 .cal-day-num {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;            /* day number stays pinned at the top */
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.03em;
 }
 .cal-day.today .cal-day-num { color: var(--accent); }
 .cal-day-count {
@@ -3393,33 +3637,51 @@ html, body {
   padding: 1px 6px;
   font-weight: 700;
 }
-.cal-day-tasks {
+/* v19.5 — Calendar day cells now show CLIENT AVATARS only (no text chips).
+   Avatars wrap inside the cell; overflow scrolls thin and quiet. */
+.cal-day-clients {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-content: flex-start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.cal-day-clients::-webkit-scrollbar         { width: 4px; }
+.cal-day-clients::-webkit-scrollbar-track   { background: transparent; }
+.cal-day-clients::-webkit-scrollbar-thumb   {
+  background: var(--border);
+  border-radius: 4px;
+}
+.cal-day-clients::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+.cal-client-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.5px;
   overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.08);
+  transition: transform 0.12s ease;
 }
-.cal-task-chip {
-  font-size: 10.5px;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(255,255,255,0.04);
-  color: var(--text-secondary);
-  border-right: 3px solid var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.4;
+.cal-client-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
-.cal-task-chip.status-todo  { border-right-color: var(--danger);      color: var(--text-primary); }
-.cal-task-chip.status-doing { border-right-color: var(--status-doing); color: var(--text-primary); }
-.cal-task-chip.status-done  { border-right-color: var(--status-done);  color: var(--text-muted); text-decoration: line-through; opacity: 0.7; }
-.cal-day-more {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 600;
-  text-align: center;
-}
+.cal-day:hover .cal-client-avatar { transform: scale(1.06); }
 
 /* ═══════════════════════════════════════════════
    DAY DETAILS VIEW
@@ -3478,17 +3740,28 @@ html, body {
    Matches the visual language of entity-card on the Clients page
 ═══════════════════════════════════════════════ */
 
+/* v21.0 — Strict horizontal container guard: grid cells are confined to
+   the row, and `min-width: 0` on the container is critical so children
+   never spill outside the grid track during drag. */
 .day-blocks {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
   gap: 14px;
   flex: 1;
+  min-width: 0;
   min-height: 0;
+  align-items: flex-start;
   align-content: start;
   overflow-y: auto;
+  overflow-x: hidden;        /* no horizontal spill, ever */
 }
 
 .day-block {
+  /* v21.0 — Box geometry locks: force border-box + min-width:0 so the
+     content can shrink to its grid track, never push beyond it. */
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -3513,14 +3786,27 @@ html, body {
   border-color: var(--danger);
   box-shadow: 0 0 0 2px rgba(224,92,92,0.18);
 }
+/* v21.0 — Drop-target lift kept tiny (2px) so siblings don't visually
+   shift; no scale (was breaking the grid alignment). */
 .day-block.block-drag-target {
   border-color: var(--status-doing);
   box-shadow: 0 0 0 2px rgba(240,168,53,0.22);
-  transform: translateY(-4px);
+  transform: translateY(-2px);
 }
+/* v21.0 / v22.0 — Dragging element: lift via z-index ONLY (no scale that
+   would make the ghost a different size from the placeholder). Note: do
+   NOT set `pointer-events: none` on the source — it suppresses dragend
+   hit-testing on some Chromium builds and leaves block-reorder stuck. */
 .day-block.dragging {
   opacity: 0.55;
-  transform: scale(0.98);
+  z-index: 5;
+  overflow: hidden;
+}
+/* All non-dragged neighbours stay rock-solid in their grid track */
+.day-blocks.is-dragging .day-block:not(.dragging) {
+  flex-shrink: 0;
+  transform: none;
+  transition: none;
 }
 .day-block-header { cursor: grab; }
 .day-block-header:active { cursor: grabbing; }
@@ -3670,6 +3956,36 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
+/* v17.0 — Instant "Done" button on calendar day cards only */
+.day-task-done-btn {
+  margin-inline-start: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(61,185,129,0.10);
+  border: 1px solid rgba(61,185,129,0.35);
+  color: var(--status-done);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+.day-task-done-btn svg { width: 12px; height: 12px; }
+.day-task-card:hover .day-task-done-btn { opacity: 1; }
+.day-task-done-btn:hover {
+  background: var(--status-done);
+  color: #0F1115;
+  transform: scale(1.08);
+}
+.day-task-done-btn:disabled { opacity: 0.5; cursor: default; }
+/* When time badge is present, push button to its own slot after it */
+.day-task-card-meta .day-task-meta-time + .day-task-done-btn {
+  margin-inline-start: 6px;
+}
+
 .day-block-empty {
   text-align: center;
   color: var(--text-muted);
@@ -3749,4 +4065,119 @@ html, body {
   40%  { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
+
+/* ═══════════════════════════════════════════════
+   v16.0 — TASK IMAGE ATTACHMENTS + LIGHTBOX
+   ═══════════════════════════════════════════════ */
+
+.task-card-thumb {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 0;
+  margin: 4px 0 8px;
+  cursor: zoom-in;
+  border: 1px solid var(--border);
+  background: var(--bg-app);
+  transition: filter 0.15s ease, border-color 0.15s ease;
+}
+.task-card-thumb:hover {
+  filter: brightness(1.05);
+  border-color: var(--accent);
+}
+
+.task-img-current {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.task-img-current img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 0;
+}
+.task-img-current span {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.img-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 24px;
+}
+.img-lightbox.open { display: flex; }
+.img-lightbox img {
+  max-width: 90vw;
+  max-height: 90vh;
+  border-radius: 4px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+}
+.img-lightbox-close {
+  position: absolute;
+  top: 18px;
+  inset-inline-end: 18px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.img-lightbox-close:hover { background: rgba(255,255,255,0.2); }
+
+/* ═══════════════════════════════════════════════
+   v16.0 — PROJECT QUICK-LINKS EDITOR (modal)
+   ═══════════════════════════════════════════════ */
+
+.proj-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.proj-link-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.proj-link-row .form-input { font-size: 12.5px; padding: 6px 8px; }
+.proj-link-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  transition: var(--transition);
+}
+.proj-link-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(224,92,92,0.08);
+}
+.proj-links-add-btn {
+  font-size: 12px;
+  padding: 6px 10px;
+  width: fit-content;
+}
+
 

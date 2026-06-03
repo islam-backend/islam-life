@@ -117,7 +117,7 @@
             <span class="db-dot offline" id="db-dot" title="حالة الاتصال"></span>
             <span id="db-status-text" style="font-size: 11px; color: var(--text-muted);">غير متصل</span>
           </div>
-          <span class="version-tag">v9.2</span>
+          <span class="version-tag">v21.0</span>
         </div>
         <button class="btn-signout" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -312,23 +312,6 @@
                   </select>
                 </div>
 
-                <!-- Task dropdown -->
-                <div class="focus-dd disabled" data-fdd="task">
-                  <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                    <span class="focus-dd-icon">📋</span>
-                    <span class="focus-dd-text placeholder" data-placeholder="اختر المهمة (اختياري)">اختر المهمة
-                      (اختياري)</span>
-                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </button>
-                  <div class="focus-dd-menu" role="listbox" aria-label="قائمة المهام"></div>
-                  <select id="focus-task-select" class="focus-dd-native" aria-hidden="true" tabindex="-1" disabled>
-                    <option value="">اختر المهمة (اختياري)</option>
-                  </select>
-                </div>
-
               </div>
             </div>
 
@@ -363,15 +346,21 @@
               </div>
             </div>
 
-            <!-- Floating controls -->
+            <!-- v14.6 — Unified premium controls: Start + Instant-Log share styling,
+                 sit side by side, both with the same accent glow. -->
             <div class="focus-controls">
               <button class="focus-btn-reset" type="button" id="btn-focus-reset" title="إعادة تعيين">🔄</button>
               <button class="focus-btn-start" type="button" id="btn-focus-start">ابدأ الجلسة ▶️</button>
-              <button class="premium-ide-btn focus-instant-log" type="button" id="btn-focus-instant-log"
-                title="إضافة وقت الجلسة المحددة فوراً للمشروع/التاسك">
-                <span>⚡</span>
-                <span>إضافة الوقت فوراً</span>
+              <button class="focus-btn-start focus-btn-instant" type="button" id="btn-focus-instant-log"
+                title="إضافة وقت الجلسة المحددة فوراً للمشروع">
+                إضافة الوقت فوراً ⚡
               </button>
+            </div>
+
+            <!-- v14.6 — Daily Sessions Feed: today's logged sessions as compact tags.
+                 Each tag has an (x) to subtract its hours from totalProjectHours. -->
+            <div class="daily-sessions-feed" id="daily-sessions-feed" aria-live="polite">
+              <!-- Tags rendered dynamically by JS -->
             </div>
 
           </div>
@@ -460,6 +449,14 @@
                   </svg>
                   <span>مهمة جديدة</span>
                 </button>
+
+                <!-- v19.5 — Project hours gauge (linear rail bound to totalProjectHours) -->
+                <div class="project-hours-gauge" id="project-hours-gauge">
+                  <span class="project-hours-gauge-label" id="project-hours-gauge-label">إجمالي الوقت المستغرق: 0 س</span>
+                  <div class="project-hours-gauge-track" aria-hidden="true">
+                    <div class="project-hours-gauge-fill" id="project-hours-gauge-fill"></div>
+                  </div>
+                </div>
               </div>
               <div class="search-box" id="search-box-tasks">
                 <button class="search-icon-btn" aria-label="بحث" type="button">

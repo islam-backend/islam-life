@@ -402,6 +402,10 @@ const state = {
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
+// v17.0 — Single chokepoint that tears down EVERY Firestore onSnapshot
+// AND cancels any debounced render queued by the previous view. Called
+// at the top of every navigateTo() so listeners can't accumulate or
+// fire into a stale view.
 function cleanupListeners() {
   const safeUnsub = (fn) => {
     try { if (typeof fn === 'function') fn(); } catch (e) { console.error('Unsub failed:', e); }
@@ -412,6 +416,7 @@ function cleanupListeners() {
   safeUnsub(state.dashUnsubStats);     state.dashUnsubStats = null;
   safeUnsub(state.projUnsub);          state.projUnsub = null;
   safeUnsub(state.taskUnsub);          state.taskUnsub = null;
+  cancelPendingRenders();
 }
 
 // ── Avatar Colors ──────────────────────────────────────────────
@@ -465,6 +470,45 @@ function formatMinutes(m) {
   return rem ? `${h} س ${rem} د` : `${h} س`;
 }
 
+// ── Local-date helpers (v16.0 — fixes timezone "day-1" bug) ──
+// Returns "YYYY-MM-DD" using the user's LOCAL date — never UTC, so a
+// task whose local date is the 4th never reads back as the 3rd.
+function toLocalISODate(d) {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+  const y  = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mm}-${dd}`;
+}
+
+// Parse "YYYY-MM-DD" from a <input type=date> as LOCAL midnight (not UTC).
+function fromLocalISODate(s) {
+  if (!s) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+// ── Debounce helper (v16.0 — kills onSnapshot quick-reload flicker) ──
+// Each render function gets its own trailing-edge debouncer keyed by
+// the function reference itself, so calls coalesce without losing the last one.
+// v17.0 — moved to Map so cleanupListeners() can cancel pending renders
+// that would otherwise fire AFTER the view (and its listeners) was torn down.
+const _debounceTimers = new Map();
+function debounceRender(fn, wait = 90) {
+  const existing = _debounceTimers.get(fn);
+  if (existing) clearTimeout(existing);
+  const t = setTimeout(() => {
+    _debounceTimers.delete(fn);
+    fn();
+  }, wait);
+  _debounceTimers.set(fn, t);
+}
+function cancelPendingRenders() {
+  for (const t of _debounceTimers.values()) clearTimeout(t);
+  _debounceTimers.clear();
+}
+
 // Format hours as a compact human label (e.g. 1.5 → "1 س 30 د", 0.83 → "50 د")
 function formatHours(h) {
   const total = Number(h) || 0;
@@ -489,6 +533,28 @@ function toast(msg, type = 'info', icon = null) {
     el.classList.add('fade-out');
     el.addEventListener('animationend', () => el.remove());
   }, 3200);
+}
+
+// ── Image Lightbox (v16.0) ─────────────────────────────────────
+function openImageLightbox(src) {
+  if (!src) return;
+  let box = document.getElementById('img-lightbox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'img-lightbox';
+    box.className = 'img-lightbox';
+    box.innerHTML = `<img alt="" /><button class="img-lightbox-close" aria-label="إغلاق">✕</button>`;
+    document.body.appendChild(box);
+    const close = () => box.classList.remove('open');
+    box.addEventListener('click', e => {
+      if (e.target === box || e.target.classList.contains('img-lightbox-close')) close();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && box.classList.contains('open')) close();
+    });
+  }
+  box.querySelector('img').src = src;
+  box.classList.add('open');
 }
 
 // ── Loading ────────────────────────────────────────────────────
@@ -661,7 +727,7 @@ function subscribeDashboard() {
     state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const badge = document.getElementById('total-badge');
     if (badge) badge.textContent = state.clients.length;
-    renderDashboard();
+    debounceRender(renderDashboard);
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
   // 1. Listen to all projects across all clients via collectionGroup
@@ -669,7 +735,7 @@ function subscribeDashboard() {
   state.dashUnsubProjects = onSnapshot(projQ, snap => {
     setOnline(); hideLoading();
     state.allProjects = snap.docs.map(d => ({ id: d.id, ...d.data(), _ref: d.ref }));
-    renderDashboard();
+    debounceRender(renderDashboard);
   }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
 
   // 2. Listen to all tasks across all projects via collectionGroup
@@ -677,7 +743,7 @@ function subscribeDashboard() {
   state.dashUnsubTasks = onSnapshot(taskQ, snap => {
     setOnline(); hideLoading();
     state.allTasks = snap.docs.map(d => ({ id: d.id, ...d.data(), _projectId: d.ref.parent.parent.id, _clientId: d.ref.parent.parent.parent.parent.id }));
-    renderDashboard();
+    debounceRender(renderDashboard);
   }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
 }
 
@@ -713,13 +779,13 @@ function subscribeProjects() {
     state.unsubscribe = onSnapshot(q, snap => {
       setOnline(); hideLoading();
       state.projects = snap.docs.map(d => ({ id: d.id, ...d.data(), _clientId: state.client.id }));
-      renderProjects();
+      debounceRender(renderProjects);
     }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
-    
+
     // Also load all tasks for these projects to show progress
     state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
       state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
-      renderProjects();
+      debounceRender(renderProjects);
     }, err => console.error(err));
   } else {
     // 2. All projects mode
@@ -728,23 +794,23 @@ function subscribeProjects() {
       setOnline(); hideLoading();
       state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const badge = document.getElementById('total-badge');
-    if (badge) badge.textContent = state.clients.length;
-      renderProjects();
+      if (badge) badge.textContent = state.clients.length;
+      debounceRender(renderProjects);
     }, err => { setOffline(); hideLoading(); console.error(err); });
-    
+
     state.projUnsub = onSnapshot(query(collectionGroup(db, 'projects')), projSnap => {
-      state.projects = projSnap.docs.map(d => ({ 
-        id: d.id, 
-        ...d.data(), 
-        _ref: d.ref, 
-        _clientId: d.ref.parent.parent.id 
+      state.projects = projSnap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        _ref: d.ref,
+        _clientId: d.ref.parent.parent.id
       }));
-      renderProjects();
+      debounceRender(renderProjects);
     }, err => console.error(err));
-    
+
     state.taskUnsub = onSnapshot(query(collectionGroup(db, 'tasks')), taskSnap => {
       state.tasks = taskSnap.docs.map(t => ({ id: t.id, ...t.data(), _projectId: t.ref.parent.parent.id }));
-      renderProjects();
+      debounceRender(renderProjects);
     }, err => console.error(err));
   }
 }
@@ -765,8 +831,19 @@ function subscribeTasks() {
   state.unsubscribe = onSnapshot(q, snap => {
     setOnline(); hideLoading();
     state.tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderKanban();
+    debounceRender(renderKanban);
   }, err => { setOffline(); hideLoading(); console.error(err); toast('فشل الاتصال', 'error'); });
+
+  // v19.5 — Live-listen to the project doc itself so the hours gauge bumps
+  // whenever saveFocusHours() increments totalProjectHours from any tab.
+  state.projUnsub = onSnapshot(projectDoc(state.client.id, state.project.id), snap => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+    state.project = { ...state.project, ...data, id: snap.id };
+    const idx = state.allProjects.findIndex(p => p.id === snap.id);
+    if (idx >= 0) state.allProjects[idx] = { ...state.allProjects[idx], ...data };
+    renderProjectHoursGauge();
+  }, err => console.error('project gauge listener:', err));
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1083,21 +1160,24 @@ function subscribeCalendar() {
     return;
   }
 
+  const renderCalAndDay = () => {
+    renderCalendar();
+    if (state.view === 'day') renderDayView();
+  };
+
   const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
   state.unsubscribe = onSnapshot(clientQ, snap => {
     setOnline(); hideLoading();
     state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const badge = document.getElementById('total-badge');
     if (badge) badge.textContent = state.clients.length;
-    renderCalendar();
-    if (state.view === 'day') renderDayView();
+    debounceRender(renderCalAndDay);
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
   state.dashUnsubProjects = onSnapshot(query(collectionGroup(db, 'projects')), snap => {
     setOnline(); hideLoading();
     state.allProjects = snap.docs.map(d => ({ id: d.id, ...d.data(), _ref: d.ref, _clientId: d.ref.parent.parent.id }));
-    renderCalendar();
-    if (state.view === 'day') renderDayView();
+    debounceRender(renderCalAndDay);
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
   state.dashUnsubTasks = onSnapshot(query(collectionGroup(db, 'tasks')), snap => {
@@ -1107,8 +1187,7 @@ function subscribeCalendar() {
       _projectId: d.ref.parent.parent.id,
       _clientId:  d.ref.parent.parent.parent.parent.id
     }));
-    renderCalendar();
-    if (state.view === 'day') renderDayView();
+    debounceRender(renderCalAndDay);
   }, err => { setOffline(); hideLoading(); console.error(err); });
 }
 
@@ -1180,12 +1259,26 @@ function renderCalendar() {
   grid.innerHTML = cells.map(({ date, other }) => {
     const isToday = sameYMD(date, today);
     const tasksToday = tasksOnDate(date);
-    const visible = tasksToday.slice(0, 3);
-    const more = tasksToday.length - visible.length;
 
-    const chips = visible.map(t => `
-      <div class="cal-task-chip status-${t.status || 'todo'}" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
-    `).join('');
+    // v19.5 — Visual summary only: collapse tasks into the unique set of
+    // CLIENT AVATARS responsible for them. Text titles are gone from the
+    // monthly grid — click into a day to see the full list.
+    const seen = new Set();
+    const clientsForDay = [];
+    for (const t of tasksToday) {
+      const cid = t._clientId;
+      if (!cid || seen.has(cid)) continue;
+      seen.add(cid);
+      clientsForDay.push(state.clients.find(c => c.id === cid));
+    }
+
+    const avatars = clientsForDay.filter(Boolean).map(c => {
+      const inner = c.avatarUrl
+        ? `<img src="${c.avatarUrl}" alt="${escapeHtml(c.name || '')}" />`
+        : escapeHtml(getInitials(c.name || '—'));
+      const bg = c.avatarUrl ? 'transparent' : escapeHtml(c.color || '#3574F0');
+      return `<span class="cal-client-avatar" style="background:${bg}" title="${escapeHtml(c.name || '')}">${inner}</span>`;
+    }).join('');
 
     return `
       <div class="cal-day ${other ? 'other-month' : ''} ${isToday ? 'today' : ''}"
@@ -1194,9 +1287,8 @@ function renderCalendar() {
           <span>${date.getDate()}</span>
           ${tasksToday.length > 0 ? `<span class="cal-day-count">${tasksToday.length}</span>` : ''}
         </div>
-        <div class="cal-day-tasks">
-          ${chips}
-          ${more > 0 ? `<div class="cal-day-more">+${more} مهام أخرى</div>` : ''}
+        <div class="cal-day-clients">
+          ${avatars}
         </div>
       </div>`;
   }).join('');
@@ -1308,10 +1400,21 @@ function renderDayView() {
 
 function dayTaskCardHTML(task) {
   const status    = task.status || 'todo';
-  const taskHours = Number(task.taskHoursSpent) || 0;
-  const timeBadge = taskHours > 0
-    ? `<span class="day-task-meta-time">⏱️ ${formatHours(taskHours)}</span>` : '';
+  // v19.0 — Hours are tracked per-project only. No more per-task time badge.
   const statusLabel = { todo: 'مطلوب', doing: 'جاري', done: 'تم' }[status] || '';
+
+  // v17.0 — Instant "Done" button (calendar-only). Hidden when already done.
+  const doneBtn = status !== 'done'
+    ? `<button class="day-task-done-btn" data-id="${task.id}"
+               data-client="${task._clientId || ''}"
+               data-project="${task._projectId || ''}"
+               title="إنهاء المهمة فوراً" aria-label="تحويل لـ Done">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+           <polyline points="20 6 9 17 4 12"></polyline>
+         </svg>
+       </button>`
+    : '';
 
   return `
     <div class="day-task-card status-${status}"
@@ -1322,12 +1425,36 @@ function dayTaskCardHTML(task) {
       <div class="day-task-card-title" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</div>
       <div class="day-task-card-meta">
         <span>● ${statusLabel}</span>
-        ${timeBadge}
+        ${doneBtn}
       </div>
     </div>`;
 }
 
 function bindDayBlockEvents() {
+  // v17.0 — Instant Done button (calendar-only) inside each day-task card.
+  document.querySelectorAll('#day-blocks .day-task-done-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const cid = btn.dataset.client;
+      const pid = btn.dataset.project;
+      const tid = btn.dataset.id;
+      if (!cid || !pid || !tid) return;
+      btn.disabled = true;
+      try {
+        await updateDoc(taskDoc(cid, pid, tid), { status: 'done' });
+        // Optimistic visual: drop opacity until the snapshot re-renders.
+        btn.closest('.day-task-card')?.classList.add('status-done');
+      } catch (err) {
+        toast('فشل تحديث الحالة', 'error');
+        console.error(err);
+        btn.disabled = false;
+      }
+    });
+    // Don't let drag interaction start from the button.
+    btn.addEventListener('mousedown', e => e.stopPropagation());
+    btn.addEventListener('dragstart', e => { e.preventDefault(); e.stopPropagation(); });
+  });
+
   // Card drag start/end + double-click to open the project's kanban
   document.querySelectorAll('#day-blocks .day-task-card').forEach(card => {
     card.addEventListener('dragstart', e => {
@@ -1369,12 +1496,16 @@ function bindDayBlockEvents() {
       state.dayDraggedBlockClient   = targetClient;
       state.dayDraggedBlockProject  = targetProject;
       block.classList.add('dragging');
+      // v21.0 — Mark the container so sibling-lock CSS kicks in
+      document.getElementById('day-blocks')?.classList.add('is-dragging');
       e.dataTransfer.effectAllowed  = 'move';
       try { e.dataTransfer.setData('text/plain', `block:${targetProject}`); } catch (_) {}
     });
 
     block.addEventListener('dragend', () => {
       block.classList.remove('dragging');
+      // v21.0 — Drop the container guard so normal hover/transition resumes
+      document.getElementById('day-blocks')?.classList.remove('is-dragging');
       state.dayDraggedBlockClient  = null;
       state.dayDraggedBlockProject = null;
       state.dayDragKind            = null;
@@ -1723,6 +1854,15 @@ function renderProjects() {
 
         ${project.description ? `<div class="proj-compact-desc" title="${escapeHtml(project.description)}">${escapeHtml(project.description)}</div>` : ''}
 
+        ${Array.isArray(project.links) && project.links.length ? `
+          <div class="proj-compact-links">
+            ${project.links.map(l => `
+              <a class="proj-link-chip" href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer"
+                 title="${escapeHtml(l.url)}" data-link-chip="1">
+                🔗 ${escapeHtml(l.label)}
+              </a>`).join('')}
+          </div>` : ''}
+
         <div class="proj-compact-progress-wrap">
           <div class="proj-compact-progress-bar">
             <div class="progress-bar-fill ${progressClass}" style="width: ${pct}%"></div>
@@ -1739,7 +1879,9 @@ function renderProjects() {
   // Click on card: navigate to tasks
   grid.querySelectorAll('.project-compact-card[data-id]').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.card-del-btn') || e.target.closest('.card-edit-btn')) return;
+      if (e.target.closest('.card-del-btn') ||
+          e.target.closest('.card-edit-btn') ||
+          e.target.closest('[data-link-chip]')) return;
       const project = state.projects.find(p => p.id === card.dataset.id);
       if (project) {
         const clientId = project._clientId || state.client?.id;
@@ -1827,7 +1969,31 @@ function renderProjects() {
 //  RENDER — KANBAN (Tasks)
 // ════════════════════════════════════════════════════════════════
 
+// v19.5 — Linear gauge of project effort (totalProjectHours) shown next to
+// the "add task" button on the Kanban toolbar. Fill width is normalised
+// against a soft 100h ceiling; past that the bar caps but the label keeps
+// counting the real total.
+function renderProjectHoursGauge() {
+  const wrap  = document.getElementById('project-hours-gauge');
+  const fill  = document.getElementById('project-hours-gauge-fill');
+  const label = document.getElementById('project-hours-gauge-label');
+  if (!wrap || !fill || !label) return;
+
+  // Prefer the live snapshot from state.allProjects (richer) — fall back to state.project.
+  const live = state.allProjects.find(p => p.id === state.project?.id);
+  const hours = Number((live || state.project)?.totalProjectHours) || 0;
+
+  const CAP = 100;   // visual normalisation ceiling
+  const pct = Math.min(100, (hours / CAP) * 100);
+  fill.style.width = pct + '%';
+  label.textContent = `إجمالي الوقت المستغرق: ${formatHours(hours)}`;
+}
+
 function renderKanban() {
+  // v19.5 — gauge is part of the Kanban toolbar; refresh on every render
+  // so it tracks live totalProjectHours updates from saveFocusHours().
+  renderProjectHoursGauge();
+
   const q        = state.search.toLowerCase();
   const filtered = q
     ? state.tasks.filter(t => t.title?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))
@@ -1835,6 +2001,20 @@ function renderKanban() {
 
   const groups = { todo: [], doing: [], done: [] };
   filtered.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
+
+  // v16.0 — Order tasks within each column by orderIndex (ascending),
+  // falling back to createdAt (newest first) when not yet set.
+  const sortInColumn = (a, b) => {
+    const ai = (typeof a.orderIndex === 'number') ? a.orderIndex : Number.POSITIVE_INFINITY;
+    const bi = (typeof b.orderIndex === 'number') ? b.orderIndex : Number.POSITIVE_INFINITY;
+    if (ai !== bi) return ai - bi;
+    const at = a.createdAt?.seconds || 0;
+    const bt = b.createdAt?.seconds || 0;
+    return bt - at;
+  };
+  groups.todo.sort(sortInColumn);
+  groups.doing.sort(sortInColumn);
+  groups.done.sort(sortInColumn);
 
   // Counters
   const ct = document.getElementById('count-todo');
@@ -1879,9 +2059,11 @@ function renderKanban() {
 }
 
 function taskCardHTML(task) {
-  const taskHours = Number(task.taskHoursSpent) || 0;
-  const timeBadge = taskHours > 0
-    ? `<div class="time-spent-badge" title="ساعات التركيز على المهمة">⏱️ ${formatHours(taskHours)}</div>`
+  // v19.0 — Per-task hours dropped; tracking lives on the project doc now.
+
+  // Inline thumbnail with hard corners — clicking opens a full-size lightbox.
+  const imgBlock = task.imageUrl
+    ? `<img class="task-card-thumb" src="${task.imageUrl}" alt="" data-img="${task.imageUrl}" title="عرض الصورة" />`
     : '';
 
   return `
@@ -1894,10 +2076,10 @@ function taskCardHTML(task) {
         </div>
       </div>
       ${task.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.55">${escapeHtml(task.notes)}</div>` : ''}
+      ${imgBlock}
       <div class="card-footer" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
         <span class="card-date">🕐 ${formatDate(task.createdAt)}</span>
         ${task.priority ? `<span class="card-priority priority-${task.priority}">${priorityLabel(task.priority)}</span>` : ''}
-        ${timeBadge}
       </div>
     </div>`;
 }
@@ -1918,6 +2100,13 @@ function bindTaskCardEvents(colEl) {
     });
   });
 
+  colEl.querySelectorAll('.task-card-thumb').forEach(img => {
+    img.addEventListener('click', e => {
+      e.stopPropagation();
+      openImageLightbox(img.dataset.img);
+    });
+  });
+
   colEl.querySelectorAll('.task-card').forEach(card => {
     card.addEventListener('dragstart', e => {
       state.draggedId = card.dataset.id;
@@ -1932,9 +2121,26 @@ function bindTaskCardEvents(colEl) {
 }
 
 // ── Drag & Drop on Columns ──────────────────────────────────────
+// v16.0 — Supports both cross-column status changes AND intra-column
+// vertical reordering. Drop position is computed from the cursor's Y
+// relative to other cards inside the same column body.
+
+// Returns the card element BEFORE which the dragged card should land
+// (or null to append at the end), based on cursor Y position.
+function getKanbanDropTarget(colBody, y, draggedId) {
+  const cards = [...colBody.querySelectorAll('.task-card')]
+    .filter(c => c.dataset.id !== draggedId);
+  for (const card of cards) {
+    const r = card.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return card;
+  }
+  return null;
+}
+
 function setupColumnDnD() {
   document.querySelectorAll('#kanban .column').forEach(col => {
     const status = col.dataset.status;
+    const body   = col.querySelector('.col-body');
 
     col.addEventListener('dragover', e => {
       e.preventDefault();
@@ -1949,17 +2155,38 @@ function setupColumnDnD() {
     col.addEventListener('drop', async e => {
       e.preventDefault();
       col.classList.remove('drag-over');
-      if (!state.draggedId || !state.client || !state.project) return;
+      if (!state.draggedId || !state.client || !state.project || !body) return;
 
       const task = state.tasks.find(t => t.id === state.draggedId);
-      if (!task || task.status === status) return;
+      if (!task) return;
 
       const labels = { todo: 'المطلوب', doing: 'جاري التنفيذ', done: 'تم الإنتهاء' };
+      const isStatusChange = task.status !== status;
+
+      // 1. Build the desired post-drop order of task IDs in THIS column.
+      const beforeCard = getKanbanDropTarget(body, e.clientY, state.draggedId);
+      const colTaskIds = [...body.querySelectorAll('.task-card')]
+        .map(c => c.dataset.id)
+        .filter(id => id !== state.draggedId);
+      const insertIdx = beforeCard ? colTaskIds.indexOf(beforeCard.dataset.id) : colTaskIds.length;
+      colTaskIds.splice(insertIdx < 0 ? colTaskIds.length : insertIdx, 0, state.draggedId);
+
+      // 2. Persist new orderIndex for every card in the column + status flip.
       try {
-        await updateDoc(taskDoc(state.client.id, state.project.id, state.draggedId), { status });
-        toast(`تم نقل المهمة إلى "${labels[status]}"`, 'success');
+        const batch = writeBatch(db);
+        colTaskIds.forEach((tid, i) => {
+          const update = { orderIndex: i };
+          if (tid === state.draggedId && isStatusChange) update.status = status;
+          batch.update(taskDoc(state.client.id, state.project.id, tid), update);
+        });
+        await batch.commit();
+
+        if (isStatusChange) {
+          toast(`تم نقل المهمة إلى "${labels[status]}"`, 'success');
+        }
       } catch (err) {
-        toast('فشل تحديث المهمة', 'error'); console.error(err);
+        toast('فشل تحديث الترتيب', 'error');
+        console.error(err);
       }
     });
   });
@@ -2167,6 +2394,15 @@ const MODAL_CONFIGS = {
           <option value="paused">🟡 متوقف مؤقتاً</option>
           <option value="completed">⚫ مكتمل</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">روابط سريعة (اختياري)</label>
+        <div id="proj-links-list" class="proj-links-list">
+          <!-- Dynamic Label/URL rows injected by JS -->
+        </div>
+        <button type="button" id="proj-links-add" class="btn-ghost proj-links-add-btn">
+          ＋ إضافة رابط
+        </button>
       </div>`,
   },
   task: {
@@ -2201,6 +2437,11 @@ const MODAL_CONFIGS = {
         <label class="form-label">ملاحظات (اختياري)</label>
         <textarea id="f-notes" class="form-textarea"
           placeholder="تفاصيل إضافية عن المهمة..." maxlength="300"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">صورة مرفقة (اختياري)</label>
+        <input type="file" id="f-task-image" class="form-input" accept="image/*" />
+        <div id="f-task-image-current" class="task-img-current hidden"></div>
       </div>`,
   },
 };
@@ -2212,6 +2453,52 @@ function readAsDataURL(file) {
     reader.onerror = (err) => reject(err);
     reader.readAsDataURL(file);
   });
+}
+
+// ── Project Quick Links UI helpers (v16.0) ──
+function projLinkRowHTML(label = '', url = '') {
+  return `
+    <div class="proj-link-row">
+      <input type="text" class="form-input proj-link-label" placeholder="عنوان الرابط (مثال: فيجما)"
+        maxlength="40" value="${escapeHtml(label)}" />
+      <input type="url" class="form-input proj-link-url" placeholder="https://..."
+        maxlength="500" value="${escapeHtml(url)}" />
+      <button type="button" class="proj-link-remove" title="حذف الرابط" aria-label="حذف">✕</button>
+    </div>`;
+}
+
+function bindProjectLinksControls() {
+  const list   = document.getElementById('proj-links-list');
+  const addBtn = document.getElementById('proj-links-add');
+  if (!list || !addBtn) return;
+
+  addBtn.addEventListener('click', () => {
+    list.insertAdjacentHTML('beforeend', projLinkRowHTML());
+  });
+
+  list.addEventListener('click', (e) => {
+    const rm = e.target.closest('.proj-link-remove');
+    if (!rm) return;
+    rm.closest('.proj-link-row')?.remove();
+  });
+}
+
+// Collect non-empty {label, url} pairs from the modal. URL is required;
+// label falls back to the URL's hostname.
+function collectProjectLinks() {
+  const rows = document.querySelectorAll('#proj-links-list .proj-link-row');
+  const out = [];
+  rows.forEach(row => {
+    const url = row.querySelector('.proj-link-url')?.value.trim();
+    if (!url) return;
+    let label = row.querySelector('.proj-link-label')?.value.trim();
+    if (!label) {
+      try { label = new URL(url).hostname.replace(/^www\./, ''); }
+      catch { label = url; }
+    }
+    out.push({ label, url });
+  });
+  return out;
 }
 
 function openModal(type, editId = null) {
@@ -2241,12 +2528,13 @@ function openModal(type, editId = null) {
         cg.style.display = 'none';
       }
     }
+    bindProjectLinksControls();
   }
 
   if (type === 'task' && !state.editTarget) {
-    // Default startDate to today
+    // Default startDate to today (LOCAL — not UTC, fixes day-1 bug)
     const sd = document.getElementById('f-start-date');
-    if (sd) sd.value = new Date().toISOString().slice(0, 10);
+    if (sd) sd.value = toLocalISODate(new Date());
   }
 
   if (state.editTarget) {
@@ -2289,7 +2577,13 @@ function prefillModalValues() {
     if (descEl) descEl.value = project.description || '';
     const statusEl = document.getElementById('f-status');
     if (statusEl) statusEl.value = project.status || 'active';
-    
+
+    // Prefill quick links
+    const linksList = document.getElementById('proj-links-list');
+    if (linksList && Array.isArray(project.links)) {
+      linksList.innerHTML = project.links.map(l => projLinkRowHTML(l.label, l.url)).join('');
+    }
+
   } else if (type === 'task') {
     const task = state.tasks.find(t => t.id === id);
     if (!task) return;
@@ -2302,8 +2596,19 @@ function prefillModalValues() {
     const edEl = document.getElementById('f-end-date');
     const sd = parseDateField(task.startDate);
     const ed = parseDateField(task.endDate);
-    if (sdEl) sdEl.value = sd ? sd.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-    if (edEl) edEl.value = ed ? ed.toISOString().slice(0, 10) : '';
+    if (sdEl) sdEl.value = toLocalISODate(sd || new Date());
+    if (edEl) edEl.value = ed ? toLocalISODate(ed) : '';
+
+    // Show current task image preview if one exists
+    if (task.imageUrl) {
+      const cur = document.getElementById('f-task-image-current');
+      if (cur) {
+        cur.classList.remove('hidden');
+        cur.innerHTML = `
+          <img src="${task.imageUrl}" alt="" />
+          <span>الصورة الحالية — ارفع صورة جديدة لاستبدالها</span>`;
+      }
+    }
   }
 }
 
@@ -2383,13 +2688,18 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       const cId = state.client?.id || (state.editTarget && state.editTarget.clientId) || document.getElementById('f-client-id')?.value;
       if (!cId) { toast('يرجى تحديد العميل أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
 
+      const links = collectProjectLinks();
+
       if (state.editTarget) {
         await updateDoc(projectDoc(cId, state.editTarget.id), {
-          name, description: desc || null, status
+          name, description: desc || null, status, links
         });
         toast('تم تعديل المشروع بنجاح! 🎉', 'success');
       } else {
-        await addDoc(projectsRef(cId), { name, description: desc || null, status, createdAt: serverTimestamp() });
+        await addDoc(projectsRef(cId), {
+          name, description: desc || null, status, links,
+          createdAt: serverTimestamp()
+        });
         toast('تمت إضافة المشروع! 🎉', 'success');
       }
       closeModal();
@@ -2403,21 +2713,40 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       if (!title) { toast('يرجى إدخال عنوان المهمة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
       if (!sdStr) { toast('يرجى تحديد تاريخ البدء', 'error'); btn.disabled = false; btn.textContent = orig; return; }
 
-      const startDate = new Date(sdStr + 'T00:00:00');
-      const endDate   = edStr ? new Date(edStr + 'T00:00:00') : null;
+      // Build at LOCAL midnight so the calendar day matches what the user picked.
+      const startDate = fromLocalISODate(sdStr);
+      const endDate   = edStr ? fromLocalISODate(edStr) : null;
       if (endDate && endDate < startDate) {
         toast('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء', 'error');
         btn.disabled = false; btn.textContent = orig; return;
       }
 
+      // Optional attached image — stored as base64 to match the client-avatar pattern
+      // (avoids extra Firebase Storage setup; keep small to respect Firestore's 1 MB doc limit).
+      const imgInput = document.getElementById('f-task-image');
+      let imageData;   // undefined = leave unchanged, null = remove, string = new
+      if (imgInput && imgInput.files && imgInput.files[0]) {
+        const file = imgInput.files[0];
+        if (file.size > 700 * 1024) {
+          toast('حجم الصورة كبير جداً، اختر صورة أقل من 700 كيلوبايت', 'error');
+          btn.disabled = false; btn.textContent = orig; return;
+        }
+        imageData = await readAsDataURL(file);
+        if (imageData.length > 950 * 1024) {
+          toast('الصورة بعد المعالجة كبيرة جداً، اختر صورة أصغر', 'error');
+          btn.disabled = false; btn.textContent = orig; return;
+        }
+      }
+
       if (state.editTarget) {
-        await updateDoc(taskDoc(state.client.id, state.project.id, state.editTarget.id), {
-          title, priority, notes, startDate, endDate
-        });
+        const updateData = { title, priority, notes, startDate, endDate };
+        if (imageData !== undefined) updateData.imageUrl = imageData;
+        await updateDoc(taskDoc(state.client.id, state.project.id, state.editTarget.id), updateData);
         toast('تم تعديل المهمة بنجاح! 🎉', 'success');
       } else {
         await addDoc(tasksRef(state.client.id, state.project.id), {
           title, priority, notes, startDate, endDate,
+          imageUrl: imageData || null,
           status: 'todo', createdAt: serverTimestamp()
         });
         toast('تمت إضافة المهمة! 🎉', 'success');
@@ -2623,14 +2952,17 @@ function roundHours(value, decimals = 2) {
 }
 
 function subscribeFocus() {
-  // We need clients (for badge) + all projects + all tasks
-  // to populate dropdowns and resolve clientId for writes.
+  // v14.6 — Focus view is project-only now. We just need clients (for the
+  // sidebar badge + project ↔ client resolution in the sessions feed) and
+  // projects (for the picker + gauge writes). Task listener dropped with
+  // the task-select control.
   const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
   state.unsubscribe = onSnapshot(clientQ, snap => {
     setOnline(); hideLoading();
     state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const badge = document.getElementById('total-badge');
     if (badge) badge.textContent = state.clients.length;
+    renderDailySessionsFeed();
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
   const projQ = query(collectionGroup(db, 'projects'));
@@ -2642,19 +2974,7 @@ function subscribeFocus() {
       _clientId: d.ref.parent.parent.id
     }));
     populateFocusProjectSelect();
-  }, err => { setOffline(); hideLoading(); console.error(err); });
-
-  const taskQ = query(collectionGroup(db, 'tasks'));
-  state.dashUnsubTasks = onSnapshot(taskQ, snap => {
-    setOnline(); hideLoading();
-    state.allTasks = snap.docs.map(d => ({
-      id: d.id, ...d.data(),
-      _projectId: d.ref.parent.parent.id,
-      _clientId: d.ref.parent.parent.parent.parent.id
-    }));
-    // If a project is currently selected, refresh its task list
-    const projectSel = document.getElementById('focus-project-select');
-    if (projectSel?.value) populateFocusTaskSelect(projectSel.value);
+    renderDailySessionsFeed();
   }, err => { setOffline(); hideLoading(); console.error(err); });
 
   updateFocusDisplay();
@@ -2669,6 +2989,11 @@ function populateFocusProjectSelect() {
     .filter(p => p.status === 'active' || !p.status)
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
 
+  // v17.0 Layout-guard: skip rebuild if list hasn't actually changed.
+  const signature = projects.map(p => `${p.id}:${p.name}`).join('|');
+  if (sel.dataset.sig === signature) return;
+  sel.dataset.sig = signature;
+
   sel.innerHTML = '<option value="">اختر المشروع</option>' +
     projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
 
@@ -2679,37 +3004,9 @@ function populateFocusProjectSelect() {
   renderFocusDropdown('project');
 }
 
-function populateFocusTaskSelect(projectId) {
-  const sel = document.getElementById('focus-task-select');
-  if (!sel) return;
-  const prevValue = sel.value || state.focusTaskId || '';
-
-  if (!projectId) {
-    sel.innerHTML = '<option value="">اختر المهمة (اختياري)</option>';
-    sel.setAttribute('disabled', 'true');
-    setFocusDropdownDisabled('task', true);
-    renderFocusDropdown('task');
-    return;
-  }
-  // Open tasks for this project (todo + doing)
-  const tasks = state.allTasks
-    .filter(t => t._projectId === projectId && (t.status === 'todo' || t.status === 'doing'));
-
-  sel.innerHTML = '<option value="">اختر المهمة (اختياري)</option>' +
-    tasks.map(t => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join('');
-  if (tasks.length > 0) {
-    sel.removeAttribute('disabled');
-    setFocusDropdownDisabled('task', false);
-  } else {
-    sel.setAttribute('disabled', 'true');
-    setFocusDropdownDisabled('task', true);
-  }
-
-  if (prevValue && tasks.some(t => t.id === prevValue)) {
-    sel.value = prevValue;
-  }
-  renderFocusDropdown('task');
-}
+// v14.6 — Task-select removed from the focus view. Stub kept so existing
+// callers don't break; project picker is the sole control.
+function populateFocusTaskSelect(_projectId) {}
 
 function updateFocusDisplay() {
   // Always mirror to dashboard widget (cheap, no-op when not on dashboard)
@@ -2753,6 +3050,9 @@ function updateFocusDisplay() {
     const pct = total > 0 ? ((total - state.focusTimeLeft) / total) * 100 : 0;
     fill.style.width = pct + '%';
   }
+
+  // v14.6 — Project-only flow; keep the daily session feed in sync.
+  renderDailySessionsFeed();
 }
 
 function setFocusLocked(locked) {
@@ -2855,7 +3155,8 @@ async function completeFocusCycle() {
     const hours   = roundHours(minutes / 60);
 
     if (state.focusProjectId) {
-      await saveFocusHours(state.focusProjectId, state.focusTaskId, hours);
+      await saveFocusHours(state.focusProjectId, null, hours);
+      recordDailySession(state.focusProjectId, state.focusWorkMinutes, hours);
     }
     toast(`أحسنت! انتهت جلسة العمل (${hours} ساعة) — وقت الراحة ☕`, 'success', '🎉');
 
@@ -2898,7 +3199,10 @@ async function completeFocusCycle() {
   }
 }
 
-async function saveFocusHours(projectId, taskId, hours) {
+// v19.0 — Hours are now project-centric ONLY. Per-task hours were
+// dropped to reduce cognitive load and Firestore writes. taskId is
+// still accepted so callers don't need refactoring, but it's ignored.
+async function saveFocusHours(projectId, _taskId, hours) {
   try {
     const project = state.allProjects.find(p => p.id === projectId);
     if (!project) {
@@ -2911,32 +3215,138 @@ async function saveFocusHours(projectId, taskId, hours) {
       return;
     }
 
-    // Bump the project's running hour total
+    // Bump the project's running hour total — single source of truth.
     await updateDoc(projectDoc(clientId, projectId), {
       totalProjectHours: increment(hours)
     });
-
-    // Optionally bump the task's hours too — only if a task was linked
-    if (taskId) {
-      try {
-        await updateDoc(taskDoc(clientId, projectId, taskId), {
-          taskHoursSpent: increment(hours)
-        });
-      } catch (taskErr) {
-        // Task might have been deleted mid-session
-        console.warn('Focus save: task update failed:', taskErr);
-      }
-    }
   } catch (err) {
     console.error('Focus save: failed', err);
     toast('فشل حفظ الساعات في قاعدة البيانات', 'error');
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+//  v14.6 — DAILY SESSIONS FEED (today-only, localStorage-backed)
+//  Each instant-log / completed cycle appends a tag here. Tags carry
+//  enough info (projectId + hours) to perform a reverse-decrement on
+//  the project's totalProjectHours when the user clicks (x).
+// ════════════════════════════════════════════════════════════════
+
+const DAILY_SESSIONS_KEY = 'dailySessions';
+
+function _todayKey() {
+  return toLocalISODate(new Date());
+}
+
+function loadDailySessions() {
+  try {
+    const raw = localStorage.getItem(DAILY_SESSIONS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    // Auto-prune to today only — yesterday's tags shouldn't linger.
+    const today = _todayKey();
+    return arr.filter(s => s.day === today);
+  } catch { return []; }
+}
+
+function saveDailySessions(list) {
+  try { localStorage.setItem(DAILY_SESSIONS_KEY, JSON.stringify(list)); }
+  catch (err) { console.warn('saveDailySessions failed', err); }
+}
+
+function recordDailySession(projectId, minutes, hours) {
+  const list = loadDailySessions();
+  list.push({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    day: _todayKey(),
+    projectId,
+    minutes,
+    hours,
+    at: Date.now(),
+  });
+  saveDailySessions(list);
+  renderDailySessionsFeed();
+}
+
+function renderDailySessionsFeed() {
+  const feed = document.getElementById('daily-sessions-feed');
+  if (!feed) return;
+
+  const list = loadDailySessions();
+  if (list.length === 0) {
+    feed.innerHTML = '';
+    feed.classList.add('hidden');
+    return;
+  }
+  feed.classList.remove('hidden');
+
+  // Newest first so the last action stays at the start of the strip.
+  const sorted = [...list].sort((a, b) => b.at - a.at);
+
+  feed.innerHTML = sorted.map(s => {
+    const proj   = state.allProjects.find(p => p.id === s.projectId);
+    const name   = proj ? proj.name : '— مشروع محذوف —';
+    const time   = new Date(s.at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    return `
+      <span class="session-tag" data-sid="${s.id}" title="${escapeHtml(name)}">
+        <span class="session-tag-proj">${escapeHtml(name)}</span>
+        <span class="session-tag-sep">•</span>
+        <span class="session-tag-dur">${s.minutes} د</span>
+        <span class="session-tag-sep">•</span>
+        <span class="session-tag-time">${escapeHtml(time)}</span>
+        <button type="button" class="session-tag-x" data-sid="${s.id}"
+                title="تراجع وخصم الساعات" aria-label="حذف الجلسة">✕</button>
+      </span>`;
+  }).join('');
+
+  feed.querySelectorAll('.session-tag-x').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      undoDailySession(btn.dataset.sid);
+    });
+  });
+}
+
+async function undoDailySession(sessionId) {
+  const list = loadDailySessions();
+  const idx  = list.findIndex(s => s.id === sessionId);
+  if (idx < 0) return;
+  const s = list[idx];
+
+  // Optimistic UI removal — drop the tag, persist new list, then revert
+  // by writing the negated hours into Firestore.
+  list.splice(idx, 1);
+  saveDailySessions(list);
+  renderDailySessionsFeed();
+
+  try {
+    const project = state.allProjects.find(p => p.id === s.projectId);
+    if (!project) {
+      console.warn('Undo session: project not found', s.projectId);
+      toast('تم حذف التاغ — المشروع غير موجود', 'info');
+      return;
+    }
+    const clientId = project._clientId || project._ref?.parent?.parent?.id;
+    if (!clientId) return;
+    await updateDoc(projectDoc(clientId, s.projectId), {
+      totalProjectHours: increment(-s.hours)
+    });
+    toast(`تم خصم ${s.hours} ساعة من "${project.name}"`, 'info', '↩️');
+  } catch (err) {
+    console.error('Undo session failed:', err);
+    toast('فشل خصم الساعات — جرب مجدداً', 'error');
+    // Roll the tag back if Firestore write failed.
+    const rollback = loadDailySessions();
+    rollback.push(s);
+    saveDailySessions(rollback);
+    renderDailySessionsFeed();
+  }
+}
+
 // ── Wire up Focus Timer DOM (idempotent) ──
 (function setupFocusTimer() {
   const projectSel = document.getElementById('focus-project-select');
-  const taskSel    = document.getElementById('focus-task-select');
   const btnQuick   = document.getElementById('btn-mode-quick');
   const btnDeep    = document.getElementById('btn-mode-deep');
   const btnFlow    = document.getElementById('btn-mode-flow');
@@ -2947,12 +3357,6 @@ async function saveFocusHours(projectId, taskId, hours) {
     projectSel.addEventListener('change', () => {
       state.focusProjectId = projectSel.value || null;
       state.focusTaskId = null;
-      populateFocusTaskSelect(projectSel.value);
-    });
-  }
-  if (taskSel) {
-    taskSel.addEventListener('change', () => {
-      state.focusTaskId = taskSel.value || null;
     });
   }
   if (btnQuick) btnQuick.addEventListener('click', () => setFocusMode(25, 5,  btnQuick));
@@ -2967,7 +3371,8 @@ async function saveFocusHours(projectId, taskId, hours) {
   }
   if (btnReset) btnReset.addEventListener('click', resetFocusTimer);
 
-  // ── Instant log: dump the currently selected preset (25 / 50 / 90) ──
+  // ── Instant log: dump the currently selected preset (25 / 50 / 90) directly
+  //    into the project's totalProjectHours, then push a tag into today's feed.
   const btnInstant = document.getElementById('btn-focus-instant-log');
   if (btnInstant) {
     btnInstant.addEventListener('click', async () => {
@@ -2978,9 +3383,7 @@ async function saveFocusHours(projectId, taskId, hours) {
       }
 
       const projectSelEl = document.getElementById('focus-project-select');
-      const taskSelEl    = document.getElementById('focus-task-select');
       const projectId    = projectSelEl?.value || state.focusProjectId;
-      const taskId       = taskSelEl?.value    || state.focusTaskId || null;
 
       if (!projectId) {
         toast('اختر المشروع أولاً قبل تسجيل الوقت', 'error');
@@ -2989,21 +3392,15 @@ async function saveFocusHours(projectId, taskId, hours) {
         setTimeout(() => projDd?.classList.remove('shake'), 400);
         return;
       }
-      if (!taskId) {
-        toast('اختر التاسك أولاً قبل تسجيل الوقت', 'error');
-        const taskDd = document.querySelector('.focus-dd[data-fdd="task"]');
-        taskDd?.classList.add('shake');
-        setTimeout(() => taskDd?.classList.remove('shake'), 400);
-        return;
-      }
 
       btnInstant.disabled = true;
       const hours = roundHours(minutes / 60);
       try {
-        await saveFocusHours(projectId, taskId, hours);
+        await saveFocusHours(projectId, null, hours);
+        recordDailySession(projectId, minutes, hours);
         btnInstant.classList.add('flash-success');
         setTimeout(() => btnInstant.classList.remove('flash-success'), 700);
-        toast(`✅ تم تسجيل ${minutes} دقيقة (${hours} ساعة) للجلسة المحددة`, 'success');
+        toast(`✅ تم تسجيل ${minutes} دقيقة (${hours} ساعة) على المشروع`, 'success');
       } catch (err) {
         console.error('Instant log failed:', err);
         toast('فشل الحفظ، تحقق من الاتصال', 'error');
