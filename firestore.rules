@@ -42,6 +42,14 @@ service cloud.firestore {
     match /transactions/{txId} {
       allow read, write: if isOwner();
     }
+    // ── Finance Hub (v28.0 — historical salary snapshots) ──
+    match /salary_snapshots/{ym} {
+      allow read, write: if isOwner();
+    }
+    // ── Finance Hub (v30.0 — split project payments / multi-currency) ──
+    match /project_incomes/{incomeId} {
+      allow read, write: if isOwner();
+    }
     match /meta/{docId} {
       allow read, write: if isOwner();
     }

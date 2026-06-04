@@ -249,15 +249,39 @@
           <div class="finance-toolbar">
             <div class="finance-toolbar-left">
               <h2 class="finance-title">💰 المركز المالي</h2>
-              <span class="finance-month-tag" id="finance-month-tag">—</span>
+              <div class="finance-month-nav" role="group" aria-label="تنقل الشهور">
+                <button class="finance-month-btn" id="fin-month-prev" type="button" aria-label="الشهر السابق" title="الشهر السابق">‹</button>
+                <span class="finance-month-tag" id="finance-month-tag">—</span>
+                <button class="finance-month-btn" id="fin-month-next" type="button" aria-label="الشهر التالي" title="الشهر التالي">›</button>
+                <button class="finance-month-btn finance-month-today" id="fin-month-today" type="button" title="هذا الشهر">⌖</button>
+              </div>
             </div>
             <div class="finance-toolbar-actions">
+              <button class="finance-privacy-btn" id="fin-privacy-toggle" type="button" aria-label="إظهار/إخفاء الأرقام الحساسة" title="إظهار/إخفاء">
+                <svg class="eye-icon eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg class="eye-icon eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-11-8-11-8a19.6 19.6 0 014.22-5.31"/>
+                  <path d="M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 8 11 8a19.56 19.56 0 01-2.16 3.19"/>
+                  <path d="M14.12 14.12A3 3 0 119.88 9.88"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              </button>
               <button class="toolbar-add-btn finance-add-income" id="btn-add-income" type="button" aria-label="إضافة مصدر دخل">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
                 <span>مصدر دخل</span>
+              </button>
+              <button class="toolbar-add-btn finance-add-payment" id="btn-add-payment" type="button" aria-label="تسجيل دفعة مشروع">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>تسجيل دفعة</span>
               </button>
               <button class="toolbar-add-btn finance-add-bucket" id="btn-add-bucket" type="button" aria-label="إضافة وعاء صرف">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -276,32 +300,35 @@
             </div>
           </div>
 
-          <!-- A. Headline micro-cards (3 fixed: Income / Spent / Net) -->
-          <div class="finance-stats-row finance-stats-3">
+          <!-- A. Headline micro-cards (v28.0: 4 — Income / Spent / Net / Lifetime Net) -->
+          <div class="finance-stats-row finance-stats-4">
             <div class="finance-stat-card stat-income">
               <span class="finance-stat-label">إجمالي الدخل المتاح</span>
-              <span class="finance-stat-value" id="fin-stat-income">0</span>
-              <span class="finance-stat-sub" id="fin-stat-income-sub">رواتب + مشاريع</span>
+              <span class="finance-stat-value privacy-sensitive" id="fin-stat-income">0</span>
+              <span class="finance-stat-sub privacy-sensitive" id="fin-stat-income-sub">رواتب + مشاريع</span>
             </div>
             <div class="finance-stat-card stat-fixed">
               <span class="finance-stat-label">💸 إجمالي الصرف</span>
-              <span class="finance-stat-value" id="fin-stat-spent">0</span>
-              <span class="finance-stat-sub" id="fin-stat-spent-sub">0 عملية</span>
+              <span class="finance-stat-value privacy-sensitive" id="fin-stat-spent">0</span>
+              <span class="finance-stat-sub privacy-sensitive" id="fin-stat-spent-sub">0 عملية</span>
             </div>
             <div class="finance-stat-card stat-net">
-              <span class="finance-stat-label">المتبقي الصافي</span>
-              <span class="finance-stat-value" id="fin-stat-net">0</span>
-              <span class="finance-stat-sub" id="fin-stat-net-sub">مساحة آمنة</span>
+              <span class="finance-stat-label">المتبقي الصافي للشهر</span>
+              <span class="finance-stat-value privacy-sensitive" id="fin-stat-net">0</span>
+              <span class="finance-stat-sub privacy-sensitive" id="fin-stat-net-sub">مساحة آمنة</span>
+            </div>
+            <div class="finance-stat-card stat-lifetime">
+              <span class="finance-stat-label">🏦 صافي الأرباح التراكمي</span>
+              <span class="finance-stat-value privacy-sensitive" id="fin-stat-lifetime">0</span>
+              <span class="finance-stat-sub privacy-sensitive" id="fin-stat-lifetime-sub">الرصيد الصافي العام</span>
             </div>
           </div>
 
-          <!-- B. Dynamic Bucket Grid -->
-          <div class="finance-buckets-block">
-            <div class="finance-buckets-header">
-              <div class="finance-buckets-titlebox">
-                <span class="finance-panel-title">🗂️ أوعية الصرف</span>
-                <span class="finance-panel-sub" id="fin-buckets-count">0 نشط</span>
-              </div>
+          <!-- B. Spending buckets — full-width row -->
+          <div class="finance-panel" id="fin-buckets-panel">
+            <div class="finance-panel-header">
+              <span class="finance-panel-title">🗂️ أوعية الصرف</span>
+              <span class="finance-panel-sub" id="fin-buckets-count">0 نشط</span>
               <button class="finance-mini-btn" id="fin-buckets-toggle-archived" type="button">🗄️ المؤرشفة</button>
             </div>
             <div class="finance-buckets-grid" id="fin-buckets-grid">
@@ -309,7 +336,20 @@
             </div>
           </div>
 
-          <!-- C. Income Sources + D. Transactions Feed -->
+          <!-- B2. v30.0 — Project payments (split, multi-currency).
+               Received feeds the income totals; Pending is tracked separately. -->
+          <div class="finance-panel" id="fin-payments-panel">
+            <div class="finance-panel-header">
+              <span class="finance-panel-title">💵 دفعات المشاريع</span>
+              <span class="finance-panel-sub" id="fin-payments-count">0 دفعة</span>
+              <button class="finance-mini-btn" id="fin-payments-toggle" type="button" data-mode="received">⏳ المجدولة</button>
+            </div>
+            <div class="finance-payments-list" id="fin-payments-list">
+              <!-- Payment rows rendered by JS -->
+            </div>
+          </div>
+
+          <!-- C+D. Income sources + transactions feed (two-column) -->
           <div class="finance-bottom-grid">
             <div class="finance-panel" id="fin-income-panel">
               <div class="finance-panel-header">
@@ -622,6 +662,21 @@
       <div class="confirm-actions">
         <button class="btn-ghost" id="confirm-no">إلغاء</button>
         <button class="btn-danger" id="confirm-yes">نعم، احذف</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+     PROMISE-BASED CONFIRM DIALOG (v28.0 — Finance)
+═══════════════════════════════════ -->
+  <div id="async-confirm-overlay" class="confirm-overlay hidden" role="alertdialog" aria-modal="true">
+    <div class="confirm-box async-confirm-box">
+      <div class="confirm-icon" id="async-confirm-icon">🗑️</div>
+      <h3 id="async-confirm-title">حذف</h3>
+      <p id="async-confirm-message">هل أنت متأكد؟</p>
+      <div class="confirm-actions">
+        <button class="btn-ghost" id="async-confirm-no" type="button">إلغاء</button>
+        <button class="btn-danger" id="async-confirm-yes" type="button">تأكيد الحذف</button>
       </div>
     </div>
   </div>

@@ -366,6 +366,12 @@ const incomeSourceDoc  = (id)                  => doc(db, 'incomeSources', id);
 // v25.0 — Dynamic budget buckets + transactions (replaces hardcoded categories)
 const bucketsRef       = ()                    => collection(db, 'budget_buckets');
 const bucketDoc        = (id)                  => doc(db, 'budget_buckets', id);
+// v28.0 — Historical salary snapshots, doc IDs are 'YYYY-MM'.
+const salarySnapshotsRef = ()                  => collection(db, 'salary_snapshots');
+const salarySnapshotDoc  = (ym)                => doc(db, 'salary_snapshots', ym);
+// v30.0 — Split project payments with multi-currency support.
+const projectIncomesRef  = ()                  => collection(db, 'project_incomes');
+const projectIncomeDoc   = (id)                => doc(db, 'project_incomes', id);
 const transactionsRef  = ()                    => collection(db, 'transactions');
 const transactionDoc   = (id)                  => doc(db, 'transactions', id);
 
@@ -418,8 +424,15 @@ const state = {
   financeUnsubIncome:   null,
   financeUnsubBuckets:  null,
   financeUnsubTx:       null,
+  financeUnsubSalarySnaps: null,
+  financeUnsubProjectIncomes: null,
+  salarySnapshots:      {},        // v28.0 — { 'YYYY-MM': { sources: [...] } }
+  projectIncomes:       [],        // v30.0 — split payments per project
+  financePaymentsView:  'received',// v30.0 — 'received' | 'pending'
   financeCursor:        null,     // Date pointing at the displayed finance month
   financeShowArchived:  false,    // toggle to reveal archived buckets
+  isPrivacyActive:      (localStorage.getItem('isPrivacyActive') ?? 'true') !== 'false',  // v27.0 — privacy-by-default
+  bucketDraggedId:      null,     // v27.0 — drag/drop state for budget buckets
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -440,6 +453,8 @@ function cleanupListeners() {
   safeUnsub(state.financeUnsubIncome);   state.financeUnsubIncome = null;
   safeUnsub(state.financeUnsubBuckets);  state.financeUnsubBuckets = null;
   safeUnsub(state.financeUnsubTx);       state.financeUnsubTx = null;
+  safeUnsub(state.financeUnsubSalarySnaps); state.financeUnsubSalarySnaps = null;
+  safeUnsub(state.financeUnsubProjectIncomes); state.financeUnsubProjectIncomes = null;
   cancelPendingRenders();
 }
 
@@ -1716,82 +1731,339 @@ function subscribeFinance() {
     debounceRender(renderFinance);
   }
 
-  state.financeUnsubIncome = onSnapshot(query(incomeSourcesRef(), orderBy('createdAt', 'desc')), snap => {
-    state.incomeSources = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinance);
-  }, err => { console.error('income sources listener:', err); toast('فشل تحميل مصادر الدخل', 'error'); });
+  // v29.0 — Reuse listeners across re-entries. Previously every navigate
+  // to /finance stacked a new onSnapshot per collection, leaking the old
+  // ones and causing duplicate render calls (the visible flicker).
+  if (!state.financeUnsubIncome) {
+    state.financeUnsubIncome = onSnapshot(query(incomeSourcesRef(), orderBy('createdAt', 'desc')), snap => {
+      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!shallowEqualList(state.incomeSources, next)) {
+        state.incomeSources = next;
+        ensureCurrentMonthSalarySnapshot();
+        debounceRender(renderFinance);
+      }
+    }, err => { console.error('income sources listener:', err); toast('فشل تحميل مصادر الدخل', 'error'); });
+  }
 
-  state.financeUnsubBuckets = onSnapshot(query(bucketsRef(), orderBy('createdAt', 'desc')), snap => {
-    state.buckets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinance);
-  }, err => {
-    console.error('buckets listener:', err);
-    if (err?.code === 'permission-denied') {
-      toast('⚠️ Firestore rules ناقصة لـ budget_buckets — انشر الـ rules', 'error');
-    }
-  });
+  if (!state.financeUnsubBuckets) {
+    state.financeUnsubBuckets = onSnapshot(query(bucketsRef(), orderBy('createdAt', 'desc')), snap => {
+      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!shallowEqualList(state.buckets, next)) {
+        state.buckets = next;
+        debounceRender(renderFinance);
+      }
+    }, err => {
+      console.error('buckets listener:', err);
+      if (err?.code === 'permission-denied') {
+        toast('⚠️ Firestore rules ناقصة لـ budget_buckets — انشر الـ rules', 'error');
+      }
+    });
+  }
 
-  state.financeUnsubTx = onSnapshot(query(transactionsRef(), orderBy('date', 'desc')), snap => {
-    state.transactions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinance);
-  }, err => {
-    console.error('transactions listener:', err);
-    if (err?.code === 'permission-denied') {
-      toast('⚠️ Firestore rules ناقصة لـ transactions — انشر الـ rules', 'error');
-    }
-  });
+  if (!state.financeUnsubTx) {
+    state.financeUnsubTx = onSnapshot(query(transactionsRef(), orderBy('date', 'desc')), snap => {
+      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!shallowEqualList(state.transactions, next)) {
+        state.transactions = next;
+        debounceRender(renderFinance);
+      }
+    }, err => {
+      console.error('transactions listener:', err);
+      if (err?.code === 'permission-denied') {
+        toast('⚠️ Firestore rules ناقصة لـ transactions — انشر الـ rules', 'error');
+      }
+    });
+  }
+
+  // v28.0 — Historical salary snapshots (used when viewing past months
+  // so old totals stay frozen even after the user edits a salary today).
+  if (!state.financeUnsubSalarySnaps) {
+    state.financeUnsubSalarySnaps = onSnapshot(salarySnapshotsRef(), snap => {
+      const map = {};
+      snap.docs.forEach(d => { map[d.id] = d.data(); });
+      state.salarySnapshots = map;
+      ensureCurrentMonthSalarySnapshot();
+      debounceRender(renderFinance);
+    }, err => {
+      console.error('salary snapshots listener:', err);
+      if (err?.code === 'permission-denied') {
+        toast('⚠️ Firestore rules ناقصة لـ salary_snapshots — انشر الـ rules', 'error');
+      }
+    });
+  }
+
+  // v30.0 — Split project payments (multi-currency)
+  if (!state.financeUnsubProjectIncomes) {
+    state.financeUnsubProjectIncomes = onSnapshot(query(projectIncomesRef(), orderBy('date', 'desc')), snap => {
+      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!shallowEqualList(state.projectIncomes, next)) {
+        state.projectIncomes = next;
+        debounceRender(renderFinance);
+      }
+    }, err => {
+      console.error('project_incomes listener:', err);
+      if (err?.code === 'permission-denied') {
+        toast('⚠️ Firestore rules ناقصة لـ project_incomes — انشر الـ rules', 'error');
+      }
+    });
+  }
 }
 
-// v26.0 — Single source of truth for a freelance income row's earnings.
-// Picks pricingType off the linked project first; legacy income docs that
-// still store hourlyRate locally keep working as a last-resort fallback.
+// v29.0 — Cheap shallow-equal over an array of Firestore docs by id +
+// updatedAt/createdAt. Good enough to skip a render when nothing
+// materially changed (snapshot fired but the doc list is identical).
+function shallowEqualList(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (x.id !== y.id) return false;
+    const ax = x.updatedAt?.seconds ?? x.createdAt?.seconds ?? 0;
+    const bx = y.updatedAt?.seconds ?? y.createdAt?.seconds ?? 0;
+    if (ax !== bx) return false;
+    // Catch mutations that don't touch timestamps (e.g. orderIndex updates
+    // via writeBatch). Compare a few hot fields directly.
+    if (x.orderIndex      !== y.orderIndex)      return false;
+    if (x.status          !== y.status)          return false;
+    if (x.amount          !== y.amount)          return false;
+    if (x.bucketId        !== y.bucketId)        return false;
+    if (x.finalEgpAmount  !== y.finalEgpAmount)  return false;
+    if (x.foreignAmount   !== y.foreignAmount)   return false;
+    if (x.exchangeRate    !== y.exchangeRate)    return false;
+    if (x.currency        !== y.currency)        return false;
+  }
+  return true;
+}
+
+// v28.0 — Build "YYYY-MM" id from a Date.
+function monthKey(d) {
+  const dt = d || new Date();
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// v29.0 — Is the displayed finance month inside [startDate, endDate] of a
+// salary source? Compares at month-precision so the boundary months count
+// in full (the user gets the whole month's salary even if they started
+// mid-month). Sources missing startDate (legacy) are treated as always-on.
+function salaryActiveInMonth(source, displayDate) {
+  const target = displayDate || state.financeCursor || new Date();
+  const targetY = target.getFullYear();
+  const targetM = target.getMonth();
+  const start = parseDateField(source.startDate);
+  const end   = parseDateField(source.endDate);
+  if (start) {
+    const sy = start.getFullYear(), sm = start.getMonth();
+    if (targetY < sy || (targetY === sy && targetM < sm)) return false;
+  }
+  if (end) {
+    const ey = end.getFullYear(), em = end.getMonth();
+    if (targetY > ey || (targetY === ey && targetM > em)) return false;
+  }
+  return true;
+}
+
+// v28.0 — Capture today's live salaries into the snapshot for the current
+// month. Idempotent: only writes when the payload actually differs from the
+// stored snapshot so we don't burn writes on every render.
+async function ensureCurrentMonthSalarySnapshot() {
+  const now = new Date();
+  const ym = monthKey(now);
+  // v29.0 — Honor salary timeline; sources not active this month don't get
+  // captured into the snapshot.
+  const live = state.incomeSources
+    .filter(s => s.type === 'salary')
+    .filter(s => salaryActiveInMonth(s, now))
+    .map(s => ({
+      id: s.id,
+      label: s.label || 'راتب',
+      monthlyAmount: Number(s.monthlyAmount) || 0,
+    }));
+  // Empty salary list — don't bother writing an empty snapshot doc.
+  if (live.length === 0) return;
+  const existing = state.salarySnapshots[ym]?.sources;
+  const same = Array.isArray(existing)
+    && existing.length === live.length
+    && existing.every((e, i) =>
+      e.id === live[i].id
+      && e.label === live[i].label
+      && Number(e.monthlyAmount) === live[i].monthlyAmount);
+  if (same) return;
+  try {
+    await setDoc(salarySnapshotDoc(ym), {
+      sources: live,
+      capturedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (err) {
+    console.error('salary snapshot write:', err);
+  }
+}
+
+// v28.0 — All-time aggregate income/expense/net.
+// v29.0 — Walks every month from the earliest salary start date to the
+// current month, preferring a frozen snapshot when one exists for that
+// month and otherwise computing live (so salaries respect their timeline
+// even before they were ever snapshotted).
+function computeLifetimeNet() {
+  const now = new Date();
+  const nowKey = monthKey(now);
+  let salarySum = 0;
+
+  // Earliest month we should iterate from — pulled from both live salary
+  // start dates and any existing snapshot keys (covers legacy data).
+  let earliest = null;
+  state.incomeSources.forEach(s => {
+    if (s.type !== 'salary') return;
+    const sd = parseDateField(s.startDate);
+    if (sd && (!earliest || sd < earliest)) earliest = sd;
+  });
+  Object.keys(state.salarySnapshots).forEach(ym => {
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    if (!earliest || d < earliest) earliest = d;
+  });
+
+  if (earliest) {
+    const cursor = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+    const stop   = new Date(now.getFullYear(),      now.getMonth(),      1);
+    while (cursor <= stop) {
+      const ym   = monthKey(cursor);
+      const snap = state.salarySnapshots[ym];
+      const isCurrent = ym === nowKey;
+      // Snapshot wins for historical months. For the current month we
+      // always recompute live so today's edits show up immediately.
+      if (snap && Array.isArray(snap.sources) && !isCurrent) {
+        salarySum += snap.sources.reduce((s, x) => s + (Number(x.monthlyAmount) || 0), 0);
+      } else {
+        salarySum += state.incomeSources
+          .filter(s => s.type === 'salary' && salaryActiveInMonth(s, cursor))
+          .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  } else {
+    // No timeline anywhere yet — count today's live salary once.
+    salarySum = state.incomeSources
+      .filter(s => s.type === 'salary')
+      .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
+  }
+
+  const freelanceSum = state.incomeSources
+    .filter(s => s.type === 'freelance')
+    .reduce((sum, s) => sum + computeFreelanceEarning(s), 0);
+
+  // v30.0 — All-time received project payments (Pending stays excluded
+  // so the lifetime card never shows money you haven't collected yet).
+  const paymentsSum = state.projectIncomes
+    .filter(p => (p.status || 'Received') === 'Received')
+    .reduce((sum, p) => sum + (Number(p.finalEgpAmount) || 0), 0);
+
+  const expenseSum = state.transactions
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+  const income = salarySum + freelanceSum + paymentsSum;
+  return { income, expense: expenseSum, net: income - expenseSum };
+}
+
+// v28.0 — Salary total for the displayed finance month. Past months read
+// from their frozen snapshot when present; current month + uncaptured
+// historical months fall back to live salaries.
+function salaryTotalForMonth() {
+  const cur = state.financeCursor || new Date();
+  const now = new Date();
+  const curKey  = monthKey(cur);
+  const nowKey  = monthKey(now);
+  const isCurrent = curKey === nowKey;
+  const snap = state.salarySnapshots[curKey];
+  if (!isCurrent && snap && Array.isArray(snap.sources)) {
+    return snap.sources.reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
+  }
+  // v29.0 — Live computation respects the salary timeline (start/end).
+  return state.incomeSources
+    .filter(s => s.type === 'salary')
+    .filter(s => salaryActiveInMonth(s, cur))
+    .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
+}
+
+// v28.0 — Pricing now lives on the income source (the Finance Hub is the
+// single source of truth). Falls back to legacy project pricing for rows
+// created before v28 so historic earnings stay computable.
 function computeFreelanceEarning(source) {
   const proj = state.allProjects.find(p => p.id === source.projectId);
-  if (!proj) return 0;
-  let ptype = proj.pricingType;
-  if (!ptype) {
-    if (Number(proj.hourlyRate) > 0)              ptype = 'hourly';
-    else if (Number(proj.projectFixedPrice) > 0)  ptype = 'fixed';
-    else if (Number(source.hourlyRate) > 0)       ptype = 'hourly-legacy';
-    else return 0;
-  }
+  // Decide pricing type — prefer the source, then legacy project fields.
+  let ptype = source.pricingType
+    || proj?.pricingType
+    || (Number(source.hourlyRate) > 0 ? 'hourly'
+        : Number(proj?.hourlyRate) > 0 ? 'hourly'
+        : Number(source.fixedPrice) > 0 ? 'fixed'
+        : Number(proj?.projectFixedPrice) > 0 ? 'fixed'
+        : null);
+  if (!ptype) return 0;
+
   if (ptype === 'fixed') {
-    return Number(proj.projectFixedPrice) || 0;
+    return Number(source.fixedPrice) || Number(proj?.projectFixedPrice) || 0;
   }
-  const rate  = Number(proj.hourlyRate) || Number(source.hourlyRate) || 0;
-  const hours = Number(proj.totalProjectHours) || 0;
+  // hourly
+  const rate  = Number(source.hourlyRate) || Number(proj?.hourlyRate) || 0;
+  const hours = Number(proj?.totalProjectHours) || 0;
   return rate * hours;
+}
+
+// v27.0 — Month/year of a date matches the financeCursor's month/year?
+function isInFinanceMonth(d) {
+  if (!d) return false;
+  const cur = state.financeCursor || new Date();
+  return d.getFullYear() === cur.getFullYear()
+      && d.getMonth()    === cur.getMonth();
+}
+
+// v27.0 — Transactions filtered to the displayed month only.
+function transactionsForMonth() {
+  return state.transactions.filter(t => isInFinanceMonth(parseDateField(t.date)));
 }
 
 // ── Computed totals ──────────────────────────────────────────────
 function computeFinanceTotals() {
-  // Salary income: every salary source contributes its monthlyAmount.
-  const salaryTotal = state.incomeSources
-    .filter(s => s.type === 'salary')
-    .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
+  // v27.0 — Strict monthly scope. Salaries are recurring, so each salary
+  // source counts in every month (it represents that month's salary). For
+  // freelance sources we only count their earnings if the source was
+  // *created* in the displayed month — historic months freeze with what
+  // was logged then.
+  // v28.0 — Past months use a frozen snapshot so editing today's salary
+  // can't rewrite last quarter's totals.
+  const salaryTotal = salaryTotalForMonth();
 
-  // v26.0 — Freelance income now reads pricingType from the project doc.
-  // Hourly  → totalProjectHours × hourlyRate
-  // Fixed   → projectFixedPrice as-is, hours are personal-effort signal only.
-  // Backward compat: if project has no pricingType, fall back to source.hourlyRate.
   const freelanceTotal = state.incomeSources
     .filter(s => s.type === 'freelance')
+    .filter(s => {
+      const created = parseDateField(s.createdAt);
+      // If we cannot date the source, leave it visible in every month
+      // (legacy rows from before v27.0).
+      return !created || isInFinanceMonth(created);
+    })
     .reduce((sum, s) => sum + computeFreelanceEarning(s), 0);
 
-  const totalIncome = salaryTotal + freelanceTotal;
+  // v30.0 — Split project payments (Received only) for this month.
+  const paymentsTotal = projectIncomesForMonth()
+    .filter(p => (p.status || 'Received') === 'Received')
+    .reduce((sum, p) => sum + (Number(p.finalEgpAmount) || 0), 0);
 
-  // Per-bucket spend (dynamic — keyed by bucketId, falls back to "unassigned")
+  const totalIncome = salaryTotal + freelanceTotal + paymentsTotal;
+
+  // Per-bucket spend — scoped to the active month only.
+  const monthTx = transactionsForMonth();
   const byBucket = new Map();
-  state.transactions.forEach(t => {
+  monthTx.forEach(t => {
     const id = t.bucketId || '__unassigned__';
     byBucket.set(id, (byBucket.get(id) || 0) + (Number(t.amount) || 0));
   });
-  const totalExpense = state.transactions
+  const totalExpense = monthTx
     .reduce((a, t) => a + (Number(t.amount) || 0), 0);
 
   return {
-    salaryTotal, freelanceTotal, totalIncome,
+    salaryTotal, freelanceTotal, paymentsTotal, totalIncome,
     byBucket, totalExpense,
+    monthTxCount: monthTx.length,
     net: totalIncome - totalExpense,
   };
 }
@@ -1810,9 +2082,10 @@ function renderFinance() {
 
   // 3 fixed headline cards (dynamic per-bucket cards render below)
   setText('fin-stat-income', formatMoney(t.totalIncome));
-  setText('fin-stat-income-sub', `راتب ${formatMoney(t.salaryTotal)} • مشاريع ${formatMoney(t.freelanceTotal)}`);
+  setText('fin-stat-income-sub',
+    `راتب ${formatMoney(t.salaryTotal)} • دفعات ${formatMoney(t.paymentsTotal)}`);
   setText('fin-stat-spent', formatMoney(t.totalExpense));
-  setText('fin-stat-spent-sub', `${state.transactions.length} عملية`);
+  setText('fin-stat-spent-sub', `${t.monthTxCount} عملية`);
   setText('fin-stat-net', formatMoney(t.net));
   const netEl = document.getElementById('fin-stat-net');
   if (netEl) {
@@ -1821,7 +2094,19 @@ function renderFinance() {
   }
   setText('fin-stat-net-sub', t.net >= 0 ? 'مساحة آمنة' : 'تجاوز الميزانية ⚠️');
 
+  // v28.0 — Lifetime cumulative net (since first day of the system).
+  const lifetime = computeLifetimeNet();
+  setText('fin-stat-lifetime', formatMoney(lifetime.net));
+  const lifeEl = document.getElementById('fin-stat-lifetime');
+  if (lifeEl) {
+    lifeEl.classList.toggle('negative', lifetime.net < 0);
+    lifeEl.classList.toggle('positive', lifetime.net >= 0);
+  }
+  setText('fin-stat-lifetime-sub',
+    `د: ${formatMoney(lifetime.income)} • ص: ${formatMoney(lifetime.expense)}`);
+
   renderFinanceBuckets(t);
+  renderFinancePayments();
   renderFinanceIncomeList();
   renderFinanceTransactions();
 }
@@ -1831,7 +2116,15 @@ function renderFinanceBuckets(totals) {
   const grid = document.getElementById('fin-buckets-grid');
   if (!grid) return;
 
-  const visible = state.buckets.filter(b =>
+  // v27.0 — Sort by saved orderIndex, fall back to creation time so new
+  // buckets land at the end of the active grid.
+  const sorted = [...state.buckets].sort((a, b) => {
+    const ai = (typeof a.orderIndex === 'number') ? a.orderIndex : Number.POSITIVE_INFINITY;
+    const bi = (typeof b.orderIndex === 'number') ? b.orderIndex : Number.POSITIVE_INFINITY;
+    if (ai !== bi) return ai - bi;
+    return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+  });
+  const visible = sorted.filter(b =>
     state.financeShowArchived ? b.status === 'archived' : b.status !== 'archived');
 
   // Counter label + archive toggle text
@@ -1873,6 +2166,7 @@ function renderFinanceBuckets(totals) {
 
     return `
       <div class="bucket-card ${isArch ? 'is-archived' : ''}" data-id="${b.id}"
+           draggable="true"
            style="--bk-color:${vis.color};">
         <div class="bucket-card-head">
           <div class="bucket-icon">${vis.icon}</div>
@@ -1885,9 +2179,9 @@ function renderFinanceBuckets(totals) {
           </div>
         </div>
         <div class="bucket-amounts">
-          <span class="bucket-spent">${formatMoney(spent)}</span>
+          <span class="bucket-spent privacy-sensitive">${formatMoney(spent)}</span>
           ${target > 0
-            ? `<span class="bucket-sep">/</span><span class="bucket-target">${formatMoney(target)}</span>`
+            ? `<span class="bucket-sep">/</span><span class="bucket-target privacy-sensitive">${formatMoney(target)}</span>`
             : `<span class="bucket-target muted">— بدون سقف —</span>`}
         </div>
         ${target > 0 ? `
@@ -1920,14 +2214,84 @@ function renderFinanceBuckets(totals) {
       } else if (act === 'delete') {
         const txCount = state.transactions.filter(t => t.bucketId === id).length;
         const msg = txCount > 0
-          ? `هذا الوعاء عليه ${txCount} عملية. الحذف النهائي ينظف الوعاء فقط ويبقي العمليات بدون ارتباط. متأكد؟`
-          : 'حذف نهائي للوعاء؟';
-        if (!confirm(msg)) return;
+          ? `هذا الوعاء عليه ${txCount} عملية. الحذف النهائي ينظف الوعاء فقط ويبقي العمليات بدون ارتباط.`
+          : 'سيتم حذف الوعاء نهائياً.';
+        const ok = await confirmDialog({
+          title: 'حذف وعاء الصرف',
+          message: msg,
+          icon: '🗂️',
+          confirmText: 'نعم، احذف الوعاء',
+        });
+        if (!ok) return;
         try { await deleteDoc(bucketDoc(id)); toast('تم الحذف', 'info', '🗑️'); }
         catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
       }
     });
   });
+
+  // v27.0 — Drag & drop reordering for bucket cards
+  grid.querySelectorAll('.bucket-card').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      // Action buttons shouldn't trigger card drag
+      if (e.target.closest('.bucket-action-btn')) { e.preventDefault(); return; }
+      state.bucketDraggedId = card.dataset.id;
+      card.classList.add('bucket-dragging');
+      try { e.dataTransfer.effectAllowed = 'move'; } catch {}
+    });
+    card.addEventListener('dragend', () => {
+      state.bucketDraggedId = null;
+      grid.querySelectorAll('.bucket-card').forEach(c =>
+        c.classList.remove('bucket-dragging', 'bucket-drop-target'));
+    });
+    card.addEventListener('dragover', e => {
+      if (!state.bucketDraggedId || state.bucketDraggedId === card.dataset.id) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch {}
+      card.classList.add('bucket-drop-target');
+    });
+    card.addEventListener('dragleave', e => {
+      if (!card.contains(e.relatedTarget)) card.classList.remove('bucket-drop-target');
+    });
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      card.classList.remove('bucket-drop-target');
+      const draggedId = state.bucketDraggedId;
+      const targetId  = card.dataset.id;
+      state.bucketDraggedId = null;
+      if (!draggedId || draggedId === targetId) return;
+      await handleBucketReorder(draggedId, targetId);
+    });
+  });
+}
+
+// v27.0 — Persist new bucket order to Firestore.
+async function handleBucketReorder(draggedId, targetId) {
+  const visibleStatus = state.financeShowArchived ? 'archived' : 'active';
+  // Reorder within the currently visible scope so cross-scope moves can't
+  // collide. Archived cards keep their own order independent of active.
+  const list = [...state.buckets]
+    .sort((a, b) => {
+      const ai = (typeof a.orderIndex === 'number') ? a.orderIndex : Number.POSITIVE_INFINITY;
+      const bi = (typeof b.orderIndex === 'number') ? b.orderIndex : Number.POSITIVE_INFINITY;
+      if (ai !== bi) return ai - bi;
+      return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+    })
+    .filter(b => visibleStatus === 'archived' ? b.status === 'archived' : b.status !== 'archived');
+
+  const fromIdx = list.findIndex(b => b.id === draggedId);
+  const toIdx   = list.findIndex(b => b.id === targetId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [moved] = list.splice(fromIdx, 1);
+  list.splice(toIdx, 0, moved);
+
+  try {
+    const batch = writeBatch(db);
+    list.forEach((b, i) => batch.update(bucketDoc(b.id), { orderIndex: i }));
+    await batch.commit();
+  } catch (err) {
+    console.error('bucket reorder:', err);
+    toast('فشل حفظ ترتيب الأوعية', 'error');
+  }
 }
 
 function setText(id, v) {
@@ -1955,30 +2319,45 @@ function renderFinanceIncomeList() {
   list.innerHTML = state.incomeSources.map(src => {
     if (src.type === 'salary') {
       const monthly = Number(src.monthlyAmount) || 0;
+      // v29.0 — Surface timeline window so user sees when a salary stops.
+      const sd = parseDateField(src.startDate);
+      const ed = parseDateField(src.endDate);
+      const fmt = (d) => d.toLocaleDateString('ar-EG', { month: 'short', year: 'numeric' });
+      let timeline = 'راتب شهري ثابت';
+      if (sd) {
+        timeline = ed
+          ? `من ${fmt(sd)} إلى ${fmt(ed)}`
+          : `من ${fmt(sd)} — مستمر`;
+      }
+      const activeNow = salaryActiveInMonth(src, state.financeCursor || new Date());
       return `
-        <div class="finance-income-row" data-id="${src.id}" data-kind="salary">
+        <div class="finance-income-row ${activeNow ? '' : 'is-inactive'}" data-id="${src.id}" data-kind="salary">
           <div class="finance-income-icon salary-icon">🏢</div>
           <div class="finance-income-body">
             <div class="finance-income-title">${escapeHtml(src.label || 'راتب')}</div>
-            <div class="finance-income-sub">راتب شهري ثابت</div>
+            <div class="finance-income-sub">${timeline}${activeNow ? '' : ' • غير نشط هذا الشهر'}</div>
           </div>
-          <div class="finance-income-amount">${formatMoney(monthly)}</div>
+          <div class="finance-income-amount privacy-sensitive">${formatMoney(monthly)}</div>
           <button class="finance-row-del" data-id="${src.id}" data-kind="income" title="حذف">✕</button>
         </div>`;
     }
-    // freelance — v26.0 reads pricingType off the project doc
+    // freelance — v28.0 pricing lives on the source (Finance Hub)
     const proj   = state.allProjects.find(p => p.id === src.projectId);
     const earned = computeFreelanceEarning(src);
     const projName = proj ? proj.name : '— مشروع غير موجود —';
-    const ptype  = proj?.pricingType || (Number(proj?.hourlyRate) ? 'hourly' : (Number(proj?.projectFixedPrice) ? 'fixed' : null));
+    const ptype  = src.pricingType
+      || proj?.pricingType
+      || (Number(src.hourlyRate) || Number(proj?.hourlyRate) ? 'hourly'
+          : (Number(src.fixedPrice) || Number(proj?.projectFixedPrice) ? 'fixed' : null));
     let breakdown;
     if (ptype === 'fixed') {
-      breakdown = `سعر ثابت ${formatMoney(proj.projectFixedPrice)} • مجهود ${formatHoursHm(proj.totalProjectHours)}`;
-    } else if (ptype === 'hourly' || ptype === 'hourly-legacy') {
-      const rate = Number(proj?.hourlyRate) || Number(src.hourlyRate) || 0;
+      const fixed = Number(src.fixedPrice) || Number(proj?.projectFixedPrice) || 0;
+      breakdown = `سعر ثابت ${formatMoney(fixed)} • مجهود ${formatHoursHm(proj?.totalProjectHours)}`;
+    } else if (ptype === 'hourly') {
+      const rate = Number(src.hourlyRate) || Number(proj?.hourlyRate) || 0;
       breakdown = `${formatMoney(rate)}/س × ${formatHoursHm(proj?.totalProjectHours)}`;
     } else {
-      breakdown = '⚠️ المشروع بدون تسعير — افتحه وفعّل سعر';
+      breakdown = '⚠️ بدون تسعير — عدّل المصدر وفعّل سعر';
     }
     return `
       <div class="finance-income-row" data-id="${src.id}" data-kind="freelance">
@@ -1987,7 +2366,7 @@ function renderFinanceIncomeList() {
           <div class="finance-income-title">${escapeHtml(src.label || projName)}</div>
           <div class="finance-income-sub">${escapeHtml(projName)} • ${breakdown}</div>
         </div>
-        <div class="finance-income-amount">${formatMoney(earned)}</div>
+        <div class="finance-income-amount privacy-sensitive">${formatMoney(earned)}</div>
         <button class="finance-row-del" data-id="${src.id}" data-kind="income" title="حذف">✕</button>
       </div>`;
   }).join('');
@@ -1995,7 +2374,13 @@ function renderFinanceIncomeList() {
   // Wire delete buttons
   list.querySelectorAll('.finance-row-del').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('حذف هذا المصدر؟')) return;
+      const ok = await confirmDialog({
+        title: 'حذف مصدر الدخل',
+        message: 'هل أنت متأكد من حذف هذا المصدر؟ لن يؤثر هذا على المعاملات المسجلة سابقاً.',
+        icon: '💼',
+        confirmText: 'نعم، احذف المصدر',
+      });
+      if (!ok) return;
       try {
         await deleteDoc(incomeSourceDoc(btn.dataset.id));
         toast('تم حذف المصدر', 'info', '🗑️');
@@ -2009,19 +2394,20 @@ function renderFinanceTransactions() {
   const list = document.getElementById('fin-tx-list');
   const cnt  = document.getElementById('fin-tx-count');
   if (!list) return;
-  cnt && (cnt.textContent = `${state.transactions.length} معاملة`);
+  const monthTx = transactionsForMonth();
+  cnt && (cnt.textContent = `${monthTx.length} معاملة`);
 
-  if (state.transactions.length === 0) {
+  if (monthTx.length === 0) {
     list.innerHTML = `
       <div class="finance-empty">
         <div class="finance-empty-icon">📋</div>
-        <div class="finance-empty-text">لا توجد معاملات مسجلة بعد</div>
-        <div class="finance-empty-sub">اضغط "تسجيل مصروف" لإضافة أول عملية</div>
+        <div class="finance-empty-text">لا توجد معاملات في هذا الشهر</div>
+        <div class="finance-empty-sub">اضغط "تسجيل مصروف" لإضافة أول عملية للشهر</div>
       </div>`;
     return;
   }
 
-  list.innerHTML = state.transactions.slice(0, 80).map(tx => {
+  list.innerHTML = monthTx.slice(0, 80).map(tx => {
     const bucket = state.buckets.find(b => b.id === tx.bucketId);
     const vis    = bucketVisual(bucket);
     const date   = parseDateField(tx.date);
@@ -2035,14 +2421,20 @@ function renderFinanceTransactions() {
           <div class="finance-tx-title">${escapeHtml(tx.title || '—')}</div>
           <div class="finance-tx-sub">${escapeHtml(vis.label)} • ${dateLabel}${projTag}</div>
         </div>
-        <div class="finance-tx-amount">-${formatMoney(tx.amount)}</div>
+        <div class="finance-tx-amount privacy-sensitive">-${formatMoney(tx.amount)}</div>
         <button class="finance-row-del" data-id="${tx.id}" data-kind="tx" title="حذف">✕</button>
       </div>`;
   }).join('');
 
   list.querySelectorAll('.finance-row-del').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('حذف هذه المعاملة؟')) return;
+      const ok = await confirmDialog({
+        title: 'حذف المصروف',
+        message: 'هل أنت متأكد من حذف هذا المصروف؟ سيتم استرجاع المبلغ تلقائياً للرصيد.',
+        icon: '💸',
+        confirmText: 'نعم، احذف المصروف',
+      });
+      if (!ok) return;
       try {
         await deleteDoc(transactionDoc(btn.dataset.id));
         toast('تم حذف المعاملة', 'info', '🗑️');
@@ -2059,20 +2451,180 @@ function renderFinanceTransactions() {
   });
 }
 
+// v30.0 — Currency display helper (small flag/code prefix).
+const CURRENCY_FLAGS = { EGP: '🇪🇬', USD: '🇺🇸', EUR: '🇪🇺', SAR: '🇸🇦', AED: '🇦🇪', GBP: '🇬🇧' };
+function formatForeign(amount, currency) {
+  const sym = { USD: '$', EUR: '€', GBP: '£' }[currency];
+  const n = formatMoney(amount);
+  return sym ? `${sym}${n}` : `${n} ${currency || ''}`.trim();
+}
+
+// v30.0 — Filter project incomes scoped to the displayed month.
+function projectIncomesForMonth() {
+  return state.projectIncomes.filter(p => isInFinanceMonth(parseDateField(p.date)));
+}
+
+// v30.0 — Render the split-payments panel (received vs pending toggle).
+function renderFinancePayments() {
+  const list = document.getElementById('fin-payments-list');
+  if (!list) return;
+  const cnt    = document.getElementById('fin-payments-count');
+  const toggle = document.getElementById('fin-payments-toggle');
+  const mode   = state.financePaymentsView === 'pending' ? 'Pending' : 'Received';
+
+  // Month-scoped + status-scoped
+  const scoped = projectIncomesForMonth().filter(p => (p.status || 'Received') === mode);
+  // Totals across both modes for the header counter
+  const monthAll = projectIncomesForMonth();
+  const recvN = monthAll.filter(p => (p.status || 'Received') === 'Received').length;
+  const pendN = monthAll.filter(p => p.status === 'Pending').length;
+
+  if (cnt) cnt.textContent = `${recvN} مستلمة • ${pendN} مجدولة`;
+  if (toggle) {
+    toggle.textContent = mode === 'Received' ? '⏳ المجدولة' : '✅ المستلمة';
+    toggle.classList.toggle('active', mode === 'Pending');
+  }
+
+  if (scoped.length === 0) {
+    list.innerHTML = `
+      <div class="finance-empty">
+        <div class="finance-empty-icon">💵</div>
+        <div class="finance-empty-text">
+          ${mode === 'Received' ? 'لا توجد دفعات مستلمة في هذا الشهر' : 'لا توجد دفعات مجدولة في هذا الشهر'}
+        </div>
+        <div class="finance-empty-sub">اضغط "تسجيل دفعة" لإضافة دفعة جديدة</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = scoped.map(p => {
+    const proj   = state.allProjects.find(pr => pr.id === p.projectId);
+    const projName = proj ? proj.name : '— مشروع غير موجود —';
+    const date   = parseDateField(p.date);
+    const dateLabel = date ? date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '—';
+    const currency = p.currency || 'EGP';
+    const flag = CURRENCY_FLAGS[currency] || '💰';
+    const isForeign = currency !== 'EGP';
+    const foreignTxt = formatForeign(p.foreignAmount, currency);
+    const egpTxt     = formatMoney(p.finalEgpAmount);
+    const statusLabel = (p.status === 'Pending') ? '⏳ مجدولة' : '✅ Received';
+    const statusCls   = (p.status === 'Pending') ? 'is-pending' : 'is-received';
+    return `
+      <div class="finance-payment-row ${statusCls}" data-id="${p.id}">
+        <div class="pay-icon">${flag}</div>
+        <div class="pay-body">
+          <div class="pay-title">${escapeHtml(p.title || '—')}</div>
+          <div class="pay-sub">📁 ${escapeHtml(projName)} • ${dateLabel}</div>
+        </div>
+        <div class="pay-amount privacy-sensitive">
+          <span class="pay-foreign">${foreignTxt}</span>
+          ${isForeign ? `<span class="pay-egp">= ${egpTxt} ج.م</span>` : ''}
+        </div>
+        <span class="pay-status">${statusLabel}</span>
+        <button class="finance-row-del" data-id="${p.id}" data-kind="payment" title="حذف">✕</button>
+      </div>`;
+  }).join('');
+
+  // Wire delete + edit
+  list.querySelectorAll('.finance-row-del').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const ok = await confirmDialog({
+        title: 'حذف الدفعة',
+        message: 'هل أنت متأكد من حذف هذه الدفعة؟ سيتم خصمها من إجمالي الدخل تلقائياً.',
+        icon: '💵',
+        confirmText: 'نعم، احذف الدفعة',
+      });
+      if (!ok) return;
+      try {
+        await deleteDoc(projectIncomeDoc(btn.dataset.id));
+        toast('تم حذف الدفعة', 'info', '🗑️');
+      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+    });
+  });
+  list.querySelectorAll('.finance-payment-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('.finance-row-del')) return;
+      openModal('projectIncome', row.dataset.id);
+    });
+  });
+}
+
 // ── Wire toolbar buttons ─────────────────────────────────────────
 (function setupFinanceControls() {
   const btnTx     = document.getElementById('btn-add-expense');
   const btnInc    = document.getElementById('btn-add-income');
   const btnBucket = document.getElementById('btn-add-bucket');
+  const btnPay    = document.getElementById('btn-add-payment');
   const btnArch   = document.getElementById('fin-buckets-toggle-archived');
+  const btnPayTog = document.getElementById('fin-payments-toggle');
   if (btnTx)     btnTx    .addEventListener('click', () => openModal('transaction'));
   if (btnInc)    btnInc   .addEventListener('click', () => openModal('incomeSource'));
   if (btnBucket) btnBucket.addEventListener('click', () => openModal('bucket'));
+  if (btnPay)    btnPay   .addEventListener('click', () => openModal('projectIncome'));
   if (btnArch)   btnArch  .addEventListener('click', () => {
     state.financeShowArchived = !state.financeShowArchived;
     renderFinance();
   });
+  if (btnPayTog) btnPayTog.addEventListener('click', () => {
+    state.financePaymentsView = state.financePaymentsView === 'pending' ? 'received' : 'pending';
+    renderFinance();
+  });
+
+  // v30.1 — Collapse / expand panels by clicking the header.
+  // Buttons inside the header still work (they stop propagation below);
+  // every collapsed state is persisted in localStorage per panel id.
+  document.querySelectorAll('#view-finance .finance-panel').forEach(panel => {
+    const header = panel.querySelector('.finance-panel-header');
+    if (!header || !panel.id) return;
+    const storageKey = `finCollapsed:${panel.id}`;
+    if (localStorage.getItem(storageKey) === '1') panel.classList.add('is-collapsed');
+    header.addEventListener('click', e => {
+      // Header-embedded controls (mini buttons) must not toggle collapse
+      if (e.target.closest('button')) return;
+      panel.classList.toggle('is-collapsed');
+      try {
+        localStorage.setItem(storageKey, panel.classList.contains('is-collapsed') ? '1' : '0');
+      } catch {}
+    });
+  });
+  // Prevent header buttons from bubbling up to the collapse handler
+  document.querySelectorAll('#view-finance .finance-panel-header button').forEach(btn => {
+    btn.addEventListener('click', e => e.stopPropagation());
+  });
+
+  // v27.0 — Month navigation (prev / next / today)
+  const shiftMonth = (delta) => {
+    const cur = state.financeCursor || new Date();
+    state.financeCursor = new Date(cur.getFullYear(), cur.getMonth() + delta, 1);
+    renderFinance();
+  };
+  document.getElementById('fin-month-prev') ?.addEventListener('click', () => shiftMonth(-1));
+  document.getElementById('fin-month-next') ?.addEventListener('click', () => shiftMonth(+1));
+  document.getElementById('fin-month-today')?.addEventListener('click', () => {
+    state.financeCursor = new Date();
+    renderFinance();
+  });
+
+  // v27.0 — Privacy toggle (eye icon)
+  applyPrivacyMode();
+  document.getElementById('fin-privacy-toggle')?.addEventListener('click', () => {
+    state.isPrivacyActive = !state.isPrivacyActive;
+    try { localStorage.setItem('isPrivacyActive', state.isPrivacyActive ? 'true' : 'false'); } catch {}
+    applyPrivacyMode();
+  });
 })();
+
+// v27.0 — Reflect privacy state on <body> + the eye icon swap.
+function applyPrivacyMode() {
+  document.body.classList.toggle('privacy-on', state.isPrivacyActive);
+  const btn = document.getElementById('fin-privacy-toggle');
+  if (btn) {
+    btn.classList.toggle('privacy-on', state.isPrivacyActive);
+    btn.setAttribute('aria-pressed', state.isPrivacyActive ? 'true' : 'false');
+    btn.title = state.isPrivacyActive ? 'إظهار الأرقام' : 'إخفاء الأرقام';
+  }
+}
 
 // ── Animate counter number ──
 function animateCount(id, target) {
@@ -2843,26 +3395,9 @@ const MODAL_CONFIGS = {
           <option value="completed">⚫ مكتمل</option>
         </select>
       </div>
-      <!-- v26.0 — Flexible pricing: hourly OR fixed (or both, hourly wins).
-           At save time exactly one becomes pricingType. -->
-      <div class="form-group">
-        <label class="form-label">التسعير (املأ واحد على الأقل لتفعيل الحسابات المالية)</label>
-        <div class="pricing-row">
-          <div class="pricing-field" data-kind="hourly">
-            <label class="pricing-sub-label">💵 سعر الساعة</label>
-            <input type="number" id="f-hourly-rate" class="form-input pricing-input"
-              step="0.01" min="0" placeholder="0" />
-          </div>
-          <div class="pricing-field" data-kind="fixed">
-            <label class="pricing-sub-label">📦 السعر الإجمالي الثابت</label>
-            <input type="number" id="f-fixed-price" class="form-input pricing-input"
-              step="0.01" min="0" placeholder="0" />
-          </div>
-        </div>
-        <small class="pricing-hint">
-          الحقل الممتلئ هو الـ <code>pricingType</code> النشط للحسابات. لو الاتنين فاضيين، المشروع شخصي.
-        </small>
-      </div>
+      <!-- v28.0 — Pricing moved to Finance Hub. Project modal stays
+           money-free; configure hourly rate / fixed price when adding a
+           freelance income source inside المركز المالي. -->
       <div class="form-group">
         <label class="form-label">روابط سريعة (اختياري)</label>
         <div id="proj-links-list" class="proj-links-list">
@@ -2938,6 +3473,60 @@ const MODAL_CONFIGS = {
           placeholder="تفاصيل إضافية..." maxlength="240"></textarea>
       </div>`,
   },
+  projectIncome: {
+    title:      '💵 تسجيل دفعة مشروع',
+    submitText: 'حفظ الدفعة',
+    fields: `
+      <div class="form-group">
+        <label class="form-label">المشروع <span class="required">*</span></label>
+        <select id="f-pi-project" class="form-select" required>
+          <!-- populated dynamically -->
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">بيان الدفعة <span class="required">*</span></label>
+        <input type="text" id="f-pi-title" class="form-input"
+          placeholder="مثال: مقدم تعاقد 50% — دفعة التسليم النهائي" maxlength="100" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">حقل المبلغ والعملة <span class="required">*</span></label>
+        <div class="pi-currency-row">
+          <select id="f-pi-currency" class="form-select pi-currency-select">
+            <option value="EGP">🇪🇬 EGP</option>
+            <option value="USD">🇺🇸 USD</option>
+            <option value="EUR">🇪🇺 EUR</option>
+            <option value="SAR">🇸🇦 SAR</option>
+            <option value="AED">🇦🇪 AED</option>
+            <option value="GBP">🇬🇧 GBP</option>
+          </select>
+          <input type="number" id="f-pi-foreign" class="form-input pi-amount-input"
+            step="0.01" min="0" placeholder="المبلغ" required />
+          <input type="number" id="f-pi-rate" class="form-input pi-rate-input"
+            step="0.0001" min="0" placeholder="سعر الصرف (ج.م)" />
+        </div>
+        <small class="pi-egp-preview" id="pi-egp-preview" style="display:block; margin-top:8px; color:var(--text-muted); font-size:11.5px;">
+          المعادل بالجنيه: <strong id="pi-egp-value" style="color:var(--text-primary); font-family:'JetBrains Mono', ui-monospace, monospace;">0</strong>
+        </small>
+      </div>
+      <div class="form-group" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label class="form-label">التاريخ <span class="required">*</span></label>
+          <input type="date" id="f-pi-date" class="form-input" required />
+        </div>
+        <div style="flex:1;">
+          <label class="form-label">الحالة</label>
+          <select id="f-pi-status" class="form-select">
+            <option value="Received">✅ تم الاستلام</option>
+            <option value="Pending">⏳ مجدولة (لم تدخل بعد)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">ملاحظات (اختياري)</label>
+        <textarea id="f-pi-notes" class="form-textarea"
+          placeholder="تفاصيل إضافية..." maxlength="240"></textarea>
+      </div>`,
+  },
   incomeSource: {
     title:      '💼 إضافة مصدر دخل',
     submitText: 'إضافة المصدر',
@@ -2958,18 +3547,46 @@ const MODAL_CONFIGS = {
         <label class="form-label">الراتب الشهري <span class="required">*</span></label>
         <input type="number" id="f-inc-monthly" class="form-input" step="0.01" min="0"
           placeholder="0" />
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <div style="flex:1;">
+            <label class="form-label">تاريخ بداية الدخل <span class="required">*</span></label>
+            <input type="date" id="f-inc-start" class="form-input" />
+          </div>
+          <div style="flex:1;">
+            <label class="form-label">تاريخ نهاية الدخل (اختياري)</label>
+            <input type="date" id="f-inc-end" class="form-input" />
+          </div>
+        </div>
+        <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
+          النظام يحسب الراتب فقط في الشهور بين تاريخي البداية والنهاية لحماية أرشيف الشهور القديمة.
+        </small>
       </div>
       <div class="form-group" id="inc-freelance-group" style="display:none;">
         <label class="form-label">المشروع <span class="required">*</span></label>
         <select id="f-inc-project" class="form-select">
           <!-- populated dynamically -->
         </select>
-        <label class="form-label" style="margin-top:10px;">سعر الساعة <span class="required">*</span></label>
-        <input type="number" id="f-inc-rate" class="form-input" step="0.01" min="0"
-          placeholder="0" />
-        <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
-          الإيراد المحسوب = سعر الساعة × إجمالي ساعات المشروع (totalProjectHours) لحظياً.
-        </small>
+        <label class="form-label" style="margin-top:10px;">نوع التسعير</label>
+        <select id="f-inc-pricing-type" class="form-select">
+          <option value="hourly">💵 سعر الساعة × ساعات المشروع</option>
+          <option value="fixed">📦 سعر إجمالي ثابت</option>
+        </select>
+        <div id="inc-rate-row" style="margin-top:10px;">
+          <label class="form-label">سعر الساعة <span class="required">*</span></label>
+          <input type="number" id="f-inc-rate" class="form-input" step="0.01" min="0"
+            placeholder="0" />
+          <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
+            الإيراد المحسوب = سعر الساعة × إجمالي ساعات المشروع (totalProjectHours) لحظياً.
+          </small>
+        </div>
+        <div id="inc-fixed-row" style="margin-top:10px; display:none;">
+          <label class="form-label">السعر الإجمالي الثابت <span class="required">*</span></label>
+          <input type="number" id="f-inc-fixed" class="form-input" step="0.01" min="0"
+            placeholder="0" />
+          <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
+            مبلغ ثابت مستقل عن عدد الساعات (يدخل في إيراد الشهر اللي اتسجل فيه المصدر).
+          </small>
+        </div>
       </div>`,
   },
   task: {
@@ -3052,6 +3669,30 @@ function bindProjectLinksControls() {
 
 // v26.0 — Highlight the pricing field that's actually carrying a value, so
 // the user gets visual confirmation which path the maths will take.
+// v30.0 — Wire the project-income form: exchange rate only appears when
+// currency != EGP, and we live-preview the EGP value so the user sees
+// exactly what will hit their wealth before saving.
+function wireProjectIncomeCurrency() {
+  const curSel  = document.getElementById('f-pi-currency');
+  const foreign = document.getElementById('f-pi-foreign');
+  const rate    = document.getElementById('f-pi-rate');
+  const preview = document.getElementById('pi-egp-value');
+  if (!curSel || !foreign || !rate || !preview) return;
+  const sync = () => {
+    const isForeign = curSel.value !== 'EGP';
+    rate.style.display = isForeign ? '' : 'none';
+    rate.required = isForeign;
+    const amt = Number(foreign.value) || 0;
+    const r   = isForeign ? (Number(rate.value) || 0) : 1;
+    const egp = amt * r;
+    preview.textContent = formatMoney(egp) + ' ج.م';
+  };
+  curSel .addEventListener('change', sync);
+  foreign.addEventListener('input',  sync);
+  rate   .addEventListener('input',  sync);
+  sync();
+}
+
 function bindPricingActiveGlow() {
   const rateEl  = document.getElementById('f-hourly-rate');
   const priceEl = document.getElementById('f-fixed-price');
@@ -3152,6 +3793,24 @@ function openModal(type, editId = null) {
     }
   }
 
+  if (type === 'projectIncome') {
+    // Project dropdown
+    const projSel = document.getElementById('f-pi-project');
+    if (projSel) {
+      projSel.innerHTML = state.allProjects.map(p => {
+        const c = state.clients.find(cl => cl.id === p._clientId);
+        const label = c ? `${p.name} — ${c.name}` : p.name;
+        return `<option value="${p.id}">${escapeHtml(label)}</option>`;
+      }).join('');
+    }
+    // Default date for new payments → today
+    if (!state.editTarget) {
+      const d = document.getElementById('f-pi-date');
+      if (d) d.value = toLocalISODate(new Date());
+    }
+    wireProjectIncomeCurrency();
+  }
+
   if (type === 'incomeSource') {
     // Populate project dropdown and wire type toggle
     const sel = document.getElementById('f-inc-project');
@@ -3165,15 +3824,34 @@ function openModal(type, editId = null) {
     const typeSel = document.getElementById('f-inc-type');
     const sg = document.getElementById('inc-salary-group');
     const fg = document.getElementById('inc-freelance-group');
+    const ptSel    = document.getElementById('f-inc-pricing-type');
+    const rateRow  = document.getElementById('inc-rate-row');
+    const fixedRow = document.getElementById('inc-fixed-row');
+    const togglePricing = () => {
+      const isHourly = (ptSel?.value || 'hourly') === 'hourly';
+      if (rateRow)  rateRow.style.display  = isHourly ? '' : 'none';
+      if (fixedRow) fixedRow.style.display = isHourly ? 'none' : '';
+      const rate  = document.getElementById('f-inc-rate');
+      const fixed = document.getElementById('f-inc-fixed');
+      if (rate)  rate.required  = isHourly;
+      if (fixed) fixed.required = !isHourly;
+    };
     const toggle = () => {
       const isSalary = typeSel.value === 'salary';
       if (sg) sg.style.display = isSalary ? '' : 'none';
       if (fg) fg.style.display = isSalary ? 'none' : '';
       const monthly = document.getElementById('f-inc-monthly');
-      const rate    = document.getElementById('f-inc-rate');
       if (monthly) monthly.required = isSalary;
-      if (rate)    rate.required    = !isSalary;
+      const startEl = document.getElementById('f-inc-start');
+      if (startEl) startEl.required = isSalary;
+      if (!isSalary) togglePricing();
     };
+    // v29.0 — default start date to today for new salary sources
+    if (!state.editTarget) {
+      const startEl = document.getElementById('f-inc-start');
+      if (startEl && !startEl.value) startEl.value = toLocalISODate(new Date());
+    }
+    if (ptSel)   ptSel.addEventListener('change', togglePricing);
     if (typeSel) {
       typeSel.addEventListener('change', toggle);
       toggle();
@@ -3221,12 +3899,8 @@ function prefillModalValues() {
     const statusEl = document.getElementById('f-status');
     if (statusEl) statusEl.value = project.status || 'active';
 
-    // v26.0 — Pricing prefill (both fields surface; pricingType is inferred at save)
-    const rateEl  = document.getElementById('f-hourly-rate');
-    const priceEl = document.getElementById('f-fixed-price');
-    if (rateEl)  rateEl.value  = project.hourlyRate        ?? '';
-    if (priceEl) priceEl.value = project.projectFixedPrice ?? '';
-    bindPricingActiveGlow();   // re-evaluate the glow state after prefill
+    // v28.0 — Pricing fields no longer rendered in the project modal.
+    // Existing pricing data on the doc is preserved untouched on save.
 
     // Prefill quick links
     const linksList = document.getElementById('proj-links-list');
@@ -3269,6 +3943,22 @@ function prefillModalValues() {
     const nEl = document.getElementById('f-tx-notes');
     if (nEl) nEl.value = tx.notes || '';
 
+  } else if (type === 'projectIncome') {
+    const pi = state.projectIncomes.find(p => p.id === id);
+    if (!pi) return;
+    const projSel = document.getElementById('f-pi-project');
+    if (projSel && pi.projectId) projSel.value = pi.projectId;
+    document.getElementById('f-pi-title').value    = pi.title || '';
+    document.getElementById('f-pi-currency').value = pi.currency || 'EGP';
+    document.getElementById('f-pi-foreign').value  = pi.foreignAmount ?? '';
+    document.getElementById('f-pi-rate').value     = pi.exchangeRate ?? '';
+    document.getElementById('f-pi-status').value   = pi.status || 'Received';
+    const d = parseDateField(pi.date);
+    document.getElementById('f-pi-date').value     = toLocalISODate(d || new Date());
+    const notes = document.getElementById('f-pi-notes');
+    if (notes) notes.value = pi.notes || '';
+    wireProjectIncomeCurrency();   // re-run after prefill so EGP preview shows
+
   } else if (type === 'incomeSource') {
     const src = state.incomeSources.find(s => s.id === id);
     if (!src) return;
@@ -3280,10 +3970,24 @@ function prefillModalValues() {
     document.getElementById('f-inc-label').value = src.label || '';
     if (src.type === 'salary') {
       document.getElementById('f-inc-monthly').value = src.monthlyAmount ?? '';
+      // v29.0 — Salary timeline prefill
+      const startD = parseDateField(src.startDate);
+      const endD   = parseDateField(src.endDate);
+      const startEl = document.getElementById('f-inc-start');
+      const endEl   = document.getElementById('f-inc-end');
+      if (startEl) startEl.value = startD ? toLocalISODate(startD) : '';
+      if (endEl)   endEl.value   = endD   ? toLocalISODate(endD)   : '';
     } else {
       const projSel = document.getElementById('f-inc-project');
       if (projSel && src.projectId) projSel.value = src.projectId;
-      document.getElementById('f-inc-rate').value = src.hourlyRate ?? '';
+      const ptSel = document.getElementById('f-inc-pricing-type');
+      if (ptSel) {
+        ptSel.value = src.pricingType || 'hourly';
+        ptSel.dispatchEvent(new Event('change'));
+      }
+      document.getElementById('f-inc-rate').value  = src.hourlyRate  ?? '';
+      const fixedEl = document.getElementById('f-inc-fixed');
+      if (fixedEl) fixedEl.value = src.fixedPrice ?? '';
     }
 
   } else if (type === 'task') {
@@ -3390,30 +4094,13 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       const cId = state.client?.id || (state.editTarget && state.editTarget.clientId) || document.getElementById('f-client-id')?.value;
       if (!cId) { toast('يرجى تحديد العميل أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
 
-      // v26.0 — Flexible pricing. Both inputs are optional visually, but if
-      // both are empty we treat this as a personal/unpaid project.
-      const rateRaw  = document.getElementById('f-hourly-rate')?.value;
-      const priceRaw = document.getElementById('f-fixed-price')?.value;
-      const hourlyRate        = rateRaw  !== '' && rateRaw  != null ? Number(rateRaw)  : null;
-      const projectFixedPrice = priceRaw !== '' && priceRaw != null ? Number(priceRaw) : null;
-      if (hourlyRate != null && !(hourlyRate > 0)) {
-        toast('سعر الساعة لازم يكون أكبر من صفر', 'error');
-        btn.disabled = false; btn.textContent = orig; return;
-      }
-      if (projectFixedPrice != null && !(projectFixedPrice > 0)) {
-        toast('السعر الإجمالي لازم يكون أكبر من صفر', 'error');
-        btn.disabled = false; btn.textContent = orig; return;
-      }
-      // Infer pricingType: hourly wins when both filled; null when neither.
-      let pricingType = null;
-      if (hourlyRate != null)        pricingType = 'hourly';
-      else if (projectFixedPrice != null) pricingType = 'fixed';
-
+      // v28.0 — Pricing fields are not part of the project modal anymore.
+      // We preserve any existing values on the doc by omitting them from
+      // the update payload (Firestore update() leaves untouched fields).
       const links = collectProjectLinks();
 
       const payload = {
         name, description: desc || null, status, links,
-        hourlyRate, projectFixedPrice, pricingType,
       };
 
       if (state.editTarget) {
@@ -3490,7 +4177,14 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
         await updateDoc(bucketDoc(state.editTarget.id), payload);
         toast('تم تعديل الوعاء', 'success');
       } else {
-        await addDoc(bucketsRef(), { ...payload, createdAt: serverTimestamp() });
+        // v27.0 — Append new bucket at the end of the active grid.
+        const maxOrder = state.buckets.reduce((m, b) =>
+          (typeof b.orderIndex === 'number' && b.orderIndex > m) ? b.orderIndex : m, -1);
+        await addDoc(bucketsRef(), {
+          ...payload,
+          orderIndex: maxOrder + 1,
+          createdAt: serverTimestamp(),
+        });
         toast('تم إنشاء الوعاء', 'success', '🗂️');
       }
       closeModal();
@@ -3518,6 +4212,40 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       }
       closeModal();
 
+    } else if (currentModalType === 'projectIncome') {
+      // v30.0 — Split project payment with multi-currency.
+      const projectId = document.getElementById('f-pi-project').value;
+      const title     = document.getElementById('f-pi-title').value.trim();
+      const currency  = document.getElementById('f-pi-currency').value || 'EGP';
+      const foreign   = Number(document.getElementById('f-pi-foreign').value);
+      const rateRaw   = document.getElementById('f-pi-rate').value;
+      const dateStr   = document.getElementById('f-pi-date').value;
+      const status    = document.getElementById('f-pi-status').value || 'Received';
+      const notes     = document.getElementById('f-pi-notes')?.value.trim() || null;
+      if (!projectId)    { toast('اختر المشروع أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!title)        { toast('اكتب بيان الدفعة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!(foreign > 0)){ toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!dateStr)      { toast('اختر تاريخ الدفعة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      let exchangeRate = currency === 'EGP' ? 1 : Number(rateRaw);
+      if (currency !== 'EGP' && !(exchangeRate > 0)) {
+        toast('سعر الصرف يجب أن يكون أكبر من صفر للعملات الأجنبية', 'error');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
+      const finalEgpAmount = foreign * exchangeRate;
+      const date = fromLocalISODate(dateStr);
+      const payload = {
+        projectId, title, currency, foreignAmount: foreign,
+        exchangeRate, finalEgpAmount, status, date, notes,
+      };
+      if (state.editTarget) {
+        await updateDoc(projectIncomeDoc(state.editTarget.id), payload);
+        toast('تم تعديل الدفعة', 'success');
+      } else {
+        await addDoc(projectIncomesRef(), { ...payload, createdAt: serverTimestamp() });
+        toast('تم تسجيل الدفعة', 'success', '💵');
+      }
+      closeModal();
+
     } else if (currentModalType === 'incomeSource') {
       const incType = document.getElementById('f-inc-type').value;
       const label   = document.getElementById('f-inc-label').value.trim();
@@ -3528,13 +4256,35 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
         const monthly = Number(document.getElementById('f-inc-monthly').value);
         if (!(monthly > 0)) { toast('الراتب الشهري يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
         payload.monthlyAmount = monthly;
+        // v29.0 — Salary timeline window
+        const startStr = document.getElementById('f-inc-start')?.value;
+        const endStr   = document.getElementById('f-inc-end')?.value;
+        if (!startStr) { toast('يرجى تحديد تاريخ بداية الدخل', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+        const startDate = fromLocalISODate(startStr);
+        const endDate   = endStr ? fromLocalISODate(endStr) : null;
+        if (endDate && endDate < startDate) {
+          toast('تاريخ النهاية يجب أن يكون بعد تاريخ البداية', 'error');
+          btn.disabled = false; btn.textContent = orig; return;
+        }
+        payload.startDate = startDate;
+        payload.endDate   = endDate;
       } else {
-        const projectId = document.getElementById('f-inc-project').value;
-        const rate      = Number(document.getElementById('f-inc-rate').value);
+        const projectId   = document.getElementById('f-inc-project').value;
+        const pricingType = document.getElementById('f-inc-pricing-type')?.value || 'hourly';
         if (!projectId)   { toast('يرجى اختيار مشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-        if (!(rate > 0))  { toast('سعر الساعة يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
         payload.projectId  = projectId;
-        payload.hourlyRate = rate;
+        payload.pricingType = pricingType;
+        if (pricingType === 'hourly') {
+          const rate = Number(document.getElementById('f-inc-rate').value);
+          if (!(rate > 0)) { toast('سعر الساعة يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+          payload.hourlyRate = rate;
+          payload.fixedPrice = null;
+        } else {
+          const fixed = Number(document.getElementById('f-inc-fixed').value);
+          if (!(fixed > 0)) { toast('السعر الإجمالي يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+          payload.fixedPrice = fixed;
+          payload.hourlyRate = null;
+        }
       }
 
       if (state.editTarget) {
@@ -3557,6 +4307,43 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
 // ════════════════════════════════════════════════════════════════
 //  CONFIRM DELETE
 // ════════════════════════════════════════════════════════════════
+
+// v28.0 — Promise-based custom confirm modal. Used by Finance Hub deletes
+// so we never fall back to the browser's native window.confirm.
+function confirmDialog({ title = 'تأكيد', message = 'هل أنت متأكد؟', icon = '🗑️', confirmText = 'تأكيد الحذف' } = {}) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('async-confirm-overlay');
+    if (!overlay) { resolve(window.confirm(message)); return; }
+    document.getElementById('async-confirm-title').textContent   = title;
+    document.getElementById('async-confirm-message').textContent = message;
+    document.getElementById('async-confirm-icon').textContent    = icon;
+    const yes = document.getElementById('async-confirm-yes');
+    const no  = document.getElementById('async-confirm-no');
+    yes.textContent = confirmText;
+
+    let done = false;
+    const cleanup = (val) => {
+      if (done) return; done = true;
+      overlay.classList.add('hidden');
+      yes.removeEventListener('click', onYes);
+      no .removeEventListener('click', onNo);
+      overlay.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onYes      = () => cleanup(true);
+    const onNo       = () => cleanup(false);
+    const onBackdrop = (e) => { if (e.target === overlay) cleanup(false); };
+    const onKey      = (e) => { if (e.key === 'Escape') cleanup(false); };
+
+    yes.addEventListener('click', onYes);
+    no .addEventListener('click', onNo);
+    overlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+    overlay.classList.remove('hidden');
+    setTimeout(() => no.focus(), 50);
+  });
+}
 
 function openConfirm({ type, id, name, warning = '', clientId = null }) {
   state.deleteTarget = { type, id, clientId };
