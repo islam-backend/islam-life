@@ -28,26 +28,20 @@ service cloud.firestore {
       }
     }
 
-    // ── Finance Hub (v22.0) ──
-    match /incomeSources/{srcId} {
+    // ── Finance Hub (v8 — Envelopes & Mandatory Allocation) ──
+    match /envelopes/{envId} {
+      allow read, write: if isOwner();
+    }
+    match /incomes/{incomeId} {
       allow read, write: if isOwner();
     }
     match /expenses/{expId} {
       allow read, write: if isOwner();
     }
-    // ── Finance Hub (v25.0 — Dynamic Buckets) ──
-    match /budget_buckets/{bucketId} {
+    match /transfers/{trId} {
       allow read, write: if isOwner();
     }
-    match /transactions/{txId} {
-      allow read, write: if isOwner();
-    }
-    // ── Finance Hub (v28.0 — historical salary snapshots) ──
-    match /salary_snapshots/{ym} {
-      allow read, write: if isOwner();
-    }
-    // ── Finance Hub (v30.0 — split project payments / multi-currency) ──
-    match /project_incomes/{incomeId} {
+    match /sources/{srcId} {
       allow read, write: if isOwner();
     }
     match /meta/{docId} {

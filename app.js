@@ -360,20 +360,21 @@ const clientDoc   = (cId)                      => doc(db, 'clients', cId);
 const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'projects', pId);
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
 const userStatsDoc = ()                        => doc(db, 'meta', 'userStats');
-// v22.0 — Finance hub collections
-const incomeSourcesRef = ()                    => collection(db, 'incomeSources');
-const incomeSourceDoc  = (id)                  => doc(db, 'incomeSources', id);
-// v25.0 — Dynamic budget buckets + transactions (replaces hardcoded categories)
-const bucketsRef       = ()                    => collection(db, 'budget_buckets');
-const bucketDoc        = (id)                  => doc(db, 'budget_buckets', id);
-// v28.0 — Historical salary snapshots, doc IDs are 'YYYY-MM'.
-const salarySnapshotsRef = ()                  => collection(db, 'salary_snapshots');
-const salarySnapshotDoc  = (ym)                => doc(db, 'salary_snapshots', ym);
-// v30.0 — Split project payments with multi-currency support.
-const projectIncomesRef  = ()                  => collection(db, 'project_incomes');
-const projectIncomeDoc   = (id)                => doc(db, 'project_incomes', id);
-const transactionsRef  = ()                    => collection(db, 'transactions');
-const transactionDoc   = (id)                  => doc(db, 'transactions', id);
+// v8 — Envelope-based finance hub collections.
+//   envelopes — user-defined money envelopes with computed balance
+//   incomes   — every income event; `allocated:false` until distributed 100%
+//   expenses  — every spend, tied to one envelope
+//   transfers — moving money between envelopes
+const envelopesRef = ()       => collection(db, 'envelopes');
+const envelopeDoc  = (id)     => doc(db, 'envelopes', id);
+const incomesRef   = ()       => collection(db, 'incomes');
+const incomeDoc    = (id)     => doc(db, 'incomes', id);
+const expensesRef  = ()       => collection(db, 'expenses');
+const expenseDoc   = (id)     => doc(db, 'expenses', id);
+const transfersRef = ()       => collection(db, 'transfers');
+const transferDoc  = (id)     => doc(db, 'transfers', id);
+const sourcesRef   = ()       => collection(db, 'sources');
+const sourceDoc    = (id)     => doc(db, 'sources', id);
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -417,22 +418,19 @@ const state = {
   calendarCursor:       null,     // Date pointing at the displayed month
   dayDate:              null,     // Date selected for day-details view
   totalRestHours:       Number(localStorage.getItem('totalRestHours')) || 0,
-  // Finance Hub (v22.0 → v25.0 dynamic buckets)
-  incomeSources:        [],
-  buckets:              [],       // budget_buckets — dynamic categories
-  transactions:         [],       // replaces flat `expenses`
-  financeUnsubIncome:   null,
-  financeUnsubBuckets:  null,
-  financeUnsubTx:       null,
-  financeUnsubSalarySnaps: null,
-  financeUnsubProjectIncomes: null,
-  salarySnapshots:      {},        // v28.0 — { 'YYYY-MM': { sources: [...] } }
-  projectIncomes:       [],        // v30.0 — split payments per project
-  financePaymentsView:  'received',// v30.0 — 'received' | 'pending'
-  financeCursor:        null,     // Date pointing at the displayed finance month
-  financeShowArchived:  false,    // toggle to reveal archived buckets
+  // Finance Hub (v8 — envelopes + mandatory allocation)
+  envelopes:            [],       // envelopes collection
+  incomes:              [],       // incomes collection (allocated true/false)
+  expenses:             [],       // expenses collection
+  transfers:            [],       // transfers collection
+  sources:              [],       // user-defined income sources (Company X, Freelance, etc.)
+  financeUnsubEnvelopes: null,
+  financeUnsubIncomes:   null,
+  financeUnsubExpenses:  null,
+  financeUnsubTransfers: null,
+  financeUnsubSources:   null,
+  financeTxTab:         'all',    // 'all' | 'income' | 'expense' | 'transfer'
   isPrivacyActive:      (localStorage.getItem('isPrivacyActive') ?? 'true') !== 'false',  // v27.0 — privacy-by-default
-  bucketDraggedId:      null,     // v27.0 — drag/drop state for budget buckets
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -450,11 +448,11 @@ function cleanupListeners() {
   safeUnsub(state.dashUnsubStats);       state.dashUnsubStats = null;
   safeUnsub(state.projUnsub);            state.projUnsub = null;
   safeUnsub(state.taskUnsub);            state.taskUnsub = null;
-  safeUnsub(state.financeUnsubIncome);   state.financeUnsubIncome = null;
-  safeUnsub(state.financeUnsubBuckets);  state.financeUnsubBuckets = null;
-  safeUnsub(state.financeUnsubTx);       state.financeUnsubTx = null;
-  safeUnsub(state.financeUnsubSalarySnaps); state.financeUnsubSalarySnaps = null;
-  safeUnsub(state.financeUnsubProjectIncomes); state.financeUnsubProjectIncomes = null;
+  safeUnsub(state.financeUnsubEnvelopes); state.financeUnsubEnvelopes = null;
+  safeUnsub(state.financeUnsubIncomes);   state.financeUnsubIncomes   = null;
+  safeUnsub(state.financeUnsubExpenses);  state.financeUnsubExpenses  = null;
+  safeUnsub(state.financeUnsubTransfers); state.financeUnsubTransfers = null;
+  safeUnsub(state.financeUnsubSources);   state.financeUnsubSources   = null;
   cancelPendingRenders();
 }
 
@@ -749,7 +747,6 @@ function navigateTo(view, payload = {}) {
   } else if (view === 'finance') {
     state.client  = null;
     state.project = null;
-    if (!state.financeCursor) state.financeCursor = new Date();
     document.getElementById('view-finance').classList.add('active');
     subscribeFinance();
   }
@@ -1657,965 +1654,543 @@ async function reorderDayProjectBlocks(fromProjectId, toProjectId) {
 })();
 
 // ════════════════════════════════════════════════════════════════
-//  FINANCE HUB (v25.0 — Dynamic Buckets)
-//  Income sources stay (salaries + freelance hours×rate). Expenses
-//  were re-modelled into:
-//    - budget_buckets  — user-defined categories with optional
-//      targetBudget and active/archived status.
-//    - transactions    — each spend points at a bucketId; the bucket's
-//      name/colour/icon are looked up live, never hardcoded.
-//  Archived buckets disappear from the spend dropdown and headline
-//  cards but their historic transactions stay intact.
+//  FINANCE HUB (v8 — Envelopes & Mandatory Pre-Allocation)
+//
+//  Data model:
+//    envelopes — { id, name, icon, sortOrder, createdAt }
+//    incomes   — { id, amount, source, paymentType, notes, date,
+//                  allocated:bool, allocations:{envelopeId:amount},
+//                  createdAt }
+//                When allocated=false, the money is frozen and NOT
+//                available to spend until the user distributes 100%.
+//    expenses  — { id, amount, envelopeId, note, date, createdAt }
+//                Blocked at write time if envelopeId balance < amount.
+//    transfers — { id, amount, fromEnvelopeId, toEnvelopeId, note,
+//                  date, createdAt }
+//
+//  Balance per envelope is computed live:
+//    + Σ allocations[envelopeId] for every income where allocated=true
+//    + Σ transfers where toEnvelopeId  = envelopeId
+//    − Σ transfers where fromEnvelopeId = envelopeId
+//    − Σ expenses where envelopeId = envelopeId
 // ════════════════════════════════════════════════════════════════
 
-// Palette cycled through new buckets so each gets a distinct
-// PhpStorm-friendly accent without the user having to pick one.
-const BUCKET_PALETTE = [
-  { color: '#E891C8', icon: '👰' },
-  { color: '#E05C5C', icon: '🏠' },
-  { color: '#F0A835', icon: '🍔' },
-  { color: '#5C8DEC', icon: '🧠' },
-  { color: '#3DB981', icon: '🛠️' },
-  { color: '#B58CDC', icon: '🎯' },
-  { color: '#54C6C2', icon: '🧾' },
-  { color: '#D1A45A', icon: '✈️' },
+// Latin-digit money formatter — keeps numbers stable across the dark UI
+// (Arabic locale plus toLocaleString('en-US') gives the 1,234.56 shape
+// that JetBrains Mono renders cleanly without RTL surprises).
+function formatMoney(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return '0';
+  const opts = Number.isInteger(v)
+    ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+    : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  try { return v.toLocaleString('en-US', opts); }
+  catch { return String(v); }
+}
+
+// PhpStorm-friendly accent palette. Cycled through new envelopes/sources
+// when the user doesn't pick one explicitly. Each entry: { color, dim }
+// — `color` is the solid accent, `dim` is the faint tint we paint behind
+// cards/avatars so the UI feels coloured without screaming.
+const FINANCE_PALETTE = [
+  { color: '#3574F0', dim: 'rgba(53,116,240,0.14)'  }, // blue
+  { color: '#3DB981', dim: 'rgba(61,185,129,0.14)'  }, // green
+  { color: '#F0A835', dim: 'rgba(240,168,53,0.14)'  }, // amber
+  { color: '#E05C5C', dim: 'rgba(224,92,92,0.14)'   }, // red
+  { color: '#9B59B6', dim: 'rgba(155,89,182,0.14)'  }, // purple
+  { color: '#1ABC9C', dim: 'rgba(26,188,156,0.14)'  }, // teal
+  { color: '#E891C8', dim: 'rgba(232,145,200,0.14)' }, // pink
+  { color: '#5C8DEC', dim: 'rgba(92,141,236,0.14)'  }, // soft blue
 ];
 
-function bucketPaletteEntry(seed) {
-  // Stable hash from id so the same bucket always gets the same colour.
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  return BUCKET_PALETTE[Math.abs(h) % BUCKET_PALETTE.length];
+function paletteAt(seed) {
+  const i = Math.abs(seed | 0) % FINANCE_PALETTE.length;
+  return FINANCE_PALETTE[i];
 }
 
-function bucketVisual(bucket) {
-  if (!bucket) return { color: '#6F727A', icon: '🗂️', label: '— محذوف —' };
-  const fallback = bucketPaletteEntry(bucket.id || bucket.bucketName || '');
-  return {
-    color: bucket.color || fallback.color,
-    icon:  bucket.icon  || fallback.icon,
-    label: bucket.bucketName || '— بدون اسم —',
-  };
+function colorDim(hex) {
+  // Convert #RRGGBB to rgba(r,g,b,0.14) for inline gradients.
+  if (!hex || hex[0] !== '#' || hex.length !== 7) return 'rgba(255,255,255,0.08)';
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},0.14)`;
 }
 
-// Format money — Arabic-friendly, tabular, with thousands grouping.
-function formatMoney(n) {
-  const v = Number(n) || 0;
-  const rounded = Math.round(v * 100) / 100;
-  const hasDec  = rounded % 1 !== 0;
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: hasDec ? 2 : 0,
-    maximumFractionDigits: 2,
-  }).format(rounded);
+const PAYMENT_TYPE_LABELS = {
+  salary:           'مرتب',
+  project_advance:  'مقدم مشروع',
+  project_payment:  'دفعة من مشروع',
+  project_final:    'نهاية مشروع',
+  adjustment:       'فلوس تعديل',
+  other:            'أخرى',
+};
+
+// Resolve an income's `source` field (which is now a sourceId pointing at
+// the `sources` collection) to its display label/icon/color. Falls back
+// gracefully if the source has been deleted since the income was saved.
+function resolveSource(sourceId) {
+  const src = state.sources.find(s => s.id === sourceId);
+  if (src) return { label: src.name, icon: src.icon || '💼', color: src.color || '#3574F0' };
+  return { label: 'مصدر محذوف', icon: '❔', color: '#7F8B96' };
 }
 
-function subscribeFinance() {
-  // Need clients/projects too so we can resolve freelance sources
-  if (!state.dashUnsubProjects && !state.unsubscribe) {
-    const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));
-    state.unsubscribe = onSnapshot(clientQ, snap => {
-      setOnline(); hideLoading();
-      state.clients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      debounceRender(renderFinance);
-    }, err => { setOffline(); hideLoading(); console.error(err); });
+// First-run seed of the default envelopes from the v8 spec.
+const DEFAULT_ENVELOPES = [
+  { name: 'مصاريف الجواز',    icon: '💍', color: '#E891C8' },
+  { name: 'الطوارئ',          icon: '🚨', color: '#E05C5C' },
+  { name: 'التزامات أساسية',  icon: '🏠', color: '#3574F0' },
+  { name: 'الرفاهية والأكل',  icon: '🍔', color: '#F0A835' },
+];
+const DEFAULT_SOURCES = [
+  { name: 'الشركة 1', icon: '🏢', color: '#3574F0' },
+  { name: 'الشركة 2', icon: '🏬', color: '#3DB981' },
+  { name: 'فري لانس', icon: '💻', color: '#9B59B6' },
+];
 
-    state.dashUnsubProjects = onSnapshot(query(collectionGroup(db, 'projects')), snap => {
-      setOnline(); hideLoading();
-      state.allProjects = snap.docs.map(d => ({
-        id: d.id, ...d.data(), _ref: d.ref, _clientId: d.ref.parent.parent.id,
-      }));
-      debounceRender(renderFinance);
-    }, err => { setOffline(); hideLoading(); console.error(err); });
-  } else {
-    hideLoading();
-    debounceRender(renderFinance);
-  }
-
-  // v29.0 — Reuse listeners across re-entries. Previously every navigate
-  // to /finance stacked a new onSnapshot per collection, leaking the old
-  // ones and causing duplicate render calls (the visible flicker).
-  if (!state.financeUnsubIncome) {
-    state.financeUnsubIncome = onSnapshot(query(incomeSourcesRef(), orderBy('createdAt', 'desc')), snap => {
-      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!shallowEqualList(state.incomeSources, next)) {
-        state.incomeSources = next;
-        ensureCurrentMonthSalarySnapshot();
-        debounceRender(renderFinance);
-      }
-    }, err => { console.error('income sources listener:', err); toast('فشل تحميل مصادر الدخل', 'error'); });
-  }
-
-  if (!state.financeUnsubBuckets) {
-    state.financeUnsubBuckets = onSnapshot(query(bucketsRef(), orderBy('createdAt', 'desc')), snap => {
-      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!shallowEqualList(state.buckets, next)) {
-        state.buckets = next;
-        debounceRender(renderFinance);
-      }
-    }, err => {
-      console.error('buckets listener:', err);
-      if (err?.code === 'permission-denied') {
-        toast('⚠️ Firestore rules ناقصة لـ budget_buckets — انشر الـ rules', 'error');
-      }
-    });
-  }
-
-  if (!state.financeUnsubTx) {
-    state.financeUnsubTx = onSnapshot(query(transactionsRef(), orderBy('date', 'desc')), snap => {
-      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!shallowEqualList(state.transactions, next)) {
-        state.transactions = next;
-        debounceRender(renderFinance);
-      }
-    }, err => {
-      console.error('transactions listener:', err);
-      if (err?.code === 'permission-denied') {
-        toast('⚠️ Firestore rules ناقصة لـ transactions — انشر الـ rules', 'error');
-      }
-    });
-  }
-
-  // v28.0 — Historical salary snapshots (used when viewing past months
-  // so old totals stay frozen even after the user edits a salary today).
-  if (!state.financeUnsubSalarySnaps) {
-    state.financeUnsubSalarySnaps = onSnapshot(salarySnapshotsRef(), snap => {
-      const map = {};
-      snap.docs.forEach(d => { map[d.id] = d.data(); });
-      state.salarySnapshots = map;
-      ensureCurrentMonthSalarySnapshot();
-      debounceRender(renderFinance);
-    }, err => {
-      console.error('salary snapshots listener:', err);
-      if (err?.code === 'permission-denied') {
-        toast('⚠️ Firestore rules ناقصة لـ salary_snapshots — انشر الـ rules', 'error');
-      }
-    });
-  }
-
-  // v30.0 — Split project payments (multi-currency)
-  if (!state.financeUnsubProjectIncomes) {
-    state.financeUnsubProjectIncomes = onSnapshot(query(projectIncomesRef(), orderBy('date', 'desc')), snap => {
-      const next = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!shallowEqualList(state.projectIncomes, next)) {
-        state.projectIncomes = next;
-        debounceRender(renderFinance);
-      }
-    }, err => {
-      console.error('project_incomes listener:', err);
-      if (err?.code === 'permission-denied') {
-        toast('⚠️ Firestore rules ناقصة لـ project_incomes — انشر الـ rules', 'error');
-      }
-    });
-  }
-}
-
-// v29.0 — Cheap shallow-equal over an array of Firestore docs by id +
-// updatedAt/createdAt. Good enough to skip a render when nothing
-// materially changed (snapshot fired but the doc list is identical).
-function shallowEqualList(a, b) {
-  if (a === b) return true;
-  if (!Array.isArray(a) || !Array.isArray(b)) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i], y = b[i];
-    if (x.id !== y.id) return false;
-    const ax = x.updatedAt?.seconds ?? x.createdAt?.seconds ?? 0;
-    const bx = y.updatedAt?.seconds ?? y.createdAt?.seconds ?? 0;
-    if (ax !== bx) return false;
-    // Catch mutations that don't touch timestamps (e.g. orderIndex updates
-    // via writeBatch). Compare a few hot fields directly.
-    if (x.orderIndex      !== y.orderIndex)      return false;
-    if (x.status          !== y.status)          return false;
-    if (x.amount          !== y.amount)          return false;
-    if (x.bucketId        !== y.bucketId)        return false;
-    if (x.finalEgpAmount  !== y.finalEgpAmount)  return false;
-    if (x.foreignAmount   !== y.foreignAmount)   return false;
-    if (x.exchangeRate    !== y.exchangeRate)    return false;
-    if (x.currency        !== y.currency)        return false;
-  }
-  return true;
-}
-
-// v28.0 — Build "YYYY-MM" id from a Date.
-function monthKey(d) {
-  const dt = d || new Date();
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// v29.0 — Is the displayed finance month inside [startDate, endDate] of a
-// salary source? Compares at month-precision so the boundary months count
-// in full (the user gets the whole month's salary even if they started
-// mid-month). Sources missing startDate (legacy) are treated as always-on.
-function salaryActiveInMonth(source, displayDate) {
-  const target = displayDate || state.financeCursor || new Date();
-  const targetY = target.getFullYear();
-  const targetM = target.getMonth();
-  const start = parseDateField(source.startDate);
-  const end   = parseDateField(source.endDate);
-  if (start) {
-    const sy = start.getFullYear(), sm = start.getMonth();
-    if (targetY < sy || (targetY === sy && targetM < sm)) return false;
-  }
-  if (end) {
-    const ey = end.getFullYear(), em = end.getMonth();
-    if (targetY > ey || (targetY === ey && targetM > em)) return false;
-  }
-  return true;
-}
-
-// v28.0 — Capture today's live salaries into the snapshot for the current
-// month. Idempotent: only writes when the payload actually differs from the
-// stored snapshot so we don't burn writes on every render.
-async function ensureCurrentMonthSalarySnapshot() {
-  const now = new Date();
-  const ym = monthKey(now);
-  // v29.0 — Honor salary timeline; sources not active this month don't get
-  // captured into the snapshot.
-  const live = state.incomeSources
-    .filter(s => s.type === 'salary')
-    .filter(s => salaryActiveInMonth(s, now))
-    .map(s => ({
-      id: s.id,
-      label: s.label || 'راتب',
-      monthlyAmount: Number(s.monthlyAmount) || 0,
-    }));
-  // Empty salary list — don't bother writing an empty snapshot doc.
-  if (live.length === 0) return;
-  const existing = state.salarySnapshots[ym]?.sources;
-  const same = Array.isArray(existing)
-    && existing.length === live.length
-    && existing.every((e, i) =>
-      e.id === live[i].id
-      && e.label === live[i].label
-      && Number(e.monthlyAmount) === live[i].monthlyAmount);
-  if (same) return;
+let _seededEnvelopes = false;
+let _seededSources   = false;
+async function seedDefaultEnvelopesIfEmpty() {
+  if (_seededEnvelopes) return;
+  if (state.envelopes.length > 0) { _seededEnvelopes = true; return; }
+  _seededEnvelopes = true;
   try {
-    await setDoc(salarySnapshotDoc(ym), {
-      sources: live,
-      capturedAt: serverTimestamp(),
-    }, { merge: true });
-  } catch (err) {
-    console.error('salary snapshot write:', err);
-  }
-}
-
-// v28.0 — All-time aggregate income/expense/net.
-// v29.0 — Walks every month from the earliest salary start date to the
-// current month, preferring a frozen snapshot when one exists for that
-// month and otherwise computing live (so salaries respect their timeline
-// even before they were ever snapshotted).
-function computeLifetimeNet() {
-  const now = new Date();
-  const nowKey = monthKey(now);
-  let salarySum = 0;
-
-  // Earliest month we should iterate from — pulled from both live salary
-  // start dates and any existing snapshot keys (covers legacy data).
-  let earliest = null;
-  state.incomeSources.forEach(s => {
-    if (s.type !== 'salary') return;
-    const sd = parseDateField(s.startDate);
-    if (sd && (!earliest || sd < earliest)) earliest = sd;
-  });
-  Object.keys(state.salarySnapshots).forEach(ym => {
-    const [y, m] = ym.split('-').map(Number);
-    const d = new Date(y, m - 1, 1);
-    if (!earliest || d < earliest) earliest = d;
-  });
-
-  if (earliest) {
-    const cursor = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
-    const stop   = new Date(now.getFullYear(),      now.getMonth(),      1);
-    while (cursor <= stop) {
-      const ym   = monthKey(cursor);
-      const snap = state.salarySnapshots[ym];
-      const isCurrent = ym === nowKey;
-      // Snapshot wins for historical months. For the current month we
-      // always recompute live so today's edits show up immediately.
-      if (snap && Array.isArray(snap.sources) && !isCurrent) {
-        salarySum += snap.sources.reduce((s, x) => s + (Number(x.monthlyAmount) || 0), 0);
-      } else {
-        salarySum += state.incomeSources
-          .filter(s => s.type === 'salary' && salaryActiveInMonth(s, cursor))
-          .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
-      }
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
-  } else {
-    // No timeline anywhere yet — count today's live salary once.
-    salarySum = state.incomeSources
-      .filter(s => s.type === 'salary')
-      .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
-  }
-
-  const freelanceSum = state.incomeSources
-    .filter(s => s.type === 'freelance')
-    .reduce((sum, s) => sum + computeFreelanceEarning(s), 0);
-
-  // v30.0 — All-time received project payments (Pending stays excluded
-  // so the lifetime card never shows money you haven't collected yet).
-  const paymentsSum = state.projectIncomes
-    .filter(p => (p.status || 'Received') === 'Received')
-    .reduce((sum, p) => sum + (Number(p.finalEgpAmount) || 0), 0);
-
-  const expenseSum = state.transactions
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-
-  const income = salarySum + freelanceSum + paymentsSum;
-  return { income, expense: expenseSum, net: income - expenseSum };
-}
-
-// v28.0 — Salary total for the displayed finance month. Past months read
-// from their frozen snapshot when present; current month + uncaptured
-// historical months fall back to live salaries.
-function salaryTotalForMonth() {
-  const cur = state.financeCursor || new Date();
-  const now = new Date();
-  const curKey  = monthKey(cur);
-  const nowKey  = monthKey(now);
-  const isCurrent = curKey === nowKey;
-  const snap = state.salarySnapshots[curKey];
-  if (!isCurrent && snap && Array.isArray(snap.sources)) {
-    return snap.sources.reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
-  }
-  // v29.0 — Live computation respects the salary timeline (start/end).
-  return state.incomeSources
-    .filter(s => s.type === 'salary')
-    .filter(s => salaryActiveInMonth(s, cur))
-    .reduce((sum, s) => sum + (Number(s.monthlyAmount) || 0), 0);
-}
-
-// v28.0 — Pricing now lives on the income source (the Finance Hub is the
-// single source of truth). Falls back to legacy project pricing for rows
-// created before v28 so historic earnings stay computable.
-function computeFreelanceEarning(source) {
-  const proj = state.allProjects.find(p => p.id === source.projectId);
-  // Decide pricing type — prefer the source, then legacy project fields.
-  let ptype = source.pricingType
-    || proj?.pricingType
-    || (Number(source.hourlyRate) > 0 ? 'hourly'
-        : Number(proj?.hourlyRate) > 0 ? 'hourly'
-        : Number(source.fixedPrice) > 0 ? 'fixed'
-        : Number(proj?.projectFixedPrice) > 0 ? 'fixed'
-        : null);
-  if (!ptype) return 0;
-
-  if (ptype === 'fixed') {
-    return Number(source.fixedPrice) || Number(proj?.projectFixedPrice) || 0;
-  }
-  // hourly
-  const rate  = Number(source.hourlyRate) || Number(proj?.hourlyRate) || 0;
-  const hours = Number(proj?.totalProjectHours) || 0;
-  return rate * hours;
-}
-
-// v27.0 — Month/year of a date matches the financeCursor's month/year?
-function isInFinanceMonth(d) {
-  if (!d) return false;
-  const cur = state.financeCursor || new Date();
-  return d.getFullYear() === cur.getFullYear()
-      && d.getMonth()    === cur.getMonth();
-}
-
-// v27.0 — Transactions filtered to the displayed month only.
-function transactionsForMonth() {
-  return state.transactions.filter(t => isInFinanceMonth(parseDateField(t.date)));
-}
-
-// ── Computed totals ──────────────────────────────────────────────
-function computeFinanceTotals() {
-  // v27.0 — Strict monthly scope. Salaries are recurring, so each salary
-  // source counts in every month (it represents that month's salary). For
-  // freelance sources we only count their earnings if the source was
-  // *created* in the displayed month — historic months freeze with what
-  // was logged then.
-  // v28.0 — Past months use a frozen snapshot so editing today's salary
-  // can't rewrite last quarter's totals.
-  const salaryTotal = salaryTotalForMonth();
-
-  const freelanceTotal = state.incomeSources
-    .filter(s => s.type === 'freelance')
-    .filter(s => {
-      const created = parseDateField(s.createdAt);
-      // If we cannot date the source, leave it visible in every month
-      // (legacy rows from before v27.0).
-      return !created || isInFinanceMonth(created);
-    })
-    .reduce((sum, s) => sum + computeFreelanceEarning(s), 0);
-
-  // v30.0 — Split project payments (Received only) for this month.
-  const paymentsTotal = projectIncomesForMonth()
-    .filter(p => (p.status || 'Received') === 'Received')
-    .reduce((sum, p) => sum + (Number(p.finalEgpAmount) || 0), 0);
-
-  const totalIncome = salaryTotal + freelanceTotal + paymentsTotal;
-
-  // Per-bucket spend — scoped to the active month only.
-  const monthTx = transactionsForMonth();
-  const byBucket = new Map();
-  monthTx.forEach(t => {
-    const id = t.bucketId || '__unassigned__';
-    byBucket.set(id, (byBucket.get(id) || 0) + (Number(t.amount) || 0));
-  });
-  const totalExpense = monthTx
-    .reduce((a, t) => a + (Number(t.amount) || 0), 0);
-
-  return {
-    salaryTotal, freelanceTotal, paymentsTotal, totalIncome,
-    byBucket, totalExpense,
-    monthTxCount: monthTx.length,
-    net: totalIncome - totalExpense,
-  };
-}
-
-// ── Top-level finance render ──────────────────────────────────────
-function renderFinance() {
-  if (state.view !== 'finance') return;
-
-  const tag = document.getElementById('finance-month-tag');
-  if (tag) {
-    const cur = state.financeCursor || new Date();
-    tag.textContent = cur.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
-  }
-
-  const t = computeFinanceTotals();
-
-  // 3 fixed headline cards (dynamic per-bucket cards render below)
-  setText('fin-stat-income', formatMoney(t.totalIncome));
-  setText('fin-stat-income-sub',
-    `راتب ${formatMoney(t.salaryTotal)} • دفعات ${formatMoney(t.paymentsTotal)}`);
-  setText('fin-stat-spent', formatMoney(t.totalExpense));
-  setText('fin-stat-spent-sub', `${t.monthTxCount} عملية`);
-  setText('fin-stat-net', formatMoney(t.net));
-  const netEl = document.getElementById('fin-stat-net');
-  if (netEl) {
-    netEl.classList.toggle('negative', t.net < 0);
-    netEl.classList.toggle('positive', t.net >= 0);
-  }
-  setText('fin-stat-net-sub', t.net >= 0 ? 'مساحة آمنة' : 'تجاوز الميزانية ⚠️');
-
-  // v28.0 — Lifetime cumulative net (since first day of the system).
-  const lifetime = computeLifetimeNet();
-  setText('fin-stat-lifetime', formatMoney(lifetime.net));
-  const lifeEl = document.getElementById('fin-stat-lifetime');
-  if (lifeEl) {
-    lifeEl.classList.toggle('negative', lifetime.net < 0);
-    lifeEl.classList.toggle('positive', lifetime.net >= 0);
-  }
-  setText('fin-stat-lifetime-sub',
-    `د: ${formatMoney(lifetime.income)} • ص: ${formatMoney(lifetime.expense)}`);
-
-  renderFinanceBuckets(t);
-  renderFinancePayments();
-  renderFinanceIncomeList();
-  renderFinanceTransactions();
-}
-
-// ── Dynamic bucket cards ──────────────────────────────────────────
-function renderFinanceBuckets(totals) {
-  const grid = document.getElementById('fin-buckets-grid');
-  if (!grid) return;
-
-  // v27.0 — Sort by saved orderIndex, fall back to creation time so new
-  // buckets land at the end of the active grid.
-  const sorted = [...state.buckets].sort((a, b) => {
-    const ai = (typeof a.orderIndex === 'number') ? a.orderIndex : Number.POSITIVE_INFINITY;
-    const bi = (typeof b.orderIndex === 'number') ? b.orderIndex : Number.POSITIVE_INFINITY;
-    if (ai !== bi) return ai - bi;
-    return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-  });
-  const visible = sorted.filter(b =>
-    state.financeShowArchived ? b.status === 'archived' : b.status !== 'archived');
-
-  // Counter label + archive toggle text
-  const cnt = document.getElementById('fin-buckets-count');
-  if (cnt) {
-    const activeN   = state.buckets.filter(b => b.status !== 'archived').length;
-    const archivedN = state.buckets.filter(b => b.status === 'archived').length;
-    cnt.textContent = `${activeN} نشط${archivedN ? ` • ${archivedN} مؤرشف` : ''}`;
-  }
-  const toggleBtn = document.getElementById('fin-buckets-toggle-archived');
-  if (toggleBtn) {
-    toggleBtn.textContent = state.financeShowArchived ? '↩️ النشطة' : '🗄️ المؤرشفة';
-    toggleBtn.classList.toggle('active', state.financeShowArchived);
-  }
-
-  if (visible.length === 0) {
-    grid.innerHTML = `
-      <div class="finance-empty" style="grid-column: 1 / -1;">
-        <div class="finance-empty-icon">🗂️</div>
-        <div class="finance-empty-text">
-          ${state.financeShowArchived ? 'لا يوجد أوعية مؤرشفة' : 'لا يوجد أوعية صرف بعد'}
-        </div>
-        <div class="finance-empty-sub">
-          ${state.financeShowArchived
-            ? 'ارجع للنشطة وأنشئ أو ادفع لوعاء جديد'
-            : 'اضغط "وعاء جديد" لإنشاء أول صندوق صرف ديناميكي'}
-        </div>
-      </div>`;
-    return;
-  }
-
-  grid.innerHTML = visible.map(b => {
-    const vis     = bucketVisual(b);
-    const spent   = totals.byBucket.get(b.id) || 0;
-    const target  = Number(b.targetBudget) || 0;
-    const pct     = target > 0 ? Math.min(100, Math.round((spent / target) * 100)) : 0;
-    const overBud = target > 0 && spent > target;
-    const isArch  = b.status === 'archived';
-
-    return `
-      <div class="bucket-card ${isArch ? 'is-archived' : ''}" data-id="${b.id}"
-           draggable="true"
-           style="--bk-color:${vis.color};">
-        <div class="bucket-card-head">
-          <div class="bucket-icon">${vis.icon}</div>
-          <div class="bucket-name" title="${escapeHtml(vis.label)}">${escapeHtml(vis.label)}</div>
-          <div class="bucket-actions">
-            <button class="bucket-action-btn" data-act="edit"    data-id="${b.id}" title="تعديل">✏️</button>
-            <button class="bucket-action-btn" data-act="archive" data-id="${b.id}"
-              title="${isArch ? 'استعادة' : 'أرشفة'}">${isArch ? '♻️' : '🗄️'}</button>
-            <button class="bucket-action-btn danger" data-act="delete" data-id="${b.id}" title="حذف نهائي">✕</button>
-          </div>
-        </div>
-        <div class="bucket-amounts">
-          <span class="bucket-spent privacy-sensitive">${formatMoney(spent)}</span>
-          ${target > 0
-            ? `<span class="bucket-sep">/</span><span class="bucket-target privacy-sensitive">${formatMoney(target)}</span>`
-            : `<span class="bucket-target muted">— بدون سقف —</span>`}
-        </div>
-        ${target > 0 ? `
-          <div class="bucket-track"><div class="bucket-fill ${overBud ? 'over' : ''}"
-               style="width:${pct}%"></div></div>
-          <div class="bucket-meta">
-            <span>${pct}% من الهدف</span>
-            ${overBud ? '<span class="bucket-warn">تجاوز ⚠️</span>' : ''}
-          </div>` : ''}
-      </div>`;
-  }).join('');
-
-  // Wire action buttons
-  grid.querySelectorAll('.bucket-action-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id  = btn.dataset.id;
-      const act = btn.dataset.act;
-      const bucket = state.buckets.find(b => b.id === id);
-      if (!bucket) return;
-
-      if (act === 'edit') {
-        openModal('bucket', id);
-      } else if (act === 'archive') {
-        try {
-          const newStatus = bucket.status === 'archived' ? 'active' : 'archived';
-          await updateDoc(bucketDoc(id), { status: newStatus });
-          toast(newStatus === 'archived' ? 'تم أرشفة الوعاء' : 'تم استعادة الوعاء', 'info');
-        } catch (err) { console.error(err); toast('فشل التحديث', 'error'); }
-      } else if (act === 'delete') {
-        const txCount = state.transactions.filter(t => t.bucketId === id).length;
-        const msg = txCount > 0
-          ? `هذا الوعاء عليه ${txCount} عملية. الحذف النهائي ينظف الوعاء فقط ويبقي العمليات بدون ارتباط.`
-          : 'سيتم حذف الوعاء نهائياً.';
-        const ok = await confirmDialog({
-          title: 'حذف وعاء الصرف',
-          message: msg,
-          icon: '🗂️',
-          confirmText: 'نعم، احذف الوعاء',
-        });
-        if (!ok) return;
-        try { await deleteDoc(bucketDoc(id)); toast('تم الحذف', 'info', '🗑️'); }
-        catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
-      }
-    });
-  });
-
-  // v27.0 — Drag & drop reordering for bucket cards
-  grid.querySelectorAll('.bucket-card').forEach(card => {
-    card.addEventListener('dragstart', e => {
-      // Action buttons shouldn't trigger card drag
-      if (e.target.closest('.bucket-action-btn')) { e.preventDefault(); return; }
-      state.bucketDraggedId = card.dataset.id;
-      card.classList.add('bucket-dragging');
-      try { e.dataTransfer.effectAllowed = 'move'; } catch {}
-    });
-    card.addEventListener('dragend', () => {
-      state.bucketDraggedId = null;
-      grid.querySelectorAll('.bucket-card').forEach(c =>
-        c.classList.remove('bucket-dragging', 'bucket-drop-target'));
-    });
-    card.addEventListener('dragover', e => {
-      if (!state.bucketDraggedId || state.bucketDraggedId === card.dataset.id) return;
-      e.preventDefault();
-      try { e.dataTransfer.dropEffect = 'move'; } catch {}
-      card.classList.add('bucket-drop-target');
-    });
-    card.addEventListener('dragleave', e => {
-      if (!card.contains(e.relatedTarget)) card.classList.remove('bucket-drop-target');
-    });
-    card.addEventListener('drop', async e => {
-      e.preventDefault();
-      card.classList.remove('bucket-drop-target');
-      const draggedId = state.bucketDraggedId;
-      const targetId  = card.dataset.id;
-      state.bucketDraggedId = null;
-      if (!draggedId || draggedId === targetId) return;
-      await handleBucketReorder(draggedId, targetId);
-    });
-  });
-}
-
-// v27.0 — Persist new bucket order to Firestore.
-async function handleBucketReorder(draggedId, targetId) {
-  const visibleStatus = state.financeShowArchived ? 'archived' : 'active';
-  // Reorder within the currently visible scope so cross-scope moves can't
-  // collide. Archived cards keep their own order independent of active.
-  const list = [...state.buckets]
-    .sort((a, b) => {
-      const ai = (typeof a.orderIndex === 'number') ? a.orderIndex : Number.POSITIVE_INFINITY;
-      const bi = (typeof b.orderIndex === 'number') ? b.orderIndex : Number.POSITIVE_INFINITY;
-      if (ai !== bi) return ai - bi;
-      return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-    })
-    .filter(b => visibleStatus === 'archived' ? b.status === 'archived' : b.status !== 'archived');
-
-  const fromIdx = list.findIndex(b => b.id === draggedId);
-  const toIdx   = list.findIndex(b => b.id === targetId);
-  if (fromIdx === -1 || toIdx === -1) return;
-  const [moved] = list.splice(fromIdx, 1);
-  list.splice(toIdx, 0, moved);
-
-  try {
-    const batch = writeBatch(db);
-    list.forEach((b, i) => batch.update(bucketDoc(b.id), { orderIndex: i }));
-    await batch.commit();
-  } catch (err) {
-    console.error('bucket reorder:', err);
-    toast('فشل حفظ ترتيب الأوعية', 'error');
-  }
-}
-
-function setText(id, v) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = v;
-}
-
-// ── Income sources list ──────────────────────────────────────────
-function renderFinanceIncomeList() {
-  const list = document.getElementById('fin-income-list');
-  const cnt  = document.getElementById('fin-income-count');
-  if (!list) return;
-  cnt && (cnt.textContent = `${state.incomeSources.length} مصدر`);
-
-  if (state.incomeSources.length === 0) {
-    list.innerHTML = `
-      <div class="finance-empty">
-        <div class="finance-empty-icon">💼</div>
-        <div class="finance-empty-text">لا توجد مصادر دخل بعد</div>
-        <div class="finance-empty-sub">اضغط "مصدر دخل" لإضافة راتب أو ربط مشروع حر</div>
-      </div>`;
-    return;
-  }
-
-  list.innerHTML = state.incomeSources.map(src => {
-    if (src.type === 'salary') {
-      const monthly = Number(src.monthlyAmount) || 0;
-      // v29.0 — Surface timeline window so user sees when a salary stops.
-      const sd = parseDateField(src.startDate);
-      const ed = parseDateField(src.endDate);
-      const fmt = (d) => d.toLocaleDateString('ar-EG', { month: 'short', year: 'numeric' });
-      let timeline = 'راتب شهري ثابت';
-      if (sd) {
-        timeline = ed
-          ? `من ${fmt(sd)} إلى ${fmt(ed)}`
-          : `من ${fmt(sd)} — مستمر`;
-      }
-      const activeNow = salaryActiveInMonth(src, state.financeCursor || new Date());
-      return `
-        <div class="finance-income-row ${activeNow ? '' : 'is-inactive'}" data-id="${src.id}" data-kind="salary">
-          <div class="finance-income-icon salary-icon">🏢</div>
-          <div class="finance-income-body">
-            <div class="finance-income-title">${escapeHtml(src.label || 'راتب')}</div>
-            <div class="finance-income-sub">${timeline}${activeNow ? '' : ' • غير نشط هذا الشهر'}</div>
-          </div>
-          <div class="finance-income-amount privacy-sensitive">${formatMoney(monthly)}</div>
-          <button class="finance-row-del" data-id="${src.id}" data-kind="income" title="حذف">✕</button>
-        </div>`;
-    }
-    // freelance — v28.0 pricing lives on the source (Finance Hub)
-    const proj   = state.allProjects.find(p => p.id === src.projectId);
-    const earned = computeFreelanceEarning(src);
-    const projName = proj ? proj.name : '— مشروع غير موجود —';
-    const ptype  = src.pricingType
-      || proj?.pricingType
-      || (Number(src.hourlyRate) || Number(proj?.hourlyRate) ? 'hourly'
-          : (Number(src.fixedPrice) || Number(proj?.projectFixedPrice) ? 'fixed' : null));
-    let breakdown;
-    if (ptype === 'fixed') {
-      const fixed = Number(src.fixedPrice) || Number(proj?.projectFixedPrice) || 0;
-      breakdown = `سعر ثابت ${formatMoney(fixed)} • مجهود ${formatHoursHm(proj?.totalProjectHours)}`;
-    } else if (ptype === 'hourly') {
-      const rate = Number(src.hourlyRate) || Number(proj?.hourlyRate) || 0;
-      breakdown = `${formatMoney(rate)}/س × ${formatHoursHm(proj?.totalProjectHours)}`;
-    } else {
-      breakdown = '⚠️ بدون تسعير — عدّل المصدر وفعّل سعر';
-    }
-    return `
-      <div class="finance-income-row" data-id="${src.id}" data-kind="freelance">
-        <div class="finance-income-icon freelance-icon">💻</div>
-        <div class="finance-income-body">
-          <div class="finance-income-title">${escapeHtml(src.label || projName)}</div>
-          <div class="finance-income-sub">${escapeHtml(projName)} • ${breakdown}</div>
-        </div>
-        <div class="finance-income-amount privacy-sensitive">${formatMoney(earned)}</div>
-        <button class="finance-row-del" data-id="${src.id}" data-kind="income" title="حذف">✕</button>
-      </div>`;
-  }).join('');
-
-  // Wire delete buttons
-  list.querySelectorAll('.finance-row-del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const ok = await confirmDialog({
-        title: 'حذف مصدر الدخل',
-        message: 'هل أنت متأكد من حذف هذا المصدر؟ لن يؤثر هذا على المعاملات المسجلة سابقاً.',
-        icon: '💼',
-        confirmText: 'نعم، احذف المصدر',
+    for (let i = 0; i < DEFAULT_ENVELOPES.length; i++) {
+      const d = DEFAULT_ENVELOPES[i];
+      await addDoc(envelopesRef(), {
+        name: d.name, icon: d.icon, color: d.color,
+        sortOrder: i, createdAt: serverTimestamp(),
       });
-      if (!ok) return;
-      try {
-        await deleteDoc(incomeSourceDoc(btn.dataset.id));
-        toast('تم حذف المصدر', 'info', '🗑️');
-      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
-    });
-  });
+    }
+  } catch (err) {
+    console.error('seed envelopes failed:', err);
+    _seededEnvelopes = false;
+  }
+}
+async function seedDefaultSourcesIfEmpty() {
+  if (_seededSources) return;
+  if (state.sources.length > 0) { _seededSources = true; return; }
+  _seededSources = true;
+  try {
+    for (let i = 0; i < DEFAULT_SOURCES.length; i++) {
+      const d = DEFAULT_SOURCES[i];
+      await addDoc(sourcesRef(), {
+        name: d.name, icon: d.icon, color: d.color,
+        sortOrder: i, createdAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    console.error('seed sources failed:', err);
+    _seededSources = false;
+  }
 }
 
-// ── Transactions feed ────────────────────────────────────────────
-function renderFinanceTransactions() {
+// ── Firestore subscriptions ─────────────────────────────────────
+function subscribeFinance() {
+  applyPrivacyMode();
+  wireFinanceToolbar();
+
+  if (!state.financeUnsubEnvelopes) {
+    state.financeUnsubEnvelopes = onSnapshot(query(envelopesRef(), orderBy('sortOrder', 'asc')), snap => {
+      setOnline(); hideLoading();
+      state.envelopes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (state.envelopes.length === 0) seedDefaultEnvelopesIfEmpty();
+      debounceRender(renderFinance);
+    }, err => {
+      console.error('envelopes listener:', err);
+      // Fallback ordering when sortOrder missing on some docs
+      state.financeUnsubEnvelopes = onSnapshot(envelopesRef(), s2 => {
+        state.envelopes = s2.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        if (state.envelopes.length === 0) seedDefaultEnvelopesIfEmpty();
+        debounceRender(renderFinance);
+      });
+    });
+  }
+  if (!state.financeUnsubIncomes) {
+    state.financeUnsubIncomes = onSnapshot(query(incomesRef(), orderBy('date', 'desc')), snap => {
+      setOnline(); hideLoading();
+      state.incomes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      debounceRender(renderFinance);
+    }, err => { console.error('incomes listener:', err); toast('فشل تحميل الدخل', 'error'); });
+  }
+  if (!state.financeUnsubExpenses) {
+    state.financeUnsubExpenses = onSnapshot(query(expensesRef(), orderBy('date', 'desc')), snap => {
+      setOnline(); hideLoading();
+      state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      debounceRender(renderFinance);
+    }, err => { console.error('expenses listener:', err); });
+  }
+  if (!state.financeUnsubTransfers) {
+    state.financeUnsubTransfers = onSnapshot(query(transfersRef(), orderBy('date', 'desc')), snap => {
+      setOnline(); hideLoading();
+      state.transfers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      debounceRender(renderFinance);
+    }, err => { console.error('transfers listener:', err); });
+  }
+  if (!state.financeUnsubSources) {
+    state.financeUnsubSources = onSnapshot(query(sourcesRef(), orderBy('sortOrder', 'asc')), snap => {
+      setOnline(); hideLoading();
+      state.sources = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (state.sources.length === 0) seedDefaultSourcesIfEmpty();
+      debounceRender(renderFinance);
+    }, err => {
+      console.error('sources listener:', err);
+      // Fallback when sortOrder missing
+      state.financeUnsubSources = onSnapshot(sourcesRef(), s2 => {
+        state.sources = s2.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        if (state.sources.length === 0) seedDefaultSourcesIfEmpty();
+        debounceRender(renderFinance);
+      });
+    });
+  }
+}
+
+// ── Balance maths ───────────────────────────────────────────────
+// `excludeExpenseId` and `excludeTransferId` let edit-flows ignore the doc
+// they are currently editing so its old amount doesn't double-count.
+function computeEnvelopeBalance(envelopeId, excludeExpenseId = null, excludeTransferId = null) {
+  let bal = 0;
+  state.incomes.forEach(inc => {
+    if (!inc.allocated || !inc.allocations) return;
+    const a = Number(inc.allocations[envelopeId]) || 0;
+    bal += a;
+  });
+  state.transfers.forEach(tr => {
+    if (tr.id === excludeTransferId) return;
+    if (tr.toEnvelopeId   === envelopeId) bal += Number(tr.amount) || 0;
+    if (tr.fromEnvelopeId === envelopeId) bal -= Number(tr.amount) || 0;
+  });
+  state.expenses.forEach(ex => {
+    if (ex.id === excludeExpenseId) return;
+    if (ex.envelopeId === envelopeId) bal -= Number(ex.amount) || 0;
+  });
+  return bal;
+}
+
+function envelopeState(balance, totalAllocatedToThisEnvelope) {
+  // 'empty' when balance <= 0, 'warn' when below 15% of cumulative allocation
+  if (balance <= 0.001) return 'empty';
+  if (totalAllocatedToThisEnvelope > 0 && balance < totalAllocatedToThisEnvelope * 0.15) return 'warn';
+  return 'ok';
+}
+
+function totalAllocatedToEnvelope(envelopeId) {
+  let sum = 0;
+  state.incomes.forEach(inc => {
+    if (!inc.allocated || !inc.allocations) return;
+    sum += Number(inc.allocations[envelopeId]) || 0;
+  });
+  state.transfers.forEach(tr => {
+    if (tr.toEnvelopeId === envelopeId) sum += Number(tr.amount) || 0;
+  });
+  return sum;
+}
+
+// ── Top-level render ────────────────────────────────────────────
+function renderFinance() {
+  if (!document.getElementById('view-finance')?.classList.contains('active')) return;
+
+  // 1) Pending-allocation strip
+  const pendingIncomes = state.incomes.filter(i => !i.allocated);
+  const strip = document.getElementById('fin-pending-strip');
+  if (strip) {
+    if (pendingIncomes.length > 0) {
+      strip.hidden = false;
+      const totalPending = pendingIncomes.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      document.getElementById('fin-pending-sub').innerHTML =
+        `<span class="privacy-sensitive">${formatMoney(totalPending)}</span> ج.م في <strong>${pendingIncomes.length}</strong> معاملة — لا يمكن صرفها قبل التوزيع`;
+      const cta = document.getElementById('fin-pending-cta');
+      if (cta) cta.onclick = () => openModal('allocate', pendingIncomes[0].id);
+    } else {
+      strip.hidden = true;
+    }
+  }
+
+  // 2) Headline stats
+  const totalBalance = state.envelopes.reduce((s, e) => s + computeEnvelopeBalance(e.id), 0);
+  const totalPending = state.incomes.filter(i => !i.allocated)
+    .reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const totalSpent = state.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalIncome = state.incomes.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+  setText('fin-stat-balance', formatMoney(totalBalance));
+  setText('fin-stat-balance-sub', `${state.envelopes.length} ظرف`);
+  setText('fin-stat-pending', formatMoney(totalPending));
+  setText('fin-stat-pending-sub', `${state.incomes.filter(i => !i.allocated).length} معاملة مجمَّدة`);
+  setText('fin-stat-spent', formatMoney(totalSpent));
+  setText('fin-stat-spent-sub', `${state.expenses.length} عملية`);
+  setText('fin-stat-income', formatMoney(totalIncome));
+  setText('fin-stat-income-sub', `${state.incomes.length} معاملة دخل`);
+
+  // 3) Envelopes grid
+  renderEnvelopesGrid();
+
+  // 4) Transactions feed
+  renderTransactionsFeed();
+}
+
+function setText(id, txt) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = txt;
+}
+
+// ── Envelopes grid (entity-card pattern, matches Clients page) ──
+function renderEnvelopesGrid() {
+  const grid = document.getElementById('fin-envelopes-grid');
+  const cnt  = document.getElementById('fin-envelopes-count');
+  if (!grid) return;
+  cnt && (cnt.textContent = `${state.envelopes.length} ظرف`);
+
+  if (state.envelopes.length === 0) {
+    grid.innerHTML = `
+      <div class="finance-empty">
+        <span class="finance-empty-icon">📂</span>
+        <span class="finance-empty-text">لا يوجد أظرف بعد</span>
+        <span class="finance-empty-sub">أضف أول ظرف من الزر أعلى الشاشة</span>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = state.envelopes.map((env, idx) => {
+    const color   = env.color || paletteAt(idx).color;
+    const dim     = colorDim(color);
+    const balance = computeEnvelopeBalance(env.id);
+    const allocated = totalAllocatedToEnvelope(env.id);
+    const st  = envelopeState(balance, allocated);
+    const cls = st === 'empty' ? 'is-empty' : st === 'warn' ? 'is-warn' : '';
+    const stBadge =
+        st === 'empty' ? `<span class="env-pill env-pill-empty">⛔ فاضي</span>`
+      : st === 'warn'  ? `<span class="env-pill env-pill-warn">🟡 قارب الانتهاء</span>`
+      :                  `<span class="env-pill env-pill-ok">🟢 متاح</span>`;
+    const pct = allocated > 0 ? Math.max(0, Math.min(100, (balance / allocated) * 100)) : 0;
+    return `
+      <div class="envelope-card entity-card ${cls}" data-id="${env.id}"
+           style="--env-color:${color}; --env-dim:${dim};"
+           role="button" tabindex="0">
+        <div class="card-header-row">
+          <div class="card-avatar env-avatar" style="background:${color};">${escapeHtml(env.icon || '📂')}</div>
+          <div class="card-top-actions">
+            <button class="card-edit-btn" data-act="edit-envelope" data-id="${env.id}" title="تعديل">✏️</button>
+            <button class="card-del-btn" data-act="del-envelope" data-id="${env.id}" title="حذف">🗑️</button>
+          </div>
+        </div>
+        <div class="card-name">${escapeHtml(env.name || 'بدون اسم')}</div>
+        <div class="env-balance-row">
+          <span class="env-balance-label">الرصيد المتاح</span>
+          <span class="env-balance-value privacy-sensitive">${formatMoney(balance)}</span>
+        </div>
+        <div class="env-bar"><div class="env-bar-fill" style="width:${pct}%; background:${color};"></div></div>
+        <div class="card-meta env-meta">
+          ${stBadge}
+          <span class="env-allocated privacy-sensitive">من ${formatMoney(allocated)}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Transactions feed (tabs: all / income / expense / transfer) ──
+function renderTransactionsFeed() {
   const list = document.getElementById('fin-tx-list');
   const cnt  = document.getElementById('fin-tx-count');
   if (!list) return;
-  const monthTx = transactionsForMonth();
-  cnt && (cnt.textContent = `${monthTx.length} معاملة`);
 
-  if (monthTx.length === 0) {
+  // Unified timeline — sorted by date desc
+  const incomeItems = state.incomes.map(i => ({
+    kind: 'income', id: i.id, date: parseDateField(i.date),
+    amount: Number(i.amount) || 0, raw: i,
+  }));
+  const expenseItems = state.expenses.map(e => ({
+    kind: 'expense', id: e.id, date: parseDateField(e.date),
+    amount: Number(e.amount) || 0, raw: e,
+  }));
+  const transferItems = state.transfers.map(t => ({
+    kind: 'transfer', id: t.id, date: parseDateField(t.date),
+    amount: Number(t.amount) || 0, raw: t,
+  }));
+
+  let all = [...incomeItems, ...expenseItems, ...transferItems];
+  all.sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
+
+  const tab = state.financeTxTab || 'all';
+  const filtered = tab === 'all' ? all : all.filter(it => it.kind === tab);
+
+  cnt && (cnt.textContent = `${filtered.length} معاملة`);
+
+  if (filtered.length === 0) {
     list.innerHTML = `
       <div class="finance-empty">
-        <div class="finance-empty-icon">📋</div>
-        <div class="finance-empty-text">لا توجد معاملات في هذا الشهر</div>
-        <div class="finance-empty-sub">اضغط "تسجيل مصروف" لإضافة أول عملية للشهر</div>
+        <span class="finance-empty-icon">📋</span>
+        <span class="finance-empty-text">لا يوجد معاملات بعد</span>
+        <span class="finance-empty-sub">سجِّل أول دخل أو مصروف من الأزرار أعلى الشاشة</span>
       </div>`;
     return;
   }
 
-  list.innerHTML = monthTx.slice(0, 80).map(tx => {
-    const bucket = state.buckets.find(b => b.id === tx.bucketId);
-    const vis    = bucketVisual(bucket);
-    const date   = parseDateField(tx.date);
-    const dateLabel = date ? date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '—';
-    const proj   = tx.projectId ? state.allProjects.find(p => p.id === tx.projectId) : null;
-    const projTag = proj ? ` • 📁 ${escapeHtml(proj.name)}` : '';
+  list.innerHTML = filtered.map(it => renderTxRow(it)).join('');
+}
+
+function renderTxRow(it) {
+  const dateStr = it.date ? formatDateAr(it.date) : '—';
+  if (it.kind === 'income') {
+    const r = it.raw;
+    const src = resolveSource(r.source);
+    const pt  = PAYMENT_TYPE_LABELS[r.paymentType] || r.paymentType || '';
+    const pending = !r.allocated;
     return `
-      <div class="finance-tx-row" data-id="${tx.id}" data-bucket="${tx.bucketId || ''}">
-        <div class="finance-tx-icon" style="background:${vis.color}26; color:${vis.color}; border-color:${vis.color}55;">${vis.icon}</div>
+      <div class="finance-tx-row is-income ${pending ? 'is-pending' : ''}" data-kind="income" data-id="${r.id}"
+           style="--row-color:${src.color}; --row-dim:${colorDim(src.color)};">
+        <div class="finance-tx-icon" style="background:${colorDim(src.color)}; color:${src.color};">${pending ? '⏳' : src.icon}</div>
         <div class="finance-tx-body">
-          <div class="finance-tx-title">${escapeHtml(tx.title || '—')}</div>
-          <div class="finance-tx-sub">${escapeHtml(vis.label)} • ${dateLabel}${projTag}</div>
+          <div class="finance-tx-title">${escapeHtml(src.label)} • ${escapeHtml(pt)}${pending ? ' • <strong>غير موزَّع</strong>' : ''}</div>
+          <div class="finance-tx-sub">${dateStr}${r.notes ? ' • ' + escapeHtml(r.notes) : ''}</div>
         </div>
-        <div class="finance-tx-amount privacy-sensitive">-${formatMoney(tx.amount)}</div>
-        <button class="finance-row-del" data-id="${tx.id}" data-kind="tx" title="حذف">✕</button>
-      </div>`;
-  }).join('');
-
-  list.querySelectorAll('.finance-row-del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const ok = await confirmDialog({
-        title: 'حذف المصروف',
-        message: 'هل أنت متأكد من حذف هذا المصروف؟ سيتم استرجاع المبلغ تلقائياً للرصيد.',
-        icon: '💸',
-        confirmText: 'نعم، احذف المصروف',
-      });
-      if (!ok) return;
-      try {
-        await deleteDoc(transactionDoc(btn.dataset.id));
-        toast('تم حذف المعاملة', 'info', '🗑️');
-      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
-    });
-  });
-
-  // Click row body to edit
-  list.querySelectorAll('.finance-tx-row').forEach(row => {
-    row.addEventListener('click', e => {
-      if (e.target.closest('.finance-row-del')) return;
-      openModal('transaction', row.dataset.id);
-    });
-  });
-}
-
-// v30.0 — Currency display helper (small flag/code prefix).
-const CURRENCY_FLAGS = { EGP: '🇪🇬', USD: '🇺🇸', EUR: '🇪🇺', SAR: '🇸🇦', AED: '🇦🇪', GBP: '🇬🇧' };
-function formatForeign(amount, currency) {
-  const sym = { USD: '$', EUR: '€', GBP: '£' }[currency];
-  const n = formatMoney(amount);
-  return sym ? `${sym}${n}` : `${n} ${currency || ''}`.trim();
-}
-
-// v30.0 — Filter project incomes scoped to the displayed month.
-function projectIncomesForMonth() {
-  return state.projectIncomes.filter(p => isInFinanceMonth(parseDateField(p.date)));
-}
-
-// v30.0 — Render the split-payments panel (received vs pending toggle).
-function renderFinancePayments() {
-  const list = document.getElementById('fin-payments-list');
-  if (!list) return;
-  const cnt    = document.getElementById('fin-payments-count');
-  const toggle = document.getElementById('fin-payments-toggle');
-  const mode   = state.financePaymentsView === 'pending' ? 'Pending' : 'Received';
-
-  // Month-scoped + status-scoped
-  const scoped = projectIncomesForMonth().filter(p => (p.status || 'Received') === mode);
-  // Totals across both modes for the header counter
-  const monthAll = projectIncomesForMonth();
-  const recvN = monthAll.filter(p => (p.status || 'Received') === 'Received').length;
-  const pendN = monthAll.filter(p => p.status === 'Pending').length;
-
-  if (cnt) cnt.textContent = `${recvN} مستلمة • ${pendN} مجدولة`;
-  if (toggle) {
-    toggle.textContent = mode === 'Received' ? '⏳ المجدولة' : '✅ المستلمة';
-    toggle.classList.toggle('active', mode === 'Pending');
-  }
-
-  if (scoped.length === 0) {
-    list.innerHTML = `
-      <div class="finance-empty">
-        <div class="finance-empty-icon">💵</div>
-        <div class="finance-empty-text">
-          ${mode === 'Received' ? 'لا توجد دفعات مستلمة في هذا الشهر' : 'لا توجد دفعات مجدولة في هذا الشهر'}
+        <div class="finance-tx-amount privacy-sensitive">+${formatMoney(it.amount)}</div>
+        <div class="finance-tx-actions">
+          ${pending ? `<button class="finance-tx-action is-allocate" data-act="allocate" data-id="${r.id}">وزِّع</button>` : ''}
+          <button class="finance-tx-action" data-act="edit-income" data-id="${r.id}" title="تعديل">✎</button>
+          <button class="finance-tx-action is-danger" data-act="del-income" data-id="${r.id}" title="حذف">✕</button>
         </div>
-        <div class="finance-empty-sub">اضغط "تسجيل دفعة" لإضافة دفعة جديدة</div>
       </div>`;
-    return;
   }
-
-  list.innerHTML = scoped.map(p => {
-    const proj   = state.allProjects.find(pr => pr.id === p.projectId);
-    const projName = proj ? proj.name : '— مشروع غير موجود —';
-    const date   = parseDateField(p.date);
-    const dateLabel = date ? date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '—';
-    const currency = p.currency || 'EGP';
-    const flag = CURRENCY_FLAGS[currency] || '💰';
-    const isForeign = currency !== 'EGP';
-    const foreignTxt = formatForeign(p.foreignAmount, currency);
-    const egpTxt     = formatMoney(p.finalEgpAmount);
-    const statusLabel = (p.status === 'Pending') ? '⏳ مجدولة' : '✅ Received';
-    const statusCls   = (p.status === 'Pending') ? 'is-pending' : 'is-received';
+  if (it.kind === 'expense') {
+    const r = it.raw;
+    const env = state.envelopes.find(e => e.id === r.envelopeId);
+    const color = env?.color || '#E05C5C';
+    const envLabel = env ? `${env.icon || '📂'} ${env.name}` : 'ظرف محذوف';
     return `
-      <div class="finance-payment-row ${statusCls}" data-id="${p.id}">
-        <div class="pay-icon">${flag}</div>
-        <div class="pay-body">
-          <div class="pay-title">${escapeHtml(p.title || '—')}</div>
-          <div class="pay-sub">📁 ${escapeHtml(projName)} • ${dateLabel}</div>
+      <div class="finance-tx-row is-expense" data-kind="expense" data-id="${r.id}"
+           style="--row-color:${color}; --row-dim:${colorDim(color)};">
+        <div class="finance-tx-icon" style="background:${colorDim(color)}; color:${color};">💸</div>
+        <div class="finance-tx-body">
+          <div class="finance-tx-title">${escapeHtml(r.note || 'مصروف')}</div>
+          <div class="finance-tx-sub">${escapeHtml(envLabel)} • ${dateStr}</div>
         </div>
-        <div class="pay-amount privacy-sensitive">
-          <span class="pay-foreign">${foreignTxt}</span>
-          ${isForeign ? `<span class="pay-egp">= ${egpTxt} ج.م</span>` : ''}
+        <div class="finance-tx-amount privacy-sensitive">-${formatMoney(it.amount)}</div>
+        <div class="finance-tx-actions">
+          <button class="finance-tx-action" data-act="edit-expense" data-id="${r.id}" title="تعديل">✎</button>
+          <button class="finance-tx-action is-danger" data-act="del-expense" data-id="${r.id}" title="حذف">✕</button>
         </div>
-        <span class="pay-status">${statusLabel}</span>
-        <button class="finance-row-del" data-id="${p.id}" data-kind="payment" title="حذف">✕</button>
       </div>`;
-  }).join('');
-
-  // Wire delete + edit
-  list.querySelectorAll('.finance-row-del').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const ok = await confirmDialog({
-        title: 'حذف الدفعة',
-        message: 'هل أنت متأكد من حذف هذه الدفعة؟ سيتم خصمها من إجمالي الدخل تلقائياً.',
-        icon: '💵',
-        confirmText: 'نعم، احذف الدفعة',
-      });
-      if (!ok) return;
-      try {
-        await deleteDoc(projectIncomeDoc(btn.dataset.id));
-        toast('تم حذف الدفعة', 'info', '🗑️');
-      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
-    });
-  });
-  list.querySelectorAll('.finance-payment-row').forEach(row => {
-    row.addEventListener('click', e => {
-      if (e.target.closest('.finance-row-del')) return;
-      openModal('projectIncome', row.dataset.id);
-    });
-  });
+  }
+  // transfer
+  const r = it.raw;
+  const fromE = state.envelopes.find(e => e.id === r.fromEnvelopeId);
+  const toE   = state.envelopes.find(e => e.id === r.toEnvelopeId);
+  const fromLabel = fromE ? `${fromE.icon || '📂'} ${fromE.name}` : 'ظرف محذوف';
+  const toLabel   = toE   ? `${toE.icon   || '📂'} ${toE.name}`   : 'ظرف محذوف';
+  const trColor = '#9B59B6';
+  return `
+    <div class="finance-tx-row is-transfer" data-kind="transfer" data-id="${r.id}"
+         style="--row-color:${trColor}; --row-dim:${colorDim(trColor)};">
+      <div class="finance-tx-icon" style="background:${colorDim(trColor)}; color:${trColor};">↔</div>
+      <div class="finance-tx-body">
+        <div class="finance-tx-title">${escapeHtml(fromLabel)} ← ${escapeHtml(toLabel)}</div>
+        <div class="finance-tx-sub">${dateStr}${r.note ? ' • ' + escapeHtml(r.note) : ''}</div>
+      </div>
+      <div class="finance-tx-amount privacy-sensitive">${formatMoney(it.amount)}</div>
+      <div class="finance-tx-actions">
+        <button class="finance-tx-action" data-act="edit-transfer" data-id="${r.id}" title="تعديل">✎</button>
+        <button class="finance-tx-action is-danger" data-act="del-transfer" data-id="${r.id}" title="حذف">✕</button>
+      </div>
+    </div>`;
 }
 
-// ── Wire toolbar buttons ─────────────────────────────────────────
-(function setupFinanceControls() {
-  const btnTx     = document.getElementById('btn-add-expense');
-  const btnInc    = document.getElementById('btn-add-income');
-  const btnBucket = document.getElementById('btn-add-bucket');
-  const btnPay    = document.getElementById('btn-add-payment');
-  const btnArch   = document.getElementById('fin-buckets-toggle-archived');
-  const btnPayTog = document.getElementById('fin-payments-toggle');
-  if (btnTx)     btnTx    .addEventListener('click', () => openModal('transaction'));
-  if (btnInc)    btnInc   .addEventListener('click', () => openModal('incomeSource'));
-  if (btnBucket) btnBucket.addEventListener('click', () => openModal('bucket'));
-  if (btnPay)    btnPay   .addEventListener('click', () => openModal('projectIncome'));
-  if (btnArch)   btnArch  .addEventListener('click', () => {
-    state.financeShowArchived = !state.financeShowArchived;
-    renderFinance();
-  });
-  if (btnPayTog) btnPayTog.addEventListener('click', () => {
-    state.financePaymentsView = state.financePaymentsView === 'pending' ? 'received' : 'pending';
-    renderFinance();
-  });
+function formatDateAr(d) {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ar-EG-u-nu-latn', { year: 'numeric', month: 'short', day: 'numeric' });
+}
 
-  // v30.1 — Collapse / expand panels by clicking the header.
-  // Buttons inside the header still work (they stop propagation below);
-  // every collapsed state is persisted in localStorage per panel id.
-  document.querySelectorAll('#view-finance .finance-panel').forEach(panel => {
-    const header = panel.querySelector('.finance-panel-header');
-    if (!header || !panel.id) return;
-    const storageKey = `finCollapsed:${panel.id}`;
-    if (localStorage.getItem(storageKey) === '1') panel.classList.add('is-collapsed');
-    header.addEventListener('click', e => {
-      // Header-embedded controls (mini buttons) must not toggle collapse
-      if (e.target.closest('button')) return;
-      panel.classList.toggle('is-collapsed');
-      try {
-        localStorage.setItem(storageKey, panel.classList.contains('is-collapsed') ? '1' : '0');
-      } catch {}
-    });
-  });
-  // Prevent header buttons from bubbling up to the collapse handler
-  document.querySelectorAll('#view-finance .finance-panel-header button').forEach(btn => {
-    btn.addEventListener('click', e => e.stopPropagation());
-  });
+// ── Toolbar wiring (privacy eye, add buttons, tabs, row actions) ──
+let _financeToolbarWired = false;
+function wireFinanceToolbar() {
+  if (_financeToolbarWired) return;
+  _financeToolbarWired = true;
 
-  // v27.0 — Month navigation (prev / next / today)
-  const shiftMonth = (delta) => {
-    const cur = state.financeCursor || new Date();
-    state.financeCursor = new Date(cur.getFullYear(), cur.getMonth() + delta, 1);
-    renderFinance();
-  };
-  document.getElementById('fin-month-prev') ?.addEventListener('click', () => shiftMonth(-1));
-  document.getElementById('fin-month-next') ?.addEventListener('click', () => shiftMonth(+1));
-  document.getElementById('fin-month-today')?.addEventListener('click', () => {
-    state.financeCursor = new Date();
-    renderFinance();
-  });
-
-  // v27.0 — Privacy toggle (eye icon)
-  applyPrivacyMode();
+  // Privacy eye (kept behaviour from v27.0)
   document.getElementById('fin-privacy-toggle')?.addEventListener('click', () => {
     state.isPrivacyActive = !state.isPrivacyActive;
     try { localStorage.setItem('isPrivacyActive', state.isPrivacyActive ? 'true' : 'false'); } catch {}
     applyPrivacyMode();
   });
-})();
 
-// v27.0 — Reflect privacy state on <body> + the eye icon swap.
+  document.getElementById('btn-add-income')   ?.addEventListener('click', () => openModal('income'));
+  document.getElementById('btn-add-expense')  ?.addEventListener('click', () => openModal('expense'));
+  document.getElementById('btn-add-transfer') ?.addEventListener('click', () => openModal('transfer'));
+  document.getElementById('btn-add-envelope') ?.addEventListener('click', () => openModal('envelope'));
+
+  // Tabs
+  document.getElementById('fin-tx-tabs')?.addEventListener('click', e => {
+    const tabBtn = e.target.closest('.finance-tx-tab');
+    if (!tabBtn) return;
+    document.querySelectorAll('#fin-tx-tabs .finance-tx-tab').forEach(b => b.classList.remove('active'));
+    tabBtn.classList.add('active');
+    state.financeTxTab = tabBtn.dataset.tab || 'all';
+    renderTransactionsFeed();
+  });
+
+  // Envelope-card actions (explicit edit / delete buttons; card body opens edit)
+  document.getElementById('fin-envelopes-grid')?.addEventListener('click', async (e) => {
+    const delBtn  = e.target.closest('[data-act="del-envelope"]');
+    const editBtn = e.target.closest('[data-act="edit-envelope"]');
+    if (delBtn) {
+      e.stopPropagation();
+      const id = delBtn.dataset.id;
+      const env = state.envelopes.find(x => x.id === id);
+      const balance = computeEnvelopeBalance(id);
+      if (Math.abs(balance) > 0.005) {
+        toast(`🚫 الظرف فيه ${formatMoney(balance)} ج.م — افضّيه الأول (تحويل لظرف تاني)`, 'error');
+        return;
+      }
+      const ok = await confirmDialog({
+        title: 'حذف الظرف',
+        message: `هل تريد حذف الظرف "${env?.name || ''}"؟`,
+        icon: '📂',
+      });
+      if (!ok) return;
+      try { await deleteDoc(envelopeDoc(id)); toast('تم حذف الظرف', 'info', '🗑️'); }
+      catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+      return;
+    }
+    if (editBtn) {
+      e.stopPropagation();
+      openModal('envelope', editBtn.dataset.id);
+      return;
+    }
+    const card = e.target.closest('.envelope-card');
+    if (card) openModal('envelope', card.dataset.id);
+  });
+
+  // Tx-row actions
+  document.getElementById('fin-tx-list')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.finance-tx-action');
+    if (!btn) return;
+    const id  = btn.dataset.id;
+    const act = btn.dataset.act;
+    if (act === 'allocate')       openModal('allocate', id);
+    else if (act === 'edit-income')   openModal('income',   id);
+    else if (act === 'edit-expense')  openModal('expense',  id);
+    else if (act === 'edit-transfer') openModal('transfer', id);
+    else if (act.startsWith('del-')) {
+      const kind = act.slice(4); // income / expense / transfer
+      const ok = await confirmDialog({
+        title: 'حذف المعاملة',
+        message: 'هل تريد حذف هذه المعاملة؟ (لا يمكن التراجع)',
+        icon: '🗑️',
+      });
+      if (!ok) return;
+      try {
+        if (kind === 'income')   await deleteDoc(incomeDoc(id));
+        if (kind === 'expense')  await deleteDoc(expenseDoc(id));
+        if (kind === 'transfer') await deleteDoc(transferDoc(id));
+        toast('تم الحذف', 'info', '🗑️');
+      } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+    }
+  });
+}
+
+// ── Privacy mode (eye icon swap + body class) ──
 function applyPrivacyMode() {
   document.body.classList.toggle('privacy-on', state.isPrivacyActive);
   const btn = document.getElementById('fin-privacy-toggle');
@@ -2626,21 +2201,297 @@ function applyPrivacyMode() {
   }
 }
 
-// ── Animate counter number ──
-function animateCount(id, target) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const current = parseInt(el.textContent) || 0;
-  if (current === target) return;
-  const diff     = target - current;
-  const steps    = 20;
-  const stepVal  = diff / steps;
-  let frame = 0;
-  const timer = setInterval(() => {
-    frame++;
-    el.textContent = Math.round(current + stepVal * frame);
-    if (frame >= steps) { el.textContent = target; clearInterval(timer); }
-  }, 18);
+// ── Color swatch row used by envelope/source modals ──
+function setupColorSwatchRow(rowId) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  const target = document.getElementById(row.dataset.target);
+  if (!target) return;
+  const current = target.value || FINANCE_PALETTE[0].color;
+  row.innerHTML = FINANCE_PALETTE.map(p => `
+    <button type="button" class="color-swatch ${p.color.toLowerCase() === current.toLowerCase() ? 'is-active' : ''}"
+            data-color="${p.color}" style="background:${p.color};" aria-label="${p.color}"></button>
+  `).join('');
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.color-swatch');
+    if (!btn) return;
+    target.value = btn.dataset.color;
+    row.querySelectorAll('.color-swatch').forEach(b => b.classList.toggle('is-active', b === btn));
+  });
+}
+
+// ── Income modal — dynamic source picker + manage link ──
+function setupIncomeSourcePicker() {
+  const sel = document.getElementById('f-inc-source');
+  if (!sel) return;
+  if (state.sources.length === 0) {
+    sel.innerHTML = `<option value="">⚠️ لا يوجد مصادر — أضف من ⚙️ إدارة المصادر</option>`;
+  } else {
+    const prev = sel.value;
+    sel.innerHTML = state.sources.map(s =>
+      `<option value="${s.id}">${escapeHtml(s.icon || '💼')} ${escapeHtml(s.name)}</option>`
+    ).join('');
+    if (prev && state.sources.some(s => s.id === prev)) sel.value = prev;
+  }
+  document.getElementById('f-inc-manage-sources')?.addEventListener('click', () => {
+    // Stash the current income-modal form values so we can restore after manage closes
+    openModal('sources_manage');
+  });
+}
+
+// ── Sources manage modal — inline list with add/edit/delete ──
+function setupSourcesManageModal() {
+  const list = document.getElementById('sources-manage-list');
+  const addBtn = document.getElementById('sources-manage-add');
+  if (!list || !addBtn) return;
+
+  const renderList = () => {
+    if (state.sources.length === 0) {
+      list.innerHTML = `<div class="manage-empty">لا يوجد مصادر بعد — أضف مصدر جديد</div>`;
+      return;
+    }
+    list.innerHTML = state.sources.map(s => `
+      <div class="manage-row" data-id="${s.id}">
+        <div class="manage-icon" style="background:${s.color || '#3574F0'};">${escapeHtml(s.icon || '💼')}</div>
+        <div class="manage-name">${escapeHtml(s.name)}</div>
+        <button type="button" class="manage-action" data-act="edit-source" data-id="${s.id}" title="تعديل">✏️</button>
+        <button type="button" class="manage-action is-danger" data-act="del-source" data-id="${s.id}" title="حذف">🗑️</button>
+      </div>
+    `).join('');
+  };
+  renderList();
+
+  // Re-render whenever sources change while this modal is open.
+  // (Listeners already update state.sources via Firestore snapshots.)
+  const observerId = setInterval(() => {
+    if (currentModalType !== 'sources_manage') { clearInterval(observerId); return; }
+    if (list.dataset.sig !== sourcesSignature()) {
+      list.dataset.sig = sourcesSignature();
+      renderList();
+    }
+  }, 250);
+  list.dataset.sig = sourcesSignature();
+
+  addBtn.onclick = () => openModal('source');
+
+  list.onclick = async (e) => {
+    const btn = e.target.closest('.manage-action');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (btn.dataset.act === 'edit-source') {
+      openModal('source', id);
+    } else if (btn.dataset.act === 'del-source') {
+      const src = state.sources.find(s => s.id === id);
+      // Guard: refuse to delete if any income references this source.
+      const inUse = state.incomes.some(inc => inc.source === id);
+      if (inUse) {
+        toast('🚫 المصدر مرتبط بمعاملات دخل — لا يمكن حذفه', 'error');
+        return;
+      }
+      const ok = await confirmDialog({
+        title: 'حذف المصدر',
+        message: `هل تريد حذف المصدر "${src?.name || ''}"؟`,
+        icon: '💼',
+      });
+      if (!ok) return;
+      try { await deleteDoc(sourceDoc(id)); toast('تم الحذف', 'info', '🗑️'); }
+      catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+    }
+  };
+}
+
+function sourcesSignature() {
+  return state.sources.map(s => `${s.id}:${s.name}:${s.icon}:${s.color}`).join('|');
+}
+
+// ── Expense modal — envelope picker + live balance info ──
+function setupExpenseEnvelopePicker() {
+  const sel  = document.getElementById('f-exp-envelope');
+  if (!sel) return;
+  if (state.envelopes.length === 0) {
+    sel.innerHTML = `<option value="">⚠️ أنشئ ظرف أولاً</option>`;
+  } else {
+    sel.innerHTML = state.envelopes.map(e =>
+      `<option value="${e.id}">${escapeHtml(e.icon || '📂')} ${escapeHtml(e.name)}</option>`
+    ).join('');
+  }
+  sel.addEventListener('change', refreshExpenseEnvelopeInfo);
+  const amt = document.getElementById('f-exp-amount');
+  if (amt) amt.addEventListener('input', refreshExpenseEnvelopeInfo);
+  refreshExpenseEnvelopeInfo();
+}
+
+function refreshExpenseEnvelopeInfo() {
+  const sel  = document.getElementById('f-exp-envelope');
+  const info = document.getElementById('exp-envelope-info');
+  const amtEl = document.getElementById('f-exp-amount');
+  if (!sel || !info) return;
+  const envId = sel.value;
+  if (!envId) {
+    info.textContent = 'اختر ظرف لمعرفة الرصيد المتاح';
+    info.classList.remove('is-warn', 'is-error');
+    return;
+  }
+  const excludeId = state.editTarget?.type === 'expense' ? state.editTarget.id : null;
+  const bal = computeEnvelopeBalance(envId, excludeId);
+  const amt = Number(amtEl?.value) || 0;
+  info.textContent = `الرصيد المتاح: ${formatMoney(bal)} ج.م${amt > 0 ? ' — بعد العملية: ' + formatMoney(bal - amt) : ''}`;
+  info.classList.remove('is-warn', 'is-error');
+  if (amt > 0 && amt > bal + 0.005) {
+    info.textContent += ' — ⛔ غير كافٍ، اعمل تحويل من ظرف تاني';
+    info.classList.add('is-error');
+  } else if (amt > 0 && bal - amt < bal * 0.15) {
+    info.classList.add('is-warn');
+  }
+}
+
+// ── Transfer modal — from/to pickers + live balance info ──
+function setupTransferPickers() {
+  const fSel = document.getElementById('f-tr-from');
+  const tSel = document.getElementById('f-tr-to');
+  if (!fSel || !tSel) return;
+  const opts = state.envelopes.map(e =>
+    `<option value="${e.id}">${escapeHtml(e.icon || '📂')} ${escapeHtml(e.name)}</option>`
+  ).join('');
+  if (state.envelopes.length < 2) {
+    fSel.innerHTML = `<option value="">⚠️ تحتاج ظرفين على الأقل</option>`;
+    tSel.innerHTML = `<option value="">⚠️ تحتاج ظرفين على الأقل</option>`;
+  } else {
+    fSel.innerHTML = opts;
+    tSel.innerHTML = opts;
+    if (state.envelopes.length >= 2) tSel.selectedIndex = 1;
+  }
+  fSel.addEventListener('change', refreshTransferInfo);
+  tSel.addEventListener('change', refreshTransferInfo);
+  const amt = document.getElementById('f-tr-amount');
+  if (amt) amt.addEventListener('input', refreshTransferInfo);
+  refreshTransferInfo();
+}
+
+function refreshTransferInfo() {
+  const fSel = document.getElementById('f-tr-from');
+  const info = document.getElementById('tr-from-info');
+  const amtEl = document.getElementById('f-tr-amount');
+  if (!fSel || !info) return;
+  const envId = fSel.value;
+  if (!envId) {
+    info.textContent = 'اختر الظرف المصدر';
+    info.classList.remove('is-warn', 'is-error');
+    return;
+  }
+  const excludeId = state.editTarget?.type === 'transfer' ? state.editTarget.id : null;
+  const bal = computeEnvelopeBalance(envId, null, excludeId);
+  const amt = Number(amtEl?.value) || 0;
+  info.textContent = `رصيد المصدر: ${formatMoney(bal)} ج.م${amt > 0 ? ' — بعد التحويل: ' + formatMoney(bal - amt) : ''}`;
+  info.classList.remove('is-warn', 'is-error');
+  if (amt > 0 && amt > bal + 0.005) {
+    info.textContent += ' — ⛔ غير كافٍ';
+    info.classList.add('is-error');
+  }
+}
+
+// ── Allocation modal — forced 100% distribution UI ──
+function setupAllocationModal() {
+  const id  = state.editTarget?.id;
+  let inc = state.incomes.find(i => i.id === id);
+  // Newly-created incomes can arrive on the snapshot after openModal runs.
+  // Poll a few frames before giving up so the freshly-saved doc shows up.
+  if (!inc) {
+    let attempts = 0;
+    const retry = () => {
+      attempts++;
+      inc = state.incomes.find(i => i.id === id);
+      if (inc) { setupAllocationModal(); return; }
+      if (attempts < 10) return void setTimeout(retry, 80);
+      toast('الدخل غير موجود', 'error');
+      closeModal();
+    };
+    setTimeout(retry, 80);
+    return;
+  }
+  const list = document.getElementById('alloc-envelopes-list');
+  if (!list) return;
+
+  if (state.envelopes.length === 0) {
+    list.innerHTML = `
+      <div class="finance-empty">
+        <span class="finance-empty-icon">⚠️</span>
+        <span class="finance-empty-text">لا يوجد أظرف</span>
+        <span class="finance-empty-sub">اقفل الـ modal وأضف أظرف الأول</span>
+      </div>`;
+    document.getElementById('alloc-amount-total').textContent = formatMoney(inc.amount);
+    document.getElementById('alloc-amount-done').textContent = '0';
+    return;
+  }
+
+  // Pre-existing allocations (when re-opening an already-allocated income)
+  const existing = inc.allocations || {};
+
+  list.innerHTML = state.envelopes.map(env => {
+    const cur = Number(existing[env.id]) || 0;
+    const bal = computeEnvelopeBalance(env.id);
+    return `
+      <div class="alloc-env-row ${cur > 0 ? 'has-value' : ''}" data-env="${env.id}">
+        <span class="alloc-env-icon">${escapeHtml(env.icon || '📂')}</span>
+        <div class="alloc-env-body">
+          <div class="alloc-env-name">${escapeHtml(env.name)}</div>
+          <div class="alloc-env-balance">رصيد حالي: ${formatMoney(bal)}</div>
+        </div>
+        <input type="number" class="alloc-env-input" step="0.01" min="0"
+          placeholder="0" value="${cur || ''}" data-envelope-id="${env.id}" />
+      </div>`;
+  }).join('');
+
+  // Add an "وزّع الباقي على هذا الظرف" quick button via input focus? Simpler: keyboard helper.
+  document.getElementById('alloc-amount-total').textContent = formatMoney(inc.amount);
+  refreshAllocationProgress();
+
+  list.addEventListener('input', refreshAllocationProgress);
+  // Highlight row when value present
+  list.addEventListener('input', (e) => {
+    const inp = e.target.closest('.alloc-env-input');
+    if (!inp) return;
+    inp.closest('.alloc-env-row')?.classList.toggle('has-value', Number(inp.value) > 0);
+  });
+}
+
+function refreshAllocationProgress() {
+  const id  = state.editTarget?.id;
+  const inc = state.incomes.find(i => i.id === id);
+  if (!inc) return;
+  const inputs = document.querySelectorAll('#alloc-envelopes-list .alloc-env-input');
+  let sum = 0;
+  inputs.forEach(inp => { sum += Number(inp.value) || 0; });
+
+  const wrap   = document.getElementById('alloc-progress');
+  const fill   = document.getElementById('alloc-progress-fill');
+  const status = document.getElementById('alloc-progress-status');
+  const doneEl = document.getElementById('alloc-amount-done');
+  doneEl.textContent = formatMoney(sum);
+
+  const pct = inc.amount > 0 ? (sum / inc.amount) * 100 : 0;
+  fill.style.width = Math.min(pct, 100) + '%';
+
+  const delta = sum - inc.amount;
+  let mode = 'empty';
+  let msg  = 'ابدأ التوزيع — لا يمكن الحفظ قبل الوصول لـ 100%';
+  if (sum === 0) { mode = 'empty'; msg = 'لم يتم توزيع شيء بعد — وزِّع المبلغ كاملاً'; }
+  else if (Math.abs(delta) <= 0.005) { mode = 'complete'; msg = '✅ التوزيع 100% مكتمل — اضغط تأكيد'; }
+  else if (delta < 0) { mode = 'partial'; msg = `متبقي للتوزيع: ${formatMoney(-delta)} ج.م`; }
+  else { mode = 'over'; msg = `⛔ زاد عن المبلغ بـ ${formatMoney(delta)} ج.م`; }
+
+  wrap.classList.remove('is-empty', 'is-partial', 'is-complete', 'is-over');
+  wrap.classList.add('is-' + mode);
+  status.textContent = msg;
+
+  // Submit button: enabled only when complete
+  const btn = document.getElementById('modal-submit-btn');
+  if (btn) {
+    const blocked = mode !== 'complete';
+    btn.disabled = blocked;
+    btn.classList.toggle('is-blocked', blocked);
+    btn.textContent = blocked ? '🔒 يلزم 100%' : 'تأكيد التوزيع';
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3408,185 +3259,171 @@ const MODAL_CONFIGS = {
         </button>
       </div>`,
   },
-  bucket: {
-    title:      '🗂️ إضافة وعاء صرف',
-    submitText: 'إنشاء الوعاء',
+  envelope: {
+    title:      '📂 إضافة ظرف جديد',
+    submitText: 'إنشاء الظرف',
     fields: `
       <div class="form-group">
-        <label class="form-label">اسم الوعاء <span class="required">*</span></label>
-        <input type="text" id="f-bkt-name" class="form-input"
-          placeholder="مثال: تجهيزات الفرح" maxlength="60" required />
+        <label class="form-label">اسم الظرف <span class="required">*</span></label>
+        <input type="text" id="f-env-name" class="form-input"
+          placeholder="مثال: مصاريف الجواز" maxlength="60" required />
       </div>
       <div class="form-group">
-        <label class="form-label">الميزانية المرصودة (اختياري)</label>
-        <input type="number" id="f-bkt-target" class="form-input" step="0.01" min="0"
-          placeholder="اتركها فاضي لو الوعاء بدون سقف" />
+        <label class="form-label">أيقونة (إيموجي)</label>
+        <input type="text" id="f-env-icon" class="form-input"
+          placeholder="📂  أو أي إيموجي" maxlength="4" />
       </div>
       <div class="form-group">
-        <label class="form-label">أيقونة (اختياري)</label>
-        <input type="text" id="f-bkt-icon" class="form-input"
-          placeholder="🎯  أو أي إيموجي" maxlength="4" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">الحالة</label>
-        <select id="f-bkt-status" class="form-select">
-          <option value="active">🟢 نشط</option>
-          <option value="archived">🗄️ مؤرشف</option>
-        </select>
+        <label class="form-label">اللون</label>
+        <div class="color-swatch-row" id="f-env-color-row" data-target="f-env-color"></div>
+        <input type="hidden" id="f-env-color" value="#3574F0" />
       </div>`,
   },
-  transaction: {
-    title:      '💸 تسجيل مصروف',
-    submitText: 'تسجيل المصروف',
+  source: {
+    title:      '💼 إضافة مصدر دخل',
+    submitText: 'حفظ المصدر',
     fields: `
       <div class="form-group">
-        <label class="form-label">بيان المصروف <span class="required">*</span></label>
-        <input type="text" id="f-tx-title" class="form-input"
-          placeholder="مثال: دفعة حجز القاعة" maxlength="100" required />
+        <label class="form-label">اسم المصدر <span class="required">*</span></label>
+        <input type="text" id="f-src-name" class="form-input"
+          placeholder="مثال: شركة النور، مشروع X" maxlength="60" required />
       </div>
+      <div class="form-group">
+        <label class="form-label">أيقونة (إيموجي)</label>
+        <input type="text" id="f-src-icon" class="form-input"
+          placeholder="🏢  أو 💻 أو 🚀..." maxlength="4" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">اللون</label>
+        <div class="color-swatch-row" id="f-src-color-row" data-target="f-src-color"></div>
+        <input type="hidden" id="f-src-color" value="#3574F0" />
+      </div>`,
+  },
+  sources_manage: {
+    title:      '⚙️ إدارة مصادر الدخل',
+    submitText: 'إغلاق',
+    fields: `
+      <div class="manage-list-wrap">
+        <div class="manage-list" id="sources-manage-list"></div>
+        <button type="button" class="btn-secondary manage-add-btn" id="sources-manage-add">+ إضافة مصدر جديد</button>
+      </div>`,
+  },
+  income: {
+    title:      '💼 تسجيل دخل',
+    submitText: 'حفظ — ثم وزِّع',
+    fields: `
       <div class="form-group" style="display:flex; gap:10px;">
         <div style="flex:1;">
           <label class="form-label">المبلغ <span class="required">*</span></label>
-          <input type="number" id="f-tx-amount" class="form-input" step="0.01" min="0"
+          <input type="number" id="f-inc-amount" class="form-input" step="0.01" min="0"
             placeholder="0" required />
         </div>
         <div style="flex:1;">
           <label class="form-label">التاريخ <span class="required">*</span></label>
-          <input type="date" id="f-tx-date" class="form-input" required />
+          <input type="date" id="f-inc-date" class="form-input" required />
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">الوعاء (يقرأ النشطة فقط) <span class="required">*</span></label>
-        <select id="f-tx-bucket" class="form-select" required>
-          <!-- populated dynamically from active buckets -->
-        </select>
+        <label class="form-label">المصدر <span class="required">*</span>
+          <button type="button" class="form-label-action" id="f-inc-manage-sources">⚙️ إدارة المصادر</button>
+        </label>
+        <select id="f-inc-source" class="form-select" required></select>
       </div>
       <div class="form-group">
-        <label class="form-label">مشروع مرتبط (اختياري — لو ميزانية مشروع)</label>
-        <select id="f-tx-project" class="form-select">
-          <!-- populated dynamically -->
+        <label class="form-label">نوع الدفعة <span class="required">*</span></label>
+        <select id="f-inc-paytype" class="form-select" required>
+          <option value="salary">💰 مرتب</option>
+          <option value="project_advance">📥 مقدم مشروع</option>
+          <option value="project_payment">💵 دفعة من مشروع</option>
+          <option value="project_final">✅ نهاية مشروع</option>
+          <option value="adjustment">⚙️ فلوس تعديل</option>
+          <option value="other">📝 أخرى</option>
         </select>
       </div>
       <div class="form-group">
         <label class="form-label">ملاحظات (اختياري)</label>
-        <textarea id="f-tx-notes" class="form-textarea"
-          placeholder="تفاصيل إضافية..." maxlength="240"></textarea>
+        <textarea id="f-inc-notes" class="form-textarea"
+          placeholder="تفاصيل إضافية أو تفاصيل المشروع..." maxlength="240"></textarea>
+      </div>
+      <small style="display:block; margin-top:-4px; color:var(--text-muted); font-size:11.5px; line-height:1.6;">
+        ⚠️ بعد الحفظ هتظهر شاشة توزيع إجبارية. الفلوس مش هتتاحلك للصرف لحد ما توزعها 100% على الأظرف.
+      </small>`,
+  },
+  allocate: {
+    title:      '🎯 توزيع الدخل على الأظرف',
+    submitText: 'تأكيد التوزيع',
+    fields: `
+      <div class="alloc-progress-wrap" id="alloc-progress">
+        <div class="alloc-progress-head">
+          <span>إجمالي الموزَّع</span>
+          <span><span class="alloc-progress-amount" id="alloc-amount-done">0</span>
+            / <span class="alloc-progress-amount" id="alloc-amount-total">0</span></span>
+        </div>
+        <div class="alloc-progress-bar">
+          <div class="alloc-progress-fill" id="alloc-progress-fill"></div>
+        </div>
+        <div class="alloc-progress-status" id="alloc-progress-status">ابدأ التوزيع — لا يمكن الحفظ قبل الوصول لـ 100%</div>
+      </div>
+      <div class="alloc-envelopes-list" id="alloc-envelopes-list">
+        <!-- envelope inputs rendered dynamically -->
       </div>`,
   },
-  projectIncome: {
-    title:      '💵 تسجيل دفعة مشروع',
-    submitText: 'حفظ الدفعة',
+  expense: {
+    title:      '💸 تسجيل مصروف',
+    submitText: 'تسجيل المصروف',
     fields: `
+      <div class="form-group" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label class="form-label">المبلغ <span class="required">*</span></label>
+          <input type="number" id="f-exp-amount" class="form-input" step="0.01" min="0"
+            placeholder="0" required />
+        </div>
+        <div style="flex:1;">
+          <label class="form-label">التاريخ <span class="required">*</span></label>
+          <input type="date" id="f-exp-date" class="form-input" required />
+        </div>
+      </div>
       <div class="form-group">
-        <label class="form-label">المشروع <span class="required">*</span></label>
-        <select id="f-pi-project" class="form-select" required>
+        <label class="form-label">الظرف <span class="required">*</span></label>
+        <select id="f-exp-envelope" class="form-select" required>
           <!-- populated dynamically -->
         </select>
+        <div class="exp-envelope-info" id="exp-envelope-info">اختر ظرف لمعرفة الرصيد المتاح</div>
       </div>
       <div class="form-group">
-        <label class="form-label">بيان الدفعة <span class="required">*</span></label>
-        <input type="text" id="f-pi-title" class="form-input"
-          placeholder="مثال: مقدم تعاقد 50% — دفعة التسليم النهائي" maxlength="100" required />
-      </div>
+        <label class="form-label">بيان المصروف (اختياري)</label>
+        <input type="text" id="f-exp-note" class="form-input"
+          placeholder="مثال: عشاء العيلة" maxlength="100" />
+      </div>`,
+  },
+  transfer: {
+    title:      '↔ تحويل بين الأظرف',
+    submitText: 'تنفيذ التحويل',
+    fields: `
       <div class="form-group">
-        <label class="form-label">حقل المبلغ والعملة <span class="required">*</span></label>
-        <div class="pi-currency-row">
-          <select id="f-pi-currency" class="form-select pi-currency-select">
-            <option value="EGP">🇪🇬 EGP</option>
-            <option value="USD">🇺🇸 USD</option>
-            <option value="EUR">🇪🇺 EUR</option>
-            <option value="SAR">🇸🇦 SAR</option>
-            <option value="AED">🇦🇪 AED</option>
-            <option value="GBP">🇬🇧 GBP</option>
-          </select>
-          <input type="number" id="f-pi-foreign" class="form-input pi-amount-input"
-            step="0.01" min="0" placeholder="المبلغ" required />
-          <input type="number" id="f-pi-rate" class="form-input pi-rate-input"
-            step="0.0001" min="0" placeholder="سعر الصرف (ج.م)" />
+        <label class="form-label">من → إلى <span class="required">*</span></label>
+        <div class="tr-arrow-row">
+          <select id="f-tr-from" class="form-select" required></select>
+          <span class="tr-arrow">←</span>
+          <select id="f-tr-to" class="form-select" required></select>
         </div>
-        <small class="pi-egp-preview" id="pi-egp-preview" style="display:block; margin-top:8px; color:var(--text-muted); font-size:11.5px;">
-          المعادل بالجنيه: <strong id="pi-egp-value" style="color:var(--text-primary); font-family:'JetBrains Mono', ui-monospace, monospace;">0</strong>
-        </small>
+        <div class="exp-envelope-info" id="tr-from-info">اختر الظرف المصدر</div>
       </div>
       <div class="form-group" style="display:flex; gap:10px;">
         <div style="flex:1;">
-          <label class="form-label">التاريخ <span class="required">*</span></label>
-          <input type="date" id="f-pi-date" class="form-input" required />
+          <label class="form-label">المبلغ <span class="required">*</span></label>
+          <input type="number" id="f-tr-amount" class="form-input" step="0.01" min="0"
+            placeholder="0" required />
         </div>
         <div style="flex:1;">
-          <label class="form-label">الحالة</label>
-          <select id="f-pi-status" class="form-select">
-            <option value="Received">✅ تم الاستلام</option>
-            <option value="Pending">⏳ مجدولة (لم تدخل بعد)</option>
-          </select>
+          <label class="form-label">التاريخ <span class="required">*</span></label>
+          <input type="date" id="f-tr-date" class="form-input" required />
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">ملاحظات (اختياري)</label>
-        <textarea id="f-pi-notes" class="form-textarea"
-          placeholder="تفاصيل إضافية..." maxlength="240"></textarea>
-      </div>`,
-  },
-  incomeSource: {
-    title:      '💼 إضافة مصدر دخل',
-    submitText: 'إضافة المصدر',
-    fields: `
-      <div class="form-group">
-        <label class="form-label">نوع المصدر <span class="required">*</span></label>
-        <select id="f-inc-type" class="form-select" required>
-          <option value="salary">🏢 راتب شهري ثابت</option>
-          <option value="freelance">💻 مشروع حر (ساعات × سعر)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">التسمية <span class="required">*</span></label>
-        <input type="text" id="f-inc-label" class="form-input"
-          placeholder="مثال: شركة النور — راتب أساسي" maxlength="80" required />
-      </div>
-      <div class="form-group" id="inc-salary-group">
-        <label class="form-label">الراتب الشهري <span class="required">*</span></label>
-        <input type="number" id="f-inc-monthly" class="form-input" step="0.01" min="0"
-          placeholder="0" />
-        <div style="display:flex; gap:10px; margin-top:10px;">
-          <div style="flex:1;">
-            <label class="form-label">تاريخ بداية الدخل <span class="required">*</span></label>
-            <input type="date" id="f-inc-start" class="form-input" />
-          </div>
-          <div style="flex:1;">
-            <label class="form-label">تاريخ نهاية الدخل (اختياري)</label>
-            <input type="date" id="f-inc-end" class="form-input" />
-          </div>
-        </div>
-        <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
-          النظام يحسب الراتب فقط في الشهور بين تاريخي البداية والنهاية لحماية أرشيف الشهور القديمة.
-        </small>
-      </div>
-      <div class="form-group" id="inc-freelance-group" style="display:none;">
-        <label class="form-label">المشروع <span class="required">*</span></label>
-        <select id="f-inc-project" class="form-select">
-          <!-- populated dynamically -->
-        </select>
-        <label class="form-label" style="margin-top:10px;">نوع التسعير</label>
-        <select id="f-inc-pricing-type" class="form-select">
-          <option value="hourly">💵 سعر الساعة × ساعات المشروع</option>
-          <option value="fixed">📦 سعر إجمالي ثابت</option>
-        </select>
-        <div id="inc-rate-row" style="margin-top:10px;">
-          <label class="form-label">سعر الساعة <span class="required">*</span></label>
-          <input type="number" id="f-inc-rate" class="form-input" step="0.01" min="0"
-            placeholder="0" />
-          <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
-            الإيراد المحسوب = سعر الساعة × إجمالي ساعات المشروع (totalProjectHours) لحظياً.
-          </small>
-        </div>
-        <div id="inc-fixed-row" style="margin-top:10px; display:none;">
-          <label class="form-label">السعر الإجمالي الثابت <span class="required">*</span></label>
-          <input type="number" id="f-inc-fixed" class="form-input" step="0.01" min="0"
-            placeholder="0" />
-          <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:11px;">
-            مبلغ ثابت مستقل عن عدد الساعات (يدخل في إيراد الشهر اللي اتسجل فيه المصدر).
-          </small>
-        </div>
+        <label class="form-label">السبب (اختياري)</label>
+        <input type="text" id="f-tr-note" class="form-input"
+          placeholder="مثال: الرفاهية خلصت ومحتاج أنقل من الطوارئ" maxlength="120" />
       </div>`,
   },
   task: {
@@ -3669,30 +3506,6 @@ function bindProjectLinksControls() {
 
 // v26.0 — Highlight the pricing field that's actually carrying a value, so
 // the user gets visual confirmation which path the maths will take.
-// v30.0 — Wire the project-income form: exchange rate only appears when
-// currency != EGP, and we live-preview the EGP value so the user sees
-// exactly what will hit their wealth before saving.
-function wireProjectIncomeCurrency() {
-  const curSel  = document.getElementById('f-pi-currency');
-  const foreign = document.getElementById('f-pi-foreign');
-  const rate    = document.getElementById('f-pi-rate');
-  const preview = document.getElementById('pi-egp-value');
-  if (!curSel || !foreign || !rate || !preview) return;
-  const sync = () => {
-    const isForeign = curSel.value !== 'EGP';
-    rate.style.display = isForeign ? '' : 'none';
-    rate.required = isForeign;
-    const amt = Number(foreign.value) || 0;
-    const r   = isForeign ? (Number(rate.value) || 0) : 1;
-    const egp = amt * r;
-    preview.textContent = formatMoney(egp) + ' ج.م';
-  };
-  curSel .addEventListener('change', sync);
-  foreign.addEventListener('input',  sync);
-  rate   .addEventListener('input',  sync);
-  sync();
-}
-
 function bindPricingActiveGlow() {
   const rateEl  = document.getElementById('f-hourly-rate');
   const priceEl = document.getElementById('f-fixed-price');
@@ -3763,99 +3576,44 @@ function openModal(type, editId = null) {
     if (sd) sd.value = toLocalISODate(new Date());
   }
 
-  if (type === 'transaction') {
+  if (type === 'income') {
     if (!state.editTarget) {
-      const d = document.getElementById('f-tx-date');
+      const d = document.getElementById('f-inc-date');
       if (d) d.value = toLocalISODate(new Date());
     }
-    // Active buckets only — archived hidden by design
-    const bSel = document.getElementById('f-tx-bucket');
-    if (bSel) {
-      const active = state.buckets.filter(b => b.status !== 'archived');
-      if (active.length === 0) {
-        bSel.innerHTML = `<option value="">⚠️ لا يوجد أوعية نشطة — أنشئ وعاء أولاً</option>`;
-      } else {
-        bSel.innerHTML = active.map(b => {
-          const vis = bucketVisual(b);
-          return `<option value="${b.id}">${vis.icon} ${escapeHtml(vis.label)}</option>`;
-        }).join('');
-      }
-    }
-    // Optional project link
-    const pSel = document.getElementById('f-tx-project');
-    if (pSel) {
-      pSel.innerHTML = `<option value="">— بدون ربط —</option>` +
-        state.allProjects.map(p => {
-          const c = state.clients.find(cl => cl.id === p._clientId);
-          const label = c ? `${p.name} — ${c.name}` : p.name;
-          return `<option value="${p.id}">${escapeHtml(label)}</option>`;
-        }).join('');
-    }
+    setupIncomeSourcePicker();
   }
 
-  if (type === 'projectIncome') {
-    // Project dropdown
-    const projSel = document.getElementById('f-pi-project');
-    if (projSel) {
-      projSel.innerHTML = state.allProjects.map(p => {
-        const c = state.clients.find(cl => cl.id === p._clientId);
-        const label = c ? `${p.name} — ${c.name}` : p.name;
-        return `<option value="${p.id}">${escapeHtml(label)}</option>`;
-      }).join('');
-    }
-    // Default date for new payments → today
+  if (type === 'expense') {
     if (!state.editTarget) {
-      const d = document.getElementById('f-pi-date');
+      const d = document.getElementById('f-exp-date');
       if (d) d.value = toLocalISODate(new Date());
     }
-    wireProjectIncomeCurrency();
+    setupExpenseEnvelopePicker();
   }
 
-  if (type === 'incomeSource') {
-    // Populate project dropdown and wire type toggle
-    const sel = document.getElementById('f-inc-project');
-    if (sel) {
-      sel.innerHTML = state.allProjects.map(p => {
-        const c = state.clients.find(cl => cl.id === p._clientId);
-        const label = c ? `${p.name} — ${c.name}` : p.name;
-        return `<option value="${p.id}">${escapeHtml(label)}</option>`;
-      }).join('');
-    }
-    const typeSel = document.getElementById('f-inc-type');
-    const sg = document.getElementById('inc-salary-group');
-    const fg = document.getElementById('inc-freelance-group');
-    const ptSel    = document.getElementById('f-inc-pricing-type');
-    const rateRow  = document.getElementById('inc-rate-row');
-    const fixedRow = document.getElementById('inc-fixed-row');
-    const togglePricing = () => {
-      const isHourly = (ptSel?.value || 'hourly') === 'hourly';
-      if (rateRow)  rateRow.style.display  = isHourly ? '' : 'none';
-      if (fixedRow) fixedRow.style.display = isHourly ? 'none' : '';
-      const rate  = document.getElementById('f-inc-rate');
-      const fixed = document.getElementById('f-inc-fixed');
-      if (rate)  rate.required  = isHourly;
-      if (fixed) fixed.required = !isHourly;
-    };
-    const toggle = () => {
-      const isSalary = typeSel.value === 'salary';
-      if (sg) sg.style.display = isSalary ? '' : 'none';
-      if (fg) fg.style.display = isSalary ? 'none' : '';
-      const monthly = document.getElementById('f-inc-monthly');
-      if (monthly) monthly.required = isSalary;
-      const startEl = document.getElementById('f-inc-start');
-      if (startEl) startEl.required = isSalary;
-      if (!isSalary) togglePricing();
-    };
-    // v29.0 — default start date to today for new salary sources
+  if (type === 'transfer') {
     if (!state.editTarget) {
-      const startEl = document.getElementById('f-inc-start');
-      if (startEl && !startEl.value) startEl.value = toLocalISODate(new Date());
+      const d = document.getElementById('f-tr-date');
+      if (d) d.value = toLocalISODate(new Date());
     }
-    if (ptSel)   ptSel.addEventListener('change', togglePricing);
-    if (typeSel) {
-      typeSel.addEventListener('change', toggle);
-      toggle();
-    }
+    setupTransferPickers();
+  }
+
+  if (type === 'allocate') {
+    setupAllocationModal();
+  }
+
+  if (type === 'envelope') {
+    setupColorSwatchRow('f-env-color-row');
+  }
+
+  if (type === 'source') {
+    setupColorSwatchRow('f-src-color-row');
+  }
+
+  if (type === 'sources_manage') {
+    setupSourcesManageModal();
   }
 
   if (state.editTarget) {
@@ -3908,87 +3666,68 @@ function prefillModalValues() {
       linksList.innerHTML = project.links.map(l => projLinkRowHTML(l.label, l.url)).join('');
     }
 
-  } else if (type === 'bucket') {
-    const b = state.buckets.find(x => x.id === id);
-    if (!b) return;
-    document.getElementById('f-bkt-name').value   = b.bucketName  || '';
-    document.getElementById('f-bkt-target').value = b.targetBudget ?? '';
-    document.getElementById('f-bkt-icon').value   = b.icon || '';
-    document.getElementById('f-bkt-status').value = b.status || 'active';
+  } else if (type === 'envelope') {
+    const env = state.envelopes.find(e => e.id === id);
+    if (!env) return;
+    document.getElementById('f-env-name').value = env.name || '';
+    document.getElementById('f-env-icon').value = env.icon || '';
+    const colorEl = document.getElementById('f-env-color');
+    if (colorEl && env.color) { colorEl.value = env.color; setupColorSwatchRow('f-env-color-row'); }
 
-  } else if (type === 'transaction') {
-    const tx = state.transactions.find(x => x.id === id);
-    if (!tx) return;
-    document.getElementById('f-tx-title').value  = tx.title  || '';
-    document.getElementById('f-tx-amount').value = tx.amount ?? '';
-    const date = parseDateField(tx.date);
-    document.getElementById('f-tx-date').value   = toLocalISODate(date || new Date());
-    const bSel = document.getElementById('f-tx-bucket');
-    // If the linked bucket is archived, surface it in the dropdown so the
-    // user can still see it during edit (otherwise the option would be missing).
-    if (bSel && tx.bucketId) {
-      const exists = [...bSel.options].some(o => o.value === tx.bucketId);
-      if (!exists) {
-        const b = state.buckets.find(x => x.id === tx.bucketId);
-        const vis = bucketVisual(b);
-        const opt = document.createElement('option');
-        opt.value = tx.bucketId;
-        opt.textContent = `${vis.icon} ${vis.label} (مؤرشف)`;
-        bSel.appendChild(opt);
-      }
-      bSel.value = tx.bucketId;
-    }
-    const pSel = document.getElementById('f-tx-project');
-    if (pSel) pSel.value = tx.projectId || '';
-    const nEl = document.getElementById('f-tx-notes');
-    if (nEl) nEl.value = tx.notes || '';
-
-  } else if (type === 'projectIncome') {
-    const pi = state.projectIncomes.find(p => p.id === id);
-    if (!pi) return;
-    const projSel = document.getElementById('f-pi-project');
-    if (projSel && pi.projectId) projSel.value = pi.projectId;
-    document.getElementById('f-pi-title').value    = pi.title || '';
-    document.getElementById('f-pi-currency').value = pi.currency || 'EGP';
-    document.getElementById('f-pi-foreign').value  = pi.foreignAmount ?? '';
-    document.getElementById('f-pi-rate').value     = pi.exchangeRate ?? '';
-    document.getElementById('f-pi-status').value   = pi.status || 'Received';
-    const d = parseDateField(pi.date);
-    document.getElementById('f-pi-date').value     = toLocalISODate(d || new Date());
-    const notes = document.getElementById('f-pi-notes');
-    if (notes) notes.value = pi.notes || '';
-    wireProjectIncomeCurrency();   // re-run after prefill so EGP preview shows
-
-  } else if (type === 'incomeSource') {
-    const src = state.incomeSources.find(s => s.id === id);
+  } else if (type === 'source') {
+    const src = state.sources.find(s => s.id === id);
     if (!src) return;
-    const typeSel = document.getElementById('f-inc-type');
-    if (typeSel) {
-      typeSel.value = src.type || 'salary';
-      typeSel.dispatchEvent(new Event('change'));
-    }
-    document.getElementById('f-inc-label').value = src.label || '';
-    if (src.type === 'salary') {
-      document.getElementById('f-inc-monthly').value = src.monthlyAmount ?? '';
-      // v29.0 — Salary timeline prefill
-      const startD = parseDateField(src.startDate);
-      const endD   = parseDateField(src.endDate);
-      const startEl = document.getElementById('f-inc-start');
-      const endEl   = document.getElementById('f-inc-end');
-      if (startEl) startEl.value = startD ? toLocalISODate(startD) : '';
-      if (endEl)   endEl.value   = endD   ? toLocalISODate(endD)   : '';
-    } else {
-      const projSel = document.getElementById('f-inc-project');
-      if (projSel && src.projectId) projSel.value = src.projectId;
-      const ptSel = document.getElementById('f-inc-pricing-type');
-      if (ptSel) {
-        ptSel.value = src.pricingType || 'hourly';
-        ptSel.dispatchEvent(new Event('change'));
+    document.getElementById('f-src-name').value = src.name || '';
+    document.getElementById('f-src-icon').value = src.icon || '';
+    const colorEl = document.getElementById('f-src-color');
+    if (colorEl && src.color) { colorEl.value = src.color; setupColorSwatchRow('f-src-color-row'); }
+
+  } else if (type === 'income') {
+    const inc = state.incomes.find(x => x.id === id);
+    if (!inc) return;
+    document.getElementById('f-inc-amount').value  = inc.amount ?? '';
+    const d = parseDateField(inc.date);
+    document.getElementById('f-inc-date').value    = toLocalISODate(d || new Date());
+    const srcSel = document.getElementById('f-inc-source');
+    if (srcSel && inc.source) {
+      // The source dropdown may not yet include the income's source if it was
+      // deleted. Surface it explicitly so the user can see what's selected.
+      const exists = [...srcSel.options].some(o => o.value === inc.source);
+      if (!exists) {
+        const opt = document.createElement('option');
+        opt.value = inc.source;
+        opt.textContent = '❔ مصدر محذوف';
+        srcSel.appendChild(opt);
       }
-      document.getElementById('f-inc-rate').value  = src.hourlyRate  ?? '';
-      const fixedEl = document.getElementById('f-inc-fixed');
-      if (fixedEl) fixedEl.value = src.fixedPrice ?? '';
+      srcSel.value = inc.source;
     }
+    document.getElementById('f-inc-paytype').value = inc.paymentType || 'salary';
+    const nEl = document.getElementById('f-inc-notes');
+    if (nEl) nEl.value = inc.notes || '';
+
+  } else if (type === 'expense') {
+    const ex = state.expenses.find(x => x.id === id);
+    if (!ex) return;
+    document.getElementById('f-exp-amount').value = ex.amount ?? '';
+    const d = parseDateField(ex.date);
+    document.getElementById('f-exp-date').value   = toLocalISODate(d || new Date());
+    const eSel = document.getElementById('f-exp-envelope');
+    if (eSel && ex.envelopeId) eSel.value = ex.envelopeId;
+    document.getElementById('f-exp-note').value   = ex.note || '';
+    refreshExpenseEnvelopeInfo();
+
+  } else if (type === 'transfer') {
+    const tr = state.transfers.find(x => x.id === id);
+    if (!tr) return;
+    document.getElementById('f-tr-amount').value = tr.amount ?? '';
+    const d = parseDateField(tr.date);
+    document.getElementById('f-tr-date').value   = toLocalISODate(d || new Date());
+    const fSel = document.getElementById('f-tr-from');
+    const tSel = document.getElementById('f-tr-to');
+    if (fSel && tr.fromEnvelopeId) fSel.value = tr.fromEnvelopeId;
+    if (tSel && tr.toEnvelopeId)   tSel.value = tr.toEnvelopeId;
+    document.getElementById('f-tr-note').value   = tr.note || '';
+    refreshTransferInfo();
 
   } else if (type === 'task') {
     const task = state.tasks.find(t => t.id === id);
@@ -4161,138 +3900,158 @@ document.getElementById('modal-form')?.addEventListener('submit', async e => {
       }
       closeModal();
 
-    } else if (currentModalType === 'bucket') {
-      const name = document.getElementById('f-bkt-name').value.trim();
-      const target = document.getElementById('f-bkt-target').value;
-      const icon = document.getElementById('f-bkt-icon').value.trim() || null;
-      const status = document.getElementById('f-bkt-status').value || 'active';
-      if (!name) { toast('يرجى إدخال اسم الوعاء', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+    } else if (currentModalType === 'envelope') {
+      const name = document.getElementById('f-env-name').value.trim();
+      const icon = document.getElementById('f-env-icon').value.trim() || '📂';
+      const color = document.getElementById('f-env-color').value || '#3574F0';
+      if (!name) { toast('يرجى إدخال اسم الظرف', 'error'); btn.disabled = false; btn.textContent = orig; return; }
 
-      const payload = {
-        bucketName: name,
-        targetBudget: target === '' ? null : Number(target),
-        icon, status,
-      };
+      const payload = { name, icon, color };
       if (state.editTarget) {
-        await updateDoc(bucketDoc(state.editTarget.id), payload);
-        toast('تم تعديل الوعاء', 'success');
+        await updateDoc(envelopeDoc(state.editTarget.id), payload);
+        toast('تم تعديل الظرف', 'success');
       } else {
-        // v27.0 — Append new bucket at the end of the active grid.
-        const maxOrder = state.buckets.reduce((m, b) =>
-          (typeof b.orderIndex === 'number' && b.orderIndex > m) ? b.orderIndex : m, -1);
-        await addDoc(bucketsRef(), {
+        const maxOrder = state.envelopes.reduce((m, e) =>
+          (typeof e.sortOrder === 'number' && e.sortOrder > m) ? e.sortOrder : m, -1);
+        await addDoc(envelopesRef(), {
           ...payload,
-          orderIndex: maxOrder + 1,
+          sortOrder: maxOrder + 1,
           createdAt: serverTimestamp(),
         });
-        toast('تم إنشاء الوعاء', 'success', '🗂️');
+        toast('تم إنشاء الظرف', 'success', '📂');
       }
       closeModal();
 
-    } else if (currentModalType === 'transaction') {
-      const title    = document.getElementById('f-tx-title').value.trim();
-      const amount   = Number(document.getElementById('f-tx-amount').value);
-      const bucketId = document.getElementById('f-tx-bucket').value || null;
-      const projectId = document.getElementById('f-tx-project')?.value || null;
-      const dateStr  = document.getElementById('f-tx-date').value;
-      const notes    = document.getElementById('f-tx-notes')?.value.trim() || null;
-      if (!title)         { toast('يرجى إدخال البيان', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!(amount > 0))  { toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!bucketId)      { toast('اختر وعاء صرف نشط أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!dateStr)       { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+    } else if (currentModalType === 'source') {
+      const name  = document.getElementById('f-src-name').value.trim();
+      const icon  = document.getElementById('f-src-icon').value.trim() || '💼';
+      const color = document.getElementById('f-src-color').value || '#3574F0';
+      if (!name) { toast('يرجى إدخال اسم المصدر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      const payload = { name, icon, color };
+      if (state.editTarget) {
+        await updateDoc(sourceDoc(state.editTarget.id), payload);
+        toast('تم تعديل المصدر', 'success');
+      } else {
+        const maxOrder = state.sources.reduce((m, s) =>
+          (typeof s.sortOrder === 'number' && s.sortOrder > m) ? s.sortOrder : m, -1);
+        await addDoc(sourcesRef(), {
+          ...payload,
+          sortOrder: maxOrder + 1,
+          createdAt: serverTimestamp(),
+        });
+        toast('تمت إضافة المصدر', 'success', '💼');
+      }
+      closeModal();
+
+    } else if (currentModalType === 'sources_manage') {
+      // Manage modal "submit" just closes — list mutations happen inline.
+      closeModal();
+
+    } else if (currentModalType === 'income') {
+      const amount  = Number(document.getElementById('f-inc-amount').value);
+      const dateStr = document.getElementById('f-inc-date').value;
+      const source  = document.getElementById('f-inc-source').value;
+      const paymentType = document.getElementById('f-inc-paytype').value;
+      const notes   = document.getElementById('f-inc-notes')?.value.trim() || null;
+      if (!(amount > 0)) { toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!dateStr)      { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
       const date = fromLocalISODate(dateStr);
 
-      const payload = { title, amount, bucketId, projectId: projectId || null, date, notes };
+      const payload = { amount, source, paymentType, notes, date };
       if (state.editTarget) {
-        await updateDoc(transactionDoc(state.editTarget.id), payload);
-        toast('تم تعديل المعاملة', 'success');
+        // Editing keeps the allocation state untouched
+        await updateDoc(incomeDoc(state.editTarget.id), payload);
+        toast('تم تعديل الدخل', 'success');
+        closeModal();
       } else {
-        await addDoc(transactionsRef(), { ...payload, createdAt: serverTimestamp() });
-        toast('تم تسجيل المعاملة', 'success', '💸');
+        // New incomes are frozen (allocated:false) until the user distributes 100%
+        const ref = await addDoc(incomesRef(), {
+          ...payload,
+          allocated: false,
+          allocations: {},
+          createdAt: serverTimestamp(),
+        });
+        toast('تم تسجيل الدخل — وزِّعه على الأظرف', 'success', '💼');
+        closeModal();
+        // Immediately open the forced allocation modal for the new doc
+        openModal('allocate', ref.id);
       }
-      closeModal();
 
-    } else if (currentModalType === 'projectIncome') {
-      // v30.0 — Split project payment with multi-currency.
-      const projectId = document.getElementById('f-pi-project').value;
-      const title     = document.getElementById('f-pi-title').value.trim();
-      const currency  = document.getElementById('f-pi-currency').value || 'EGP';
-      const foreign   = Number(document.getElementById('f-pi-foreign').value);
-      const rateRaw   = document.getElementById('f-pi-rate').value;
-      const dateStr   = document.getElementById('f-pi-date').value;
-      const status    = document.getElementById('f-pi-status').value || 'Received';
-      const notes     = document.getElementById('f-pi-notes')?.value.trim() || null;
-      if (!projectId)    { toast('اختر المشروع أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!title)        { toast('اكتب بيان الدفعة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!(foreign > 0)){ toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      if (!dateStr)      { toast('اختر تاريخ الدفعة', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-      let exchangeRate = currency === 'EGP' ? 1 : Number(rateRaw);
-      if (currency !== 'EGP' && !(exchangeRate > 0)) {
-        toast('سعر الصرف يجب أن يكون أكبر من صفر للعملات الأجنبية', 'error');
+    } else if (currentModalType === 'allocate') {
+      // Allocation modal — collect per-envelope amounts, must sum to 100% of income
+      const incomeId = state.editTarget?.id;
+      const inc = state.incomes.find(i => i.id === incomeId);
+      if (!inc) { toast('الدخل غير موجود', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      const inputs = document.querySelectorAll('#alloc-envelopes-list .alloc-env-input');
+      const allocations = {};
+      let sum = 0;
+      inputs.forEach(inp => {
+        const v = Number(inp.value) || 0;
+        if (v > 0) { allocations[inp.dataset.envelopeId] = v; sum += v; }
+      });
+      const delta = Math.abs(sum - inc.amount);
+      if (delta > 0.005) {
+        toast('يجب توزيع 100% من المبلغ بالضبط', 'error');
         btn.disabled = false; btn.textContent = orig; return;
       }
-      const finalEgpAmount = foreign * exchangeRate;
+      await updateDoc(incomeDoc(incomeId), { allocated: true, allocations });
+      toast('تم التوزيع — الأموال متاحة الآن في الأظرف', 'success', '✅');
+      closeModal();
+
+    } else if (currentModalType === 'expense') {
+      const amount = Number(document.getElementById('f-exp-amount').value);
+      const dateStr = document.getElementById('f-exp-date').value;
+      const envelopeId = document.getElementById('f-exp-envelope').value || null;
+      const note = document.getElementById('f-exp-note').value.trim() || null;
+      if (!(amount > 0)) { toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!envelopeId)   { toast('اختر ظرف أولاً', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!dateStr)      { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+
+      // Behavioural enforcement: block if envelope can't cover the spend.
+      // On edit, exclude the current expense from the balance calculation.
+      const excludeId = state.editTarget ? state.editTarget.id : null;
+      const balance = computeEnvelopeBalance(envelopeId, excludeId);
+      if (amount > balance + 0.005) {
+        toast(`🚫 الرصيد في الظرف (${formatMoney(balance)}) أقل من المبلغ — اعمل تحويل من ظرف تاني الأول`, 'error');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
+
       const date = fromLocalISODate(dateStr);
-      const payload = {
-        projectId, title, currency, foreignAmount: foreign,
-        exchangeRate, finalEgpAmount, status, date, notes,
-      };
+      const payload = { amount, envelopeId, note, date };
       if (state.editTarget) {
-        await updateDoc(projectIncomeDoc(state.editTarget.id), payload);
-        toast('تم تعديل الدفعة', 'success');
+        await updateDoc(expenseDoc(state.editTarget.id), payload);
+        toast('تم تعديل المصروف', 'success');
       } else {
-        await addDoc(projectIncomesRef(), { ...payload, createdAt: serverTimestamp() });
-        toast('تم تسجيل الدفعة', 'success', '💵');
+        await addDoc(expensesRef(), { ...payload, createdAt: serverTimestamp() });
+        toast('تم تسجيل المصروف', 'success', '💸');
       }
       closeModal();
 
-    } else if (currentModalType === 'incomeSource') {
-      const incType = document.getElementById('f-inc-type').value;
-      const label   = document.getElementById('f-inc-label').value.trim();
-      if (!label) { toast('يرجى إدخال تسمية المصدر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-
-      let payload = { type: incType, label };
-      if (incType === 'salary') {
-        const monthly = Number(document.getElementById('f-inc-monthly').value);
-        if (!(monthly > 0)) { toast('الراتب الشهري يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-        payload.monthlyAmount = monthly;
-        // v29.0 — Salary timeline window
-        const startStr = document.getElementById('f-inc-start')?.value;
-        const endStr   = document.getElementById('f-inc-end')?.value;
-        if (!startStr) { toast('يرجى تحديد تاريخ بداية الدخل', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-        const startDate = fromLocalISODate(startStr);
-        const endDate   = endStr ? fromLocalISODate(endStr) : null;
-        if (endDate && endDate < startDate) {
-          toast('تاريخ النهاية يجب أن يكون بعد تاريخ البداية', 'error');
-          btn.disabled = false; btn.textContent = orig; return;
-        }
-        payload.startDate = startDate;
-        payload.endDate   = endDate;
-      } else {
-        const projectId   = document.getElementById('f-inc-project').value;
-        const pricingType = document.getElementById('f-inc-pricing-type')?.value || 'hourly';
-        if (!projectId)   { toast('يرجى اختيار مشروع', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-        payload.projectId  = projectId;
-        payload.pricingType = pricingType;
-        if (pricingType === 'hourly') {
-          const rate = Number(document.getElementById('f-inc-rate').value);
-          if (!(rate > 0)) { toast('سعر الساعة يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-          payload.hourlyRate = rate;
-          payload.fixedPrice = null;
-        } else {
-          const fixed = Number(document.getElementById('f-inc-fixed').value);
-          if (!(fixed > 0)) { toast('السعر الإجمالي يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
-          payload.fixedPrice = fixed;
-          payload.hourlyRate = null;
-        }
+    } else if (currentModalType === 'transfer') {
+      const amount  = Number(document.getElementById('f-tr-amount').value);
+      const dateStr = document.getElementById('f-tr-date').value;
+      const fromEnvelopeId = document.getElementById('f-tr-from').value || null;
+      const toEnvelopeId   = document.getElementById('f-tr-to').value   || null;
+      const note    = document.getElementById('f-tr-note').value.trim() || null;
+      if (!(amount > 0))       { toast('المبلغ يجب أن يكون أكبر من صفر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!fromEnvelopeId)     { toast('اختر الظرف المصدر', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!toEnvelopeId)       { toast('اختر الظرف الهدف', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (fromEnvelopeId === toEnvelopeId) { toast('الظرفين لازم يكونوا مختلفين', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      if (!dateStr)            { toast('يرجى تحديد التاريخ', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      const excludeId = state.editTarget ? state.editTarget.id : null;
+      const fromBalance = computeEnvelopeBalance(fromEnvelopeId, null, excludeId);
+      if (amount > fromBalance + 0.005) {
+        toast(`🚫 الرصيد في الظرف المصدر (${formatMoney(fromBalance)}) أقل من المبلغ`, 'error');
+        btn.disabled = false; btn.textContent = orig; return;
       }
-
+      const date = fromLocalISODate(dateStr);
+      const payload = { amount, fromEnvelopeId, toEnvelopeId, note, date };
       if (state.editTarget) {
-        await updateDoc(incomeSourceDoc(state.editTarget.id), payload);
-        toast('تم تعديل مصدر الدخل', 'success');
+        await updateDoc(transferDoc(state.editTarget.id), payload);
+        toast('تم تعديل التحويل', 'success');
       } else {
-        await addDoc(incomeSourcesRef(), { ...payload, createdAt: serverTimestamp() });
-        toast('تمت إضافة مصدر الدخل', 'success', '💼');
+        await addDoc(transfersRef(), { ...payload, createdAt: serverTimestamp() });
+        toast('تم التحويل', 'success', '↔');
       }
       closeModal();
     }
