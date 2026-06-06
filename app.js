@@ -496,6 +496,7 @@ const state = {
   financeUnsubSources:   null,
   financeTxTab:         'all',    // 'all' | 'income' | 'expense' | 'transfer'
   isPrivacyActive:      true,  // v22.2 — Always start hidden on every page load; toggle is session-only.
+  selectedTxIds:        new Set(),  // v22.5 — keys "kind:id" for bulk-delete in tx list
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -2094,6 +2095,8 @@ function renderTransactionsFeed() {
   cnt && (cnt.textContent = `${filtered.length} معاملة`);
 
   if (filtered.length === 0) {
+    state.selectedTxIds.clear();
+    renderTxBulkBar(0, 0);
     list.innerHTML = `
       <div class="finance-empty">
         <span class="finance-empty-icon">📋</span>
@@ -2103,19 +2106,78 @@ function renderTransactionsFeed() {
     return;
   }
 
+  // v22.5 — Prune selection of any ids no longer in the current filter
+  const visibleKeys = new Set(filtered.map(it => `${it.kind}:${it.id}`));
+  for (const key of [...state.selectedTxIds]) {
+    if (!visibleKeys.has(key)) state.selectedTxIds.delete(key);
+  }
+
   list.innerHTML = filtered.map(it => renderTxRow(it)).join('');
+  renderTxBulkBar(state.selectedTxIds.size, filtered.length);
+}
+
+// v22.5 — Selection bulk-action bar. Lives at the top of the tx section
+// head and only shows itself when at least one row is selected.
+function renderTxBulkBar(selectedCount, totalVisible) {
+  let bar = document.getElementById('fin-tx-bulk-bar');
+  const section = document.getElementById('fin-tx-section');
+  if (!section) return;
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'fin-tx-bulk-bar';
+    bar.className = 'finance-tx-bulk-bar';
+    bar.hidden = true;
+    // Insert just after the section head, before the tx list
+    const head = section.querySelector('.finance-section-head');
+    if (head && head.nextSibling) section.insertBefore(bar, head.nextSibling);
+    else section.appendChild(bar);
+  }
+
+  if (selectedCount === 0) {
+    bar.hidden = true;
+    bar.innerHTML = '';
+    // Also reset the select-all checkbox state if present
+    const selAll = document.getElementById('fin-tx-select-all');
+    if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+    return;
+  }
+
+  bar.hidden = false;
+  const allSelected = selectedCount >= totalVisible && totalVisible > 0;
+  bar.innerHTML = `
+    <span class="finance-tx-bulk-count">تم اختيار <strong>${selectedCount}</strong> من ${totalVisible}</span>
+    <button type="button" class="finance-tx-bulk-btn" data-act="bulk-clear">إلغاء</button>
+    <button type="button" class="finance-tx-bulk-btn is-danger" data-act="bulk-delete">🗑️ حذف المحدد</button>
+  `;
+
+  const selAll = document.getElementById('fin-tx-select-all');
+  if (selAll) {
+    selAll.checked = allSelected;
+    selAll.indeterminate = !allSelected && selectedCount > 0;
+  }
 }
 
 function renderTxRow(it) {
   const dateStr = it.date ? formatDateAr(it.date) : '—';
+  // v22.5 — Per-row select checkbox. Reflects state.selectedTxIds.
+  const key       = `${it.kind}:${it.id}`;
+  const selected  = state.selectedTxIds.has(key);
+  const selectCol = `
+    <label class="finance-tx-select" title="اختيار">
+      <input type="checkbox" class="finance-tx-check" data-key="${key}" ${selected ? 'checked' : ''} />
+      <span class="finance-tx-check-box" aria-hidden="true"></span>
+    </label>`;
+  const rowSelectedCls = selected ? 'is-selected' : '';
+
   if (it.kind === 'income') {
     const r = it.raw;
     const src = resolveSource(r.source);
     const pt  = PAYMENT_TYPE_LABELS[r.paymentType] || r.paymentType || '';
     const pending = !r.allocated;
     return `
-      <div class="finance-tx-row is-income ${pending ? 'is-pending' : ''}" data-kind="income" data-id="${r.id}"
+      <div class="finance-tx-row is-income ${pending ? 'is-pending' : ''} ${rowSelectedCls}" data-kind="income" data-id="${r.id}"
            style="--row-color:${src.color}; --row-dim:${colorDim(src.color)};">
+        ${selectCol}
         <div class="finance-tx-icon" style="background:${colorDim(src.color)}; color:${src.color};">${pending ? '⏳' : src.icon}</div>
         <div class="finance-tx-body">
           <div class="finance-tx-title">${escapeHtml(src.label)} • ${escapeHtml(pt)}${pending ? ' • <strong>غير موزَّع</strong>' : ''}</div>
@@ -2135,8 +2197,9 @@ function renderTxRow(it) {
     const color = env?.color || '#E05C5C';
     const envLabel = env ? `${env.icon || '📂'} ${env.name}` : 'ظرف محذوف';
     return `
-      <div class="finance-tx-row is-expense" data-kind="expense" data-id="${r.id}"
+      <div class="finance-tx-row is-expense ${rowSelectedCls}" data-kind="expense" data-id="${r.id}"
            style="--row-color:${color}; --row-dim:${colorDim(color)};">
+        ${selectCol}
         <div class="finance-tx-icon" style="background:${colorDim(color)}; color:${color};">💸</div>
         <div class="finance-tx-body">
           <div class="finance-tx-title">${escapeHtml(r.note || 'مصروف')}</div>
@@ -2157,8 +2220,9 @@ function renderTxRow(it) {
   const toLabel   = toE   ? `${toE.icon   || '📂'} ${toE.name}`   : 'ظرف محذوف';
   const trColor = '#9B59B6';
   return `
-    <div class="finance-tx-row is-transfer" data-kind="transfer" data-id="${r.id}"
+    <div class="finance-tx-row is-transfer ${rowSelectedCls}" data-kind="transfer" data-id="${r.id}"
          style="--row-color:${trColor}; --row-dim:${colorDim(trColor)};">
+      ${selectCol}
       <div class="finance-tx-icon" style="background:${colorDim(trColor)}; color:${trColor};">↔</div>
       <div class="finance-tx-body">
         <div class="finance-tx-title">${escapeHtml(fromLabel)} ← ${escapeHtml(toLabel)}</div>
@@ -2201,7 +2265,57 @@ function wireFinanceToolbar() {
     document.querySelectorAll('#fin-tx-tabs .finance-tx-tab').forEach(b => b.classList.remove('active'));
     tabBtn.classList.add('active');
     state.financeTxTab = tabBtn.dataset.tab || 'all';
+    // v22.5 — Tab switch resets selection (different visible rows)
+    state.selectedTxIds.clear();
     renderTransactionsFeed();
+  });
+
+  // v22.5 — Select-all checkbox in section head
+  document.getElementById('fin-tx-select-all')?.addEventListener('change', e => {
+    const visibleRows = document.querySelectorAll('#fin-tx-list .finance-tx-row[data-id]');
+    if (e.target.checked) {
+      visibleRows.forEach(row => {
+        state.selectedTxIds.add(`${row.dataset.kind}:${row.dataset.id}`);
+      });
+    } else {
+      state.selectedTxIds.clear();
+    }
+    renderTransactionsFeed();
+  });
+
+  // v22.5 — Bulk-bar buttons (cancel / delete-selected)
+  document.getElementById('fin-tx-section')?.addEventListener('click', async e => {
+    const btn = e.target.closest('.finance-tx-bulk-btn');
+    if (!btn) return;
+    if (btn.dataset.act === 'bulk-clear') {
+      state.selectedTxIds.clear();
+      renderTransactionsFeed();
+      return;
+    }
+    if (btn.dataset.act === 'bulk-delete') {
+      const count = state.selectedTxIds.size;
+      if (count === 0) return;
+      const ok = await confirmDialog({
+        title: 'حذف المعاملات المحددة',
+        message: `هل تريد حذف ${count} معاملة؟ (لا يمكن التراجع)`,
+        icon: '🗑️',
+      });
+      if (!ok) return;
+      const items = [...state.selectedTxIds];
+      let okCount = 0, failCount = 0;
+      for (const key of items) {
+        const [kind, id] = key.split(':');
+        try {
+          if      (kind === 'income')   await deleteDoc(incomeDoc(id));
+          else if (kind === 'expense')  await deleteDoc(expenseDoc(id));
+          else if (kind === 'transfer') await deleteDoc(transferDoc(id));
+          okCount++;
+        } catch (err) { console.error(err); failCount++; }
+      }
+      state.selectedTxIds.clear();
+      if (failCount === 0) toast(`تم حذف ${okCount} معاملة`, 'info', '🗑️');
+      else                 toast(`تم حذف ${okCount} وفشل ${failCount}`, failCount === items.length ? 'error' : 'info');
+    }
   });
 
   // Envelope-card actions (explicit edit / delete buttons; card body opens edit)
@@ -2234,6 +2348,20 @@ function wireFinanceToolbar() {
     }
     const card = e.target.closest('.envelope-card');
     if (card) openModal('envelope', card.dataset.id);
+  });
+
+  // v22.5 — Per-row select checkbox (delegated change event)
+  document.getElementById('fin-tx-list')?.addEventListener('change', e => {
+    const cb = e.target.closest('.finance-tx-check');
+    if (!cb) return;
+    const key = cb.dataset.key;
+    if (cb.checked) state.selectedTxIds.add(key);
+    else            state.selectedTxIds.delete(key);
+    // Toggle row highlight + update bulk bar without a full re-render
+    const row = cb.closest('.finance-tx-row');
+    if (row) row.classList.toggle('is-selected', cb.checked);
+    const totalVisible = document.querySelectorAll('#fin-tx-list .finance-tx-row[data-id]').length;
+    renderTxBulkBar(state.selectedTxIds.size, totalVisible);
   });
 
   // Tx-row actions

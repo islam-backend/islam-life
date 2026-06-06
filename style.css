@@ -4217,7 +4217,9 @@ body {
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
-  padding: 2px 1px;
+  /* v22.5 — inline padding >= ring width (2.5px) so the coloured ring on
+     the FIRST and LAST avatar in a row never gets clipped by overflow-x. */
+  padding: 4px 5px;
 }
 
 .cal-day-clients::-webkit-scrollbar {
@@ -5482,6 +5484,210 @@ body.privacy-on .privacy-sensitive:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════
+   v22.5 — Multi-select + bulk-delete in tx list
+   ═══════════════════════════════════════════════ */
+
+/* Per-row checkbox: native input is hidden, custom box is the visible UI */
+.finance-tx-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  position: relative;
+}
+
+.finance-tx-check {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.finance-tx-check-box {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-app);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  pointer-events: none;
+}
+
+.finance-tx-check-box::after {
+  content: '';
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.finance-tx-check:checked + .finance-tx-check-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.finance-tx-check:checked + .finance-tx-check-box::after {
+  opacity: 1;
+}
+
+.finance-tx-check:indeterminate + .finance-tx-check-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.finance-tx-check:indeterminate + .finance-tx-check-box::after {
+  width: 10px;
+  height: 0;
+  border-left: none;
+  border-bottom: 2px solid #fff;
+  transform: none;
+  opacity: 1;
+}
+
+/* Highlight on hover so it's obvious where the checkbox is */
+.finance-tx-row:hover .finance-tx-check-box {
+  border-color: var(--accent);
+}
+
+/* Selected row visual */
+.finance-tx-row.is-selected {
+  background: var(--accent-dim);
+}
+
+.finance-tx-row.is-selected::before {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* Select-all control in the section head */
+.finance-tx-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+  position: relative;
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.finance-tx-select-all:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.finance-tx-select-all > input[type="checkbox"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.finance-tx-select-all .finance-tx-check-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+/* Bulk action bar — appears above the tx list when ≥1 selected */
+.finance-tx-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(53, 116, 240, 0.35);
+  border-radius: var(--radius-lg);
+  margin-bottom: -4px;
+  animation: bulkBarIn 0.18s ease;
+}
+
+@keyframes bulkBarIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.finance-tx-bulk-bar[hidden] {
+  display: none;
+}
+
+.finance-tx-bulk-count {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.finance-tx-bulk-count strong {
+  color: var(--accent);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.finance-tx-bulk-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition);
+}
+
+.finance-tx-bulk-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.finance-tx-bulk-btn.is-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.finance-tx-bulk-btn.is-danger:hover {
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
+}
+
+/* On mobile let the bulk bar wrap nicely */
+@media (max-width: 560px) {
+  .finance-tx-bulk-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .finance-tx-bulk-count {
+    flex: 1 1 100%;
+  }
+  .finance-tx-bulk-btn {
+    flex: 1 1 0;
+    text-align: center;
+  }
+  .finance-tx-select-all-label {
+    display: none;
+  }
 }
 
 .finance-tx-row {
