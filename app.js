@@ -141,19 +141,82 @@ if (signoutBtn) {
 
 const sidebar = document.getElementById('sidebar');
 const toggleBtn = document.getElementById('sidebar-toggle-btn');
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+const MOBILE_BREAKPOINT = 768;
+const isMobileView = () => window.innerWidth <= MOBILE_BREAKPOINT;
+
+function openMobileSidebar() {
+  if (!sidebar) return;
+  sidebar.classList.add('mobile-open');
+  document.body.classList.add('sidebar-drawer-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.add('visible');
+}
+
+function closeMobileSidebar() {
+  if (!sidebar) return;
+  sidebar.classList.remove('mobile-open');
+  document.body.classList.remove('sidebar-drawer-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.remove('visible');
+}
 
 if (sidebar && toggleBtn) {
-  // Read saved preference from localStorage
+  // Read saved preference from localStorage (desktop collapse only)
   const isCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
   if (isCollapsed) {
     sidebar.classList.add('collapsed');
   }
 
   toggleBtn.addEventListener('click', () => {
+    // On mobile the toggle button just closes the drawer
+    if (isMobileView()) {
+      closeMobileSidebar();
+      return;
+    }
     const collapsed = sidebar.classList.toggle('collapsed');
     localStorage.setItem('sidebar-collapsed', collapsed);
   });
 }
+
+if (mobileMenuBtn) {
+  mobileMenuBtn.addEventListener('click', () => {
+    if (sidebar && sidebar.classList.contains('mobile-open')) {
+      closeMobileSidebar();
+    } else {
+      openMobileSidebar();
+    }
+  });
+}
+
+if (sidebarBackdrop) {
+  sidebarBackdrop.addEventListener('click', closeMobileSidebar);
+}
+
+// Close drawer when any nav item is tapped on mobile
+if (sidebar) {
+  sidebar.addEventListener('click', (e) => {
+    if (!isMobileView()) return;
+    const navItem = e.target.closest('.nav-item');
+    if (navItem && !navItem.classList.contains('disabled')) {
+      closeMobileSidebar();
+    }
+  });
+}
+
+// Auto-close drawer + clear desktop collapse state when crossing breakpoint
+window.addEventListener('resize', () => {
+  if (!isMobileView()) {
+    closeMobileSidebar();
+  }
+});
+
+// Close drawer with Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && sidebar && sidebar.classList.contains('mobile-open')) {
+    closeMobileSidebar();
+  }
+});
 
 // ── Sidebar Nav Item Click Handlers ──────────────────────────
 const navDashboard = document.getElementById('nav-dashboard');
@@ -432,7 +495,7 @@ const state = {
   financeUnsubTransfers: null,
   financeUnsubSources:   null,
   financeTxTab:         'all',    // 'all' | 'income' | 'expense' | 'transfer'
-  isPrivacyActive:      (localStorage.getItem('isPrivacyActive') ?? 'true') !== 'false',  // v27.0 — privacy-by-default
+  isPrivacyActive:      true,  // v22.2 — Always start hidden on every page load; toggle is session-only.
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -1267,11 +1330,21 @@ function renderCalendar() {
     }
 
     const avatars = clientsForDay.filter(Boolean).map(c => {
+      // v22.3 — Frame each avatar by the status of THIS client's tasks ON
+      // THIS DAY: green = all done, red = none done, orange = mixed.
+      const clientTasksToday = tasksToday.filter(t => t._clientId === c.id);
+      const doneCount = clientTasksToday.filter(t => t.status === 'done').length;
+      let statusCls = '';
+      if (clientTasksToday.length > 0) {
+        if      (doneCount === clientTasksToday.length) statusCls = 'cal-avatar-done';
+        else if (doneCount === 0)                       statusCls = 'cal-avatar-pending';
+        else                                            statusCls = 'cal-avatar-mixed';
+      }
       const inner = c.avatarUrl
         ? `<img src="${c.avatarUrl}" alt="${escapeHtml(c.name || '')}" />`
         : escapeHtml(getInitials(c.name || '—'));
       const bg = c.avatarUrl ? 'transparent' : escapeHtml(c.color || '#3574F0');
-      return `<span class="cal-client-avatar" style="background:${bg}" title="${escapeHtml(c.name || '')}">${inner}</span>`;
+      return `<span class="cal-client-avatar ${statusCls}" style="background:${bg}" title="${escapeHtml(c.name || '')}">${inner}</span>`;
     }).join('');
 
     return `
@@ -2110,10 +2183,9 @@ function wireFinanceToolbar() {
   if (_financeToolbarWired) return;
   _financeToolbarWired = true;
 
-  // Privacy eye (kept behaviour from v27.0)
+  // Privacy eye — toggle is session-only so default-hidden returns on every reload.
   document.getElementById('fin-privacy-toggle')?.addEventListener('click', () => {
     state.isPrivacyActive = !state.isPrivacyActive;
-    try { localStorage.setItem('isPrivacyActive', state.isPrivacyActive ? 'true' : 'false'); } catch {}
     applyPrivacyMode();
   });
 
@@ -2531,8 +2603,8 @@ function renderClients() {
     <div class="entity-card" data-id="${client.id}" role="button" tabindex="0" draggable="true">
       <div class="card-header-row">
         <div class="card-avatar" style="background:${client.avatarUrl ? 'transparent' : escapeHtml(client.color || '#3574F0')}; overflow:hidden;">
-          ${client.avatarUrl 
-            ? `<img src="${client.avatarUrl}" alt="${escapeHtml(client.name)}" style="width:100%; height:100%; object-fit:cover;" />` 
+          ${client.avatarUrl
+            ? `<img src="${client.avatarUrl}" alt="${escapeHtml(client.name)}" style="width:100%; height:100%; object-fit:cover;" />`
             : escapeHtml(getInitials(client.name))
           }
         </div>

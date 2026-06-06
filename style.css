@@ -4203,11 +4203,13 @@ body {
 }
 
 /* v19.5 — Calendar day cells now show CLIENT AVATARS only (no text chips).
-   Avatars wrap inside the cell; overflow scrolls thin and quiet. */
+   Avatars wrap inside the cell; overflow scrolls thin and quiet.
+   v22.4 — Gap widened so the coloured status rings on adjacent avatars
+   never overlap and the row reads as clearly separated circles. */
 .cal-day-clients {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 8px 9px;
   align-content: flex-start;
   flex: 1;
   min-height: 0;
@@ -4215,6 +4217,7 @@ body {
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  padding: 2px 1px;
 }
 
 .cal-day-clients::-webkit-scrollbar {
@@ -4245,10 +4248,18 @@ body {
   font-weight: 800;
   color: #fff;
   letter-spacing: 0.5px;
-  overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  /* v22.4 — Single soft drop shadow only. The inset white halo was clashing
+     with the coloured status ring and making the circle look fuzzy. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   transition: transform 0.12s ease;
+  /* Use content-box-ish layout: rings stack OUTSIDE via box-shadow so the
+     22x22 base size stays consistent. The img child still needs clipping. */
+  position: relative;
+}
+
+.cal-client-avatar img {
+  border-radius: 50%;
 }
 
 .cal-client-avatar img {
@@ -4260,6 +4271,42 @@ body {
 
 .cal-day:hover .cal-client-avatar {
   transform: scale(1.06);
+}
+
+/* ═══════════════════════════════════════════════
+   v22.4 — Task-status ring around the client avatar
+   IN THE CALENDAR. Tells me at a glance per day:
+   green = all that client's tasks today are done
+   red   = none of them are done
+   orange = some done & some not.
+
+   Colour choices tuned for clarity at 22px size:
+   - emerald #10B981 reads unambiguously "done"
+   - vivid red #EF4444 is clearly NOT orange
+   - amber #F59E0B is clearly NOT red
+   The 2.5px ring + soft glow makes them readable
+   without crowding the avatar's brand colour inside.
+   ═══════════════════════════════════════════════ */
+
+.cal-client-avatar.cal-avatar-done {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 2.5px #10B981,
+    0 0 8px rgba(16, 185, 129, 0.55);
+}
+
+.cal-client-avatar.cal-avatar-pending {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 2.5px #EF4444,
+    0 0 8px rgba(239, 68, 68, 0.60);
+}
+
+.cal-client-avatar.cal-avatar-mixed {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 2.5px #F59E0B,
+    0 0 8px rgba(245, 158, 11, 0.55);
 }
 
 /* ═══════════════════════════════════════════════
@@ -5169,8 +5216,12 @@ body.privacy-on .privacy-sensitive:hover {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 0;
   margin-top: 6px;
+  /* v22.1 — Sections must keep their natural content height. Without this
+     they get squeezed inside the column-flex parent and the tx list
+     collapses to 1.6px (rows render but get clipped by overflow:hidden). */
+  flex-shrink: 0;
+  min-height: auto;
 }
 
 .finance-section-head {
@@ -6023,5 +6074,608 @@ body.privacy-on .privacy-sensitive:hover {
 
   .finance-toolbar-actions {
     justify-content: flex-end;
+  }
+}
+
+/* ============================================================
+   MOBILE MENU BUTTON + SIDEBAR BACKDROP
+   v22.1 — Mobile-first responsive overhaul
+   ============================================================ */
+
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition);
+  padding: 0;
+}
+
+.mobile-menu-btn:hover,
+.mobile-menu-btn:active {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.mobile-menu-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+}
+
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 90;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-backdrop.visible {
+  display: block;
+  opacity: 1;
+}
+
+body.sidebar-drawer-open {
+  overflow: hidden;
+}
+
+/* ============================================================
+   TABLET (<= 1024px) — Tighten paddings, reflow stat grids
+   ============================================================ */
+
+@media (max-width: 1024px) {
+  #header {
+    padding: 14px 18px;
+  }
+
+  #board-area {
+    padding: 16px 16px;
+  }
+
+  .view-toolbar {
+    padding: 14px 16px 4px;
+  }
+
+  .cards-grid {
+    padding: 14px 16px 24px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+
+  #view-finance {
+    padding: 16px 16px 32px;
+  }
+
+  #view-dashboard {
+    padding: 18px 16px 28px;
+  }
+}
+
+/* ============================================================
+   MOBILE / NARROW VIEWPORT (<= 768px)
+   ============================================================ */
+
+@media (max-width: 768px) {
+  /* Reveal the hamburger */
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+
+  /* Sidebar becomes a slide-in drawer pinned to the right edge (RTL).
+     Anchored physically with right:0 so the drawer always lives at the
+     right edge regardless of writing direction; translateX hides it.
+     Width is capped so the drawer never overflows a small viewport. */
+  #sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: auto;
+    width: min(280px, 85vw);
+    min-width: 0;
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 100;
+    box-shadow: -8px 0 30px rgba(0, 0, 0, 0.4);
+    border-left: 1px solid var(--border);
+    border-right: none;
+    padding: 16px 12px;
+  }
+
+  /* Override the tablet auto-collapse (60px) — on mobile the drawer needs
+     full width when open, and is hidden via transform when closed. */
+  #sidebar,
+  #sidebar.collapsed {
+    width: min(280px, 85vw);
+    min-width: 0;
+  }
+
+  #sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  /* When inside the drawer, restore all labels even if .collapsed is set */
+  #sidebar.mobile-open .sidebar-logo span,
+  #sidebar.mobile-open .sidebar-logo small,
+  #sidebar.mobile-open .nav-item span,
+  #sidebar.mobile-open .nav-label,
+  #sidebar.mobile-open .nav-badge,
+  #sidebar.mobile-open .version-tag,
+  #sidebar.mobile-open #db-status-text,
+  #sidebar.mobile-open .signout-text,
+  #sidebar.mobile-open .logo-text {
+    display: revert !important;
+  }
+
+  #sidebar.mobile-open .nav-item {
+    justify-content: flex-start;
+    padding: 11px 12px;
+  }
+
+  #sidebar.mobile-open .sidebar-logo {
+    justify-content: flex-start;
+    padding: 8px 10px 18px;
+    flex-direction: row;
+  }
+
+  #sidebar.mobile-open .btn-signout {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    justify-content: center;
+  }
+
+  /* Hide the desktop collapse arrow on mobile — drawer handles it */
+  #sidebar .sidebar-toggle {
+    display: none;
+  }
+
+  /* Header — leave room for the hamburger */
+  #header {
+    padding: 12px 14px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .header-left {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .header-left h1 {
+    font-size: 16px;
+  }
+
+  .header-right-side {
+    gap: 10px;
+    margin-inline-start: auto;
+  }
+
+  /* Date eats too much space on mobile — drop it */
+  .header-right-side p {
+    display: none;
+  }
+
+  /* Make sure the title row doesn't overflow */
+  .header-title-row {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  #page-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Breadcrumb wraps tight */
+  .breadcrumb {
+    font-size: 11px;
+    gap: 4px;
+  }
+
+  /* ── Dashboard ── */
+  #view-dashboard {
+    padding: 16px 14px 28px;
+  }
+
+  /* ── Cards grid → single column on phones ── */
+  .cards-grid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .view-toolbar {
+    padding: 12px 12px 0;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* Search box collapses smaller on mobile */
+  .search-box.expanded,
+  .search-box:focus-within {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* ── Kanban → single column, free scroll ── */
+  #board-area {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  #kanban {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(260px, auto);
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .column {
+    min-height: 260px;
+    max-height: none;
+  }
+
+  .board-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* Hide the gauge label is fine — keep gauge as a thin progress bar */
+  .project-hours-gauge {
+    flex: 1 1 100%;
+    max-width: 100%;
+    margin-inline-start: 0;
+  }
+
+  /* Toolbar add button shrinks on mobile */
+  .toolbar-add-btn {
+    padding: 9px 14px;
+    font-size: 13px;
+  }
+
+  /* ── FINANCE PAGE — full mobile reflow ── */
+  #view-finance {
+    padding: 14px 12px 28px;
+    gap: 14px;
+  }
+
+  .finance-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .finance-toolbar-left {
+    justify-content: space-between;
+  }
+
+  .finance-toolbar-actions {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  /* Add buttons in finance: collapse label, keep the plus icon */
+  .finance-toolbar-actions .toolbar-add-btn {
+    padding: 9px 12px;
+    font-size: 12.5px;
+  }
+
+  .finance-toolbar-actions .toolbar-add-btn > span {
+    font-size: 12px;
+  }
+
+  /* Stats — single column on phone, 2 cols on small tablet */
+  .finance-stats-row,
+  .finance-stats-4 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .finance-stat-card {
+    padding: 12px 14px;
+  }
+
+  .finance-stat-value {
+    font-size: 18px;
+  }
+
+  /* Pending strip — stack content */
+  .finance-pending-strip {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 10px 12px;
+  }
+
+  .finance-pending-body {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .finance-pending-cta {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+
+  /* Envelopes — single column with full-width cards */
+  .finance-envelopes-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  /* Section head — tabs drop below title */
+  .finance-section-head {
+    gap: 8px;
+    row-gap: 6px;
+    padding: 0 2px;
+  }
+
+  .finance-tx-tabs {
+    margin-inline-start: 0;
+    flex: 1 1 100%;
+    justify-content: stretch;
+    overflow-x: auto;
+  }
+
+  .finance-tx-tab {
+    padding: 5px 10px;
+    font-size: 11.5px;
+    flex: 1 1 0;
+    text-align: center;
+  }
+
+  /* Tx rows — denser */
+  .finance-tx-row {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .finance-tx-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .finance-tx-title {
+    font-size: 13px;
+  }
+
+  .finance-tx-amount {
+    font-size: 13.5px;
+  }
+
+  /* Always show row actions on mobile (no hover state) */
+  .finance-tx-actions {
+    opacity: 1;
+  }
+
+  /* ── Focus view — shrink everything proportionally ── */
+  .focus-fluid {
+    padding: 20px 12px 36px;
+    gap: 22px;
+    min-height: auto;
+  }
+
+  .focus-dd {
+    min-width: 100%;
+    max-width: 100%;
+  }
+
+  .focus-pills {
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .focus-bigtimer-digits {
+    font-size: 78px;
+  }
+
+  .focus-controls {
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  /* ── Calendar — compact day cells ── */
+  .calendar-toolbar {
+    gap: 8px;
+  }
+
+  .cal-month-label {
+    min-width: 100px;
+    font-size: 13px;
+  }
+
+  .calendar-grid {
+    grid-auto-rows: 78px;
+    gap: 4px;
+  }
+
+  .cal-day {
+    height: 78px;
+    padding: 4px;
+    gap: 3px;
+  }
+
+  .cal-day-num {
+    font-size: 11px;
+  }
+
+  .calendar-weekdays {
+    font-size: 9.5px;
+    gap: 4px;
+  }
+
+  /* ── Modal — full-screen-ish, no awkward gutters ── */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    max-width: 100%;
+    width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    padding: 16px 18px 12px;
+    flex-shrink: 0;
+  }
+
+  .modal-body {
+    padding: 16px 18px;
+    overflow-y: auto;
+    flex: 1;
+    gap: 14px;
+  }
+
+  .modal-footer {
+    padding: 12px 18px;
+    flex-shrink: 0;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  /* Confirm dialog */
+  .confirm-box {
+    margin: 0 16px;
+    max-width: 100%;
+    padding: 20px 18px;
+  }
+
+  /* Toast container moves to bottom-center and avoids overlap with edges */
+  #toast-container {
+    bottom: 14px;
+    right: 14px;
+    left: 14px;
+  }
+
+  .toast {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* ============================================================
+   EXTRA SMALL PHONES (<= 480px) — squeeze a bit more
+   ============================================================ */
+
+@media (max-width: 480px) {
+  html, body {
+    font-size: 13.5px;
+  }
+
+  #header {
+    padding: 10px 12px;
+  }
+
+  .header-left h1 {
+    font-size: 15px;
+  }
+
+  /* Finance stats: 1 column on tiny screens */
+  .finance-stats-row,
+  .finance-stats-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-toolbar-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Each finance action button stretches to its share of the row */
+  .finance-toolbar-actions .toolbar-add-btn {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+  }
+
+  .finance-privacy-btn {
+    flex: 0 0 auto;
+  }
+
+  /* Calendar even tighter */
+  .calendar-grid {
+    grid-auto-rows: 62px;
+  }
+
+  .cal-day {
+    height: 62px;
+  }
+
+  /* Focus timer scales down */
+  .focus-bigtimer-digits {
+    font-size: 62px;
+  }
+}
+
+/* ============================================================
+   ZOOM / OVERFLOW SAFETY NETS
+   These apply at every viewport so zooming in never causes
+   flex children to spill horizontally.
+   ============================================================ */
+
+#main,
+#content,
+.view,
+.header-left,
+.header-title-row,
+.finance-toolbar,
+.finance-toolbar-left,
+.finance-toolbar-actions,
+.finance-section,
+.finance-section-head,
+.finance-tx-body,
+.finance-pending-body,
+.board-toolbar,
+.view-toolbar {
+  min-width: 0;
+}
+
+/* Make all images and SVGs respect their container width */
+img,
+svg {
+  max-width: 100%;
+}
+
+
+/* Better tap targets on touch */
+@media (hover: none) and (pointer: coarse) {
+  .nav-item,
+  .toolbar-add-btn,
+  .toolbar-back-btn,
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger,
+  .finance-tx-action,
+  .col-add-btn,
+  .focus-pill,
+  .finance-tx-tab {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Touch devices don't have hover — always show row actions */
+  .finance-tx-actions {
+    opacity: 1;
   }
 }
