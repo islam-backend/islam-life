@@ -47,6 +47,9 @@ service cloud.firestore {
     match /meta/{docId} {
       allow read, write: if isOwner();
     }
+    match /focusSessions/{sessionId} {
+      allow read, write: if isOwner();
+    }
 
     // ── collectionGroup queries (Dashboard + Focus tab) ──
     // The dashboard uses collectionGroup('projects') and collectionGroup('tasks')

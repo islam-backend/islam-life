@@ -9,3 +9,8 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Daily-report script — local secrets/deps must NEVER be committed
+scripts/node_modules/
+scripts/serviceAccount.json
+scripts/.env

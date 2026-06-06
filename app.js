@@ -375,6 +375,8 @@ const transfersRef = ()       => collection(db, 'transfers');
 const transferDoc  = (id)     => doc(db, 'transfers', id);
 const sourcesRef   = ()       => collection(db, 'sources');
 const sourceDoc    = (id)     => doc(db, 'sources', id);
+// v15 — Cloud-mirrored pomodoro log so the nightly report can read today's focus.
+const focusSessionsRef = ()   => collection(db, 'focusSessions');
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -1433,7 +1435,7 @@ function bindDayBlockEvents() {
       if (!cid || !pid || !tid) return;
       btn.disabled = true;
       try {
-        await updateDoc(taskDoc(cid, pid, tid), { status: 'done' });
+        await updateDoc(taskDoc(cid, pid, tid), { status: 'done', completedAt: serverTimestamp() });
         // Optimistic visual: drop opacity until the snapshot re-renders.
         btn.closest('.day-task-card')?.classList.add('status-done');
       } catch (err) {
@@ -3022,7 +3024,10 @@ function setupColumnDnD() {
         const batch = writeBatch(db);
         colTaskIds.forEach((tid, i) => {
           const update = { orderIndex: i };
-          if (tid === state.draggedId && isStatusChange) update.status = status;
+          if (tid === state.draggedId && isStatusChange) {
+            update.status = status;
+            if (status === 'done') update.completedAt = serverTimestamp();
+          }
           batch.update(taskDoc(state.client.id, state.project.id, tid), update);
         });
         await batch.commit();
@@ -4604,6 +4609,15 @@ function recordDailySession(projectId, minutes, hours) {
   });
   saveDailySessions(list);
   renderDailySessionsFeed();
+  // Mirror to Firestore so the nightly report can sum today's focus per project.
+  // Fire-and-forget — local UX must not wait on the network.
+  addDoc(focusSessionsRef(), {
+    projectId,
+    minutes,
+    hours,
+    day: _todayKey(),
+    at: serverTimestamp(),
+  }).catch(err => console.warn('focusSessions mirror failed', err));
 }
 
 function renderDailySessionsFeed() {
