@@ -2,8 +2,10 @@ name: Daily Report
 
 on:
   schedule:
-    # 22:00 Africa/Cairo (UTC+2) = 20:00 UTC, every day.
-    - cron: '0 20 * * *'
+    # 20:00 Africa/Cairo (UTC+2) = 18:00 UTC, every day.
+    # Earlier than 22:00 to absorb GitHub Actions' typical 30-90min cron delay
+    # so the report still lands the same evening, not after midnight.
+    - cron: '0 18 * * *'
   workflow_dispatch: {}  # allow manual trigger from the Actions tab for testing
 
 jobs:

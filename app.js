@@ -4430,33 +4430,10 @@ function addCardHTML(label, type) {
   </div>`;
 }
 
-// Refresh timestamps every minute — skip if a search/input is focused
-// or a modal is open, so we don't yank focus mid-typing.
-setInterval(() => {
-  const active = document.activeElement;
-  const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
-  const modalOpen = !document.getElementById('modal-overlay')?.classList.contains('hidden');
-  if (isTyping || modalOpen) return;
-
-  // Preserve scroll position of grids/board across re-renders
-  const scrollTargets = ['clients-grid', 'projects-grid', 'kanban'];
-  const scrolls = {};
-  scrollTargets.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) scrolls[id] = el.scrollTop;
-  });
-
-  if (state.view === 'clients')  renderClients();
-  if (state.view === 'projects') renderProjects();
-  if (state.view === 'tasks')    renderKanban();
-  if (state.view === 'dashboard') renderDashboard();
-
-  // Restore scroll
-  Object.entries(scrolls).forEach(([id, top]) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollTop = top;
-  });
-}, 60000);
+// (removed) Periodic full re-render every 60s used to refresh relative
+// timestamps, but caused a visible flicker. Firestore onSnapshot listeners
+// already keep data live; relative timestamps will simply recompute on the
+// next snapshot or user navigation.
 
 // ════════════════════════════════════════════════════════════════
 //  FOCUS TIMER MODULE (v7.0)
