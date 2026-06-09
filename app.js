@@ -278,7 +278,11 @@ if (btnBackProjects) {
 const btnBackTasks = document.getElementById('btn-back-tasks');
 if (btnBackTasks) {
   btnBackTasks.addEventListener('click', () => {
-    if (state.navigationSource === 'dashboard') {
+    if (state.navigationSource === 'day') {
+      navigateTo('day', { date: state.dayDate || new Date() });
+    } else if (state.navigationSource === 'daily') {
+      navigateTo('daily');
+    } else if (state.navigationSource === 'dashboard') {
       navigateTo('dashboard');
     } else if (state.navigationSource === 'projects-all') {
       navigateTo('projects');
@@ -479,6 +483,7 @@ const state = {
   focusBreakMinutes:    5,
   focusProjectId:       null,
   focusTaskId:          null,
+  pendingHighlightTaskId: null,   // v23.0 — scroll-to-task after kanban opens
   // Calendar state (v9.2)
   calendarCursor:       null,     // Date pointing at the displayed month
   dayDate:              null,     // Date selected for day-details view
@@ -732,7 +737,11 @@ function navigateTo(view, payload = {}) {
       state.navigationSource = 'projects-all';
     }
   } else if (view === 'tasks') {
-    if (payload.fromDashboard) {
+    if (payload.fromDay) {
+      state.navigationSource = 'day';
+    } else if (payload.fromDaily) {
+      state.navigationSource = 'daily';
+    } else if (payload.fromDashboard) {
       state.navigationSource = 'dashboard';
     } else if (payload.fromProjectsAll) {
       state.navigationSource = 'projects-all';
@@ -742,7 +751,7 @@ function navigateTo(view, payload = {}) {
   }
 
   // Update sidebar nav active states
-  const showDashActive    = (view === 'dashboard') || (view === 'tasks' && state.navigationSource === 'dashboard');
+  const showDashActive    = (view === 'dashboard') || (view === 'daily') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
   const showFocusActive   = (view === 'focus');
   const showFinanceActive = (view === 'finance');
@@ -815,6 +824,12 @@ function navigateTo(view, payload = {}) {
     state.project = null;
     document.getElementById('view-finance').classList.add('active');
     subscribeFinance();
+
+  } else if (view === 'daily') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-daily').classList.add('active');
+    renderDailySummary();
   }
 
   updateHeader();
@@ -980,8 +995,255 @@ function renderDashboard() {
   // per-project linear gauge inside the kanban toolbar.
   // ── Active session widget mirror ──
   syncDashActiveSession();
-  return;
+
+  // ── Daily portal subtitle: quick preview ──
+  const sub = document.getElementById('dash-daily-subtitle');
+  if (sub) {
+    const today      = new Date();
+    const todayTasks = tasksOnDate(today);
+    const pending    = todayTasks.filter(t => t.status !== 'done').length;
+    const done       = todayTasks.filter(t => t.status === 'done').length;
+    const overdue    = todayTasks.filter(t => {
+      if (t.status === 'done') return false;
+      const ed = parseDateField(t.endDate);
+      return ed && startOfDay(ed).getTime() < startOfDay(today).getTime();
+    }).length;
+
+    if (todayTasks.length === 0) {
+      sub.textContent = 'مفيش تاسكات النهارده';
+    } else {
+      const parts = [];
+      if (pending)  parts.push(`${pending} متبقية`);
+      if (done)     parts.push(`${done} خلصت`);
+      if (overdue)  parts.push(`${overdue} متأخرة ⚠️`);
+      sub.textContent = parts.join(' • ');
+    }
+  }
 }
+// ════════════════════════════════════════════════════════════════
+//  RENDER — DAILY SUMMARY WIDGET (v23.0)
+// ════════════════════════════════════════════════════════════════
+
+function renderDailySummary() {
+  if (state.view !== 'daily') return;
+
+  const today    = new Date();
+  const todayStr = toLocalISODate(today);
+
+  // ── Date header ──
+  const dateEl = document.getElementById('daily-page-date');
+  if (dateEl) {
+    dateEl.textContent = today.toLocaleDateString('ar-EG', {
+      weekday: 'long', day: 'numeric', month: 'long'
+    });
+  }
+
+  const todayTasks = tasksOnDate(today);
+
+  // ── helpers ──
+  function getProject(t) { return state.allProjects.find(p => p.id === t._projectId); }
+  function getClient(t)  { return state.clients.find(c => c.id === t._clientId); }
+
+  function isOverdue(t) {
+    if (t.status === 'done') return false;
+    const ed = parseDateField(t.endDate);
+    if (!ed) return false;
+    return startOfDay(ed).getTime() < startOfDay(today).getTime();
+  }
+
+  function daysUntilDeadline(t) {
+    const ed = parseDateField(t.endDate);
+    if (!ed) return null;
+    const diff = startOfDay(ed).getTime() - startOfDay(today).getTime();
+    return Math.round(diff / (1000 * 60 * 60 * 24));
+  }
+
+  const priorityLabel = { high: 'عالي', medium: 'متوسط', low: 'منخفض' };
+  const priorityClass = { high: 'prio-high', medium: 'prio-medium', low: 'prio-low' };
+
+  // ── Focus Strip ──
+  const focusEl = document.getElementById('daily-focus-card');
+  if (focusEl) {
+    const doingTask  = todayTasks.find(t => t.status === 'doing');
+    const todoTasks  = todayTasks
+      .filter(t => t.status === 'todo')
+      .sort((a, b) => {
+        const aOver = isOverdue(a) ? 0 : 1;
+        const bOver = isOverdue(b) ? 0 : 1;
+        if (aOver !== bOver) return aOver - bOver;
+        const pRank  = { high: 0, medium: 1, low: 2 };
+        const ap = pRank[a.priority] ?? 3;
+        const bp = pRank[b.priority] ?? 3;
+        if (ap !== bp) return ap - bp;
+        const ad = parseDateField(a.endDate);
+        const bd = parseDateField(b.endDate);
+        if (ad && bd) return ad - bd;
+        return ad ? -1 : bd ? 1 : 0;
+      });
+
+    const focusTask = doingTask || todoTasks[0] || null;
+
+    if (!focusTask) {
+      focusEl.innerHTML = `<span class="focus-strip-label">🎯</span><span class="focus-strip-empty">يوم منجز ✅</span>`;
+    } else {
+      const proj   = getProject(focusTask);
+      const client = getClient(focusTask);
+      const days   = daysUntilDeadline(focusTask);
+      const deadlineHtml = days !== null && days <= 3
+        ? `<span class="focus-deadline ${days < 0 ? 'overdue' : days === 0 ? 'due-today' : 'due-soon'}">${days < 0 ? `${Math.abs(days)}ي متأخر` : days === 0 ? 'اليوم' : `${days}ي`}</span>`
+        : '';
+
+      focusEl.innerHTML = `
+        <span class="focus-strip-label">🎯 ركز على</span>
+        <span class="focus-status-dot status-${focusTask.status}"></span>
+        <span class="focus-strip-title">${focusTask.title}</span>
+        ${focusTask.priority ? `<span class="focus-prio ${priorityClass[focusTask.priority]}">${priorityLabel[focusTask.priority]}</span>` : ''}
+        ${proj   ? `<span class="focus-strip-meta">📁 ${proj.name}</span>`   : ''}
+        ${client ? `<span class="focus-strip-meta">👤 ${client.name}</span>` : ''}
+        ${deadlineHtml}
+        <button class="focus-done-btn"
+          data-client="${focusTask._clientId}"
+          data-project="${focusTask._projectId}"
+          data-id="${focusTask.id}">✅ خلّصت</button>
+      `;
+
+      focusEl.querySelector('.focus-done-btn')?.addEventListener('click', async function () {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          await updateDoc(taskDoc(btn.dataset.client, btn.dataset.project, btn.dataset.id), {
+            status: 'done', completedAt: serverTimestamp(),
+          });
+          toast('تاسك اتخلصت ✅', 'success');
+        } catch (err) {
+          toast('فشل التحديث', 'error');
+          btn.disabled = false;
+          btn.textContent = '✅ خلّصت';
+        }
+      });
+    }
+  }
+
+  // ── Section 2: Today's Tasks — grouped by project ──
+  const listEl = document.getElementById('daily-today-list');
+  if (listEl) {
+    if (todayTasks.length === 0) {
+      listEl.innerHTML = `<div class="daily-empty">لا توجد مهام مجدولة النهارده</div>`;
+    } else {
+      // Build project groups map
+      const groupMap = new Map();
+      todayTasks.forEach(t => {
+        const pid = t._projectId || '__none__';
+        if (!groupMap.has(pid)) groupMap.set(pid, []);
+        groupMap.get(pid).push(t);
+      });
+
+      // Sort tasks within each group: overdue → doing → todo → done
+      const statusRank = { doing: 0, todo: 1, done: 2 };
+      groupMap.forEach(tasks => {
+        tasks.sort((a, b) => {
+          const aOver = isOverdue(a) ? -1 : statusRank[a.status] ?? 2;
+          const bOver = isOverdue(b) ? -1 : statusRank[b.status] ?? 2;
+          return aOver - bOver;
+        });
+      });
+
+      // Sort groups: groups with overdue/doing first, then by pending count
+      const sortedGroups = [...groupMap.entries()].sort(([, aTasks], [, bTasks]) => {
+        const aUrgent = aTasks.filter(t => isOverdue(t) || t.status === 'doing').length;
+        const bUrgent = bTasks.filter(t => isOverdue(t) || t.status === 'doing').length;
+        if (aUrgent !== bUrgent) return bUrgent - aUrgent;
+        const aPending = aTasks.filter(t => t.status !== 'done').length;
+        const bPending = bTasks.filter(t => t.status !== 'done').length;
+        return bPending - aPending;
+      });
+
+      listEl.innerHTML = sortedGroups.map(([pid, tasks]) => {
+        const proj   = state.allProjects.find(p => p.id === pid);
+        const client = proj ? state.clients.find(c => c.id === proj._clientId) : null;
+        const pending = tasks.filter(t => t.status !== 'done').length;
+        const hasOverdue = tasks.some(t => isOverdue(t));
+
+        const projLabel = proj
+          ? `<span class="proj-grp-name">${proj.name}</span>${client ? `<span class="proj-grp-client">· ${client.name}</span>` : ''}`
+          : `<span class="proj-grp-name">بدون مشروع</span>`;
+
+        const countTag = `<span class="proj-grp-count ${hasOverdue ? 'has-overdue' : ''}">${pending} متبقي</span>`;
+
+        const taskRows = tasks.map(t => {
+          const days = daysUntilDeadline(t);
+          const dotCls = isOverdue(t) ? 'overdue' : t.status;
+          const deadlineTag = (days !== null && days <= 3 && t.status !== 'done')
+            ? `<span class="task-row-deadline ${days < 0 ? 'overdue' : days === 0 ? 'due-today' : 'due-soon'}">${days < 0 ? `${Math.abs(days)}ي متأخر` : days === 0 ? 'اليوم' : `${days}ي`}</span>`
+            : '';
+          return `
+            <div class="today-task-row ${t.status === 'done' ? 'is-done' : ''}"
+                 data-task-id="${t.id}"
+                 data-client-id="${t._clientId || ''}"
+                 data-project-id="${t._projectId || ''}">
+              <span class="row-status-dot status-${dotCls}"></span>
+              <span class="row-title">${t.title}</span>
+              ${t.priority ? `<span class="row-prio ${priorityClass[t.priority]}">${priorityLabel[t.priority]}</span>` : ''}
+              ${deadlineTag}
+            </div>`;
+        }).join('');
+
+        const clientId = proj ? (proj._clientId || '') : '';
+        return `
+          <div class="day-block" draggable="true"
+               data-client="${clientId}" data-project="${pid}">
+            <div class="proj-grp-header day-block-header" title="اسحب لإعادة الترتيب">
+              <div class="proj-grp-info">${projLabel}</div>
+              ${countTag}
+            </div>
+            <div class="proj-grp-tasks">${taskRows}</div>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Section 3: Today's Win ──
+  const winEl = document.getElementById('daily-win-bar');
+  if (winEl) {
+    const doneCount = todayTasks.filter(t => t.status === 'done').length;
+    const sessions  = loadDailySessions();
+    const totalMins = sessions.reduce((s, x) => s + (x.minutes || 0), 0);
+    const hoursText = totalMins > 0 ? formatMinutes(totalMins) : '—';
+
+    winEl.innerHTML = `
+      <div class="win-stat">
+        <span class="win-num">${doneCount}</span>
+        <span class="win-label">تاسك خلصت</span>
+      </div>
+      <div class="win-divider"></div>
+      <div class="win-stat">
+        <span class="win-num">${hoursText}</span>
+        <span class="win-label">وقت شغل فعلي</span>
+      </div>
+    `;
+  }
+
+  // ── Wire task row clicks → navigate to kanban & highlight ──
+  listEl?.querySelectorAll('.today-task-row').forEach(row => {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => {
+      const tid = row.dataset.taskId;
+      const cid = row.dataset.clientId;
+      const pid = row.dataset.projectId;
+      if (!tid || !cid || !pid) return;
+      const client  = state.clients.find(c => c.id === cid);
+      const project = state.allProjects.find(p => p.id === pid);
+      if (!client || !project) return;
+      state.pendingHighlightTaskId = tid;
+      navigateTo('tasks', { client, project, fromDaily: true });
+    });
+  });
+
+  // ── Wire block drag & drop ──
+  wireDayBlocksDnD('daily-today-list', () => renderDailySummary());
+}
+
 function _legacyRenderDashboard_unused() {
   if (state.view !== 'dashboard') return;
   const totalClients   = state.clients.length;
@@ -1547,146 +1809,40 @@ function bindDayBlockEvents() {
     card.addEventListener('dblclick', () => {
       const client  = state.clients.find(c => c.id === card.dataset.client);
       const project = state.allProjects.find(p => p.id === card.dataset.project);
-      if (client && project) navigateTo('tasks', { client, project, fromDashboard: true });
+      if (client && project) navigateTo('tasks', { client, project, fromDay: true });
     });
   });
 
-  // ── Block-level DnD: both task strict-same-project + block reorder (v14.0) ──
-  // v22.0 — A global cleanup helper so stuck state (e.g. snapshot mid-drag
-  // wiping the source DOM node before its dragend fires) can never poison
-  // the next drag.
-  const clearBlockDragState = () => {
-    state.dayDraggedBlockClient  = null;
-    state.dayDraggedBlockProject = null;
-    state.dayDragKind            = null;
-    document.getElementById('day-blocks')?.classList.remove('is-dragging');
-    document.querySelectorAll('#day-blocks .day-block').forEach(b =>
-      b.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target', 'dragging'));
-  };
-
-  // v22.0 — Container-level dragover so a drop anywhere inside #day-blocks
-  // counts (not just on a block). Stops the OS "no-drop" cursor when the
-  // pointer skims gap space between cards mid-reorder.
-  const blocksContainer = document.getElementById('day-blocks');
-  if (blocksContainer && !blocksContainer._dnDWired) {
-    blocksContainer._dnDWired = true;
-    blocksContainer.addEventListener('dragover', e => {
-      if (state.dayDragKind === 'block') {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      }
-    });
-    blocksContainer.addEventListener('drop', e => {
-      // If the drop didn't land on a child block, clean up so we don't stay stuck
-      if (state.dayDragKind === 'block') {
-        e.preventDefault();
-        clearBlockDragState();
-      }
-    });
-  }
-
-  document.querySelectorAll('#day-blocks .day-block').forEach(block => {
-    const targetClient  = block.dataset.client;
-    const targetProject = block.dataset.project;
-
-    // The block itself is draggable → start block-reorder
-    block.addEventListener('dragstart', e => {
-      // If a task card inside started the drag, skip (it set dayDragKind='task' already)
-      if (state.dayDragKind === 'task') return;
-      state.dayDragKind             = 'block';
-      state.dayDraggedBlockClient   = targetClient;
-      state.dayDraggedBlockProject  = targetProject;
-      block.classList.add('dragging');
-      // v21.0 — Mark the container so sibling-lock CSS kicks in
-      document.getElementById('day-blocks')?.classList.add('is-dragging');
-      e.dataTransfer.effectAllowed  = 'move';
-      try { e.dataTransfer.setData('text/plain', `block:${targetProject}`); } catch (_) {}
-    });
-
-    block.addEventListener('dragend', () => {
-      clearBlockDragState();
-    });
-
-    block.addEventListener('dragover', e => {
-      if (state.dayDragKind === 'block') {
-        // Block reorder — accept any other block
-        if (state.dayDraggedBlockProject === targetProject) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        block.classList.add('block-drag-target');
-      } else if (state.dayDragKind === 'task') {
-        // Task drag — strict same project
-        const sameProject = state.dayDraggedClientId === targetClient
-                         && state.dayDraggedProjectId === targetProject;
-        if (sameProject) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          block.classList.add('drag-over');
-          block.classList.remove('drop-forbidden');
-        } else {
-          e.dataTransfer.dropEffect = 'none';
-          block.classList.add('drop-forbidden');
-          block.classList.remove('drag-over');
-        }
-      }
-    });
-
-    block.addEventListener('dragleave', e => {
-      if (!block.contains(e.relatedTarget)) {
-        block.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target');
-      }
-    });
-
-    block.addEventListener('drop', async e => {
-      block.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target');
-
-      if (state.dayDragKind === 'block') {
-        const fromProject = state.dayDraggedBlockProject;
-        e.preventDefault();
-        // Snapshot the source id BEFORE we clear, because clearBlockDragState
-        // (or the snapshot-driven re-render that follows) will wipe state.
-        clearBlockDragState();
-        if (!fromProject || fromProject === targetProject) return;
-        await reorderDayProjectBlocks(fromProject, targetProject);
-        return;
-      }
-
-      // Task drop — strict same-project
-      const sameProject = state.dayDraggedClientId === targetClient
-                       && state.dayDraggedProjectId === targetProject;
-      if (!sameProject) return;   // silent cancel — strict v13.0 rule
-      e.preventDefault();
-    });
-  });
+  // ── Block-level DnD (v23.0 — shared via wireDayBlocksDnD) ──
+  wireDayBlocksDnD('day-blocks', renderDayView);
 }
 
 async function reorderDayProjectBlocks(fromProjectId, toProjectId) {
-  // Get the current displayed order of projects in #day-blocks
-  const blockEls  = [...document.querySelectorAll('#day-blocks .day-block')];
-  const orderIds  = blockEls.map(b => b.dataset.project);
+  await reorderProjectBlocksInContainer('day-blocks', fromProjectId, toProjectId, renderDayView);
+}
+
+async function reorderProjectBlocksInContainer(containerId, fromProjectId, toProjectId, rerenderFn) {
+  const blockEls = [...document.querySelectorAll(`#${containerId} .day-block`)];
+  const orderIds = blockEls.map(b => b.dataset.project);
 
   const fromIdx = orderIds.indexOf(fromProjectId);
   const toIdx   = orderIds.indexOf(toProjectId);
   if (fromIdx === -1 || toIdx === -1) return;
 
-  // Splice the dragged id to the target position
   orderIds.splice(fromIdx, 1);
   orderIds.splice(toIdx, 0, fromProjectId);
 
-  // Persist new order to each project's doc
   const batch = writeBatch(db);
   orderIds.forEach((pid, idx) => {
     const proj = state.allProjects.find(p => p.id === pid);
     if (!proj) return;
     const cid = proj._clientId || proj._ref?.parent?.parent?.id;
     if (!cid) return;
-    // Optimistic in-memory update so renderDayView() shows the new order immediately
     proj.order = idx;
     batch.update(projectDoc(cid, pid), { order: idx });
   });
 
-  // Re-render right away (optimistic)
-  renderDayView();
+  rerenderFn();
 
   try {
     await batch.commit();
@@ -1694,6 +1850,76 @@ async function reorderDayProjectBlocks(fromProjectId, toProjectId) {
     console.error('Failed to save project block order:', err);
     toast('فشل حفظ الترتيب الجديد', 'error');
   }
+}
+
+// ── Shared block DnD wiring — works for any day-blocks container ──
+function wireDayBlocksDnD(containerId, rerenderFn) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const clearState = () => {
+    state.dayDraggedBlockClient  = null;
+    state.dayDraggedBlockProject = null;
+    state.dayDragKind            = null;
+    container.classList.remove('is-dragging');
+    container.querySelectorAll('.day-block').forEach(b =>
+      b.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target', 'dragging'));
+  };
+
+  if (!container._dndWired) {
+    container._dndWired = true;
+    container.addEventListener('dragover', e => {
+      if (state.dayDragKind === 'block') { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+    });
+    container.addEventListener('drop', e => {
+      if (state.dayDragKind === 'block') { e.preventDefault(); clearState(); }
+    });
+  }
+
+  container.querySelectorAll('.day-block').forEach(block => {
+    if (block._blockDndWired) return;
+    block._blockDndWired = true;
+
+    const targetProject = block.dataset.project;
+    const targetClient  = block.dataset.client;
+
+    block.addEventListener('dragstart', e => {
+      if (state.dayDragKind === 'task') return;
+      state.dayDragKind            = 'block';
+      state.dayDraggedBlockClient  = targetClient;
+      state.dayDraggedBlockProject = targetProject;
+      block.classList.add('dragging');
+      container.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', `block:${targetProject}`); } catch (_) {}
+    });
+
+    block.addEventListener('dragend', () => clearState());
+
+    block.addEventListener('dragover', e => {
+      if (state.dayDragKind === 'block') {
+        if (state.dayDraggedBlockProject === targetProject) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        block.classList.add('block-drag-target');
+      }
+    });
+
+    block.addEventListener('dragleave', e => {
+      if (!block.contains(e.relatedTarget))
+        block.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target');
+    });
+
+    block.addEventListener('drop', async e => {
+      block.classList.remove('drag-over', 'drop-forbidden', 'block-drag-target');
+      if (state.dayDragKind !== 'block') return;
+      const fromProject = state.dayDraggedBlockProject;
+      e.preventDefault();
+      clearState();
+      if (!fromProject || fromProject === targetProject) return;
+      await reorderProjectBlocksInContainer(containerId, fromProject, targetProject, rerenderFn);
+    });
+  });
 }
 
 // ── Wire calendar controls (idempotent) ──
@@ -1704,6 +1930,16 @@ async function reorderDayProjectBlocks(fromProjectId, toProjectId) {
     portal.addEventListener('click', go);
     portal.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
   }
+
+  const portalDaily = document.getElementById('dash-portal-daily');
+  if (portalDaily) {
+    const go = () => navigateTo('daily');
+    portalDaily.addEventListener('click', go);
+    portalDaily.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  }
+
+  const backDaily = document.getElementById('btn-back-daily');
+  if (backDaily) backDaily.addEventListener('click', () => navigateTo('dashboard'));
 
   const prev = document.getElementById('cal-prev-month');
   const next = document.getElementById('cal-next-month');
@@ -3104,6 +3340,19 @@ function renderKanban() {
 
     bindTaskCardEvents(el);
   });
+
+  // v23.0 — Scroll to and highlight a task coming from the daily summary
+  if (state.pendingHighlightTaskId) {
+    const tid = state.pendingHighlightTaskId;
+    state.pendingHighlightTaskId = null;
+    requestAnimationFrame(() => {
+      const card = document.getElementById(`tc-${tid}`);
+      if (!card) return;
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('task-highlight');
+      setTimeout(() => card.classList.remove('task-highlight'), 2200);
+    });
+  }
 }
 
 function taskCardHTML(task) {
@@ -3362,7 +3611,15 @@ function updateBreadcrumb() {
 
   if (state.view === 'tasks') {
     html += `<span class="breadcrumb-sep">›</span>`;
-    if (state.navigationSource === 'dashboard') {
+    if (state.navigationSource === 'day') {
+      html += `<span class="breadcrumb-link" data-to="day">التقويم اليومي</span>
+               <span class="breadcrumb-sep">›</span>
+               <span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
+    } else if (state.navigationSource === 'daily') {
+      html += `<span class="breadcrumb-link" data-to="daily">ملخص النهارده</span>
+               <span class="breadcrumb-sep">›</span>
+               <span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
+    } else if (state.navigationSource === 'dashboard') {
       html += `<span class="breadcrumb-current">${escapeHtml(state.project?.name)}</span>`;
     } else if (state.navigationSource === 'projects-all') {
       html += `<span class="breadcrumb-link" data-to="projects">المشاريع</span>
@@ -3384,6 +3641,10 @@ function updateBreadcrumb() {
       const to = el.dataset.to;
       if (to === 'dashboard') {
         navigateTo('dashboard');
+      } else if (to === 'daily') {
+        navigateTo('daily');
+      } else if (to === 'day') {
+        navigateTo('day', { date: state.dayDate || new Date() });
       } else if (to === 'clients') {
         navigateTo('clients');
       } else if (to === 'projects') {

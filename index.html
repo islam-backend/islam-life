@@ -208,6 +208,36 @@
             </svg>
           </div>
 
+          <!-- D. Daily Summary Portal -->
+          <div class="dash-portal-card" id="dash-portal-daily" role="button" tabindex="0">
+            <div class="portal-icon">🎯</div>
+            <div class="portal-body">
+              <span class="portal-title">ملخص النهارده</span>
+              <span class="portal-sub" id="dash-daily-subtitle">شوف أهم تاسكاتك وإنتاجيتك اليومية</span>
+            </div>
+            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </div>
+
+        </div>
+
+        <!-- ── VIEW: DAILY SUMMARY ── -->
+        <div class="view" id="view-daily">
+          <div class="daily-toolbar">
+            <button class="toolbar-back-btn" id="btn-back-daily" aria-label="رجوع" title="رجوع">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+            </button>
+            <span class="daily-page-title" id="daily-page-date"></span>
+            <div id="daily-win-bar" class="daily-win-bar"></div>
+          </div>
+          <div id="daily-focus-card" class="daily-focus-strip"></div>
+          <div id="daily-today-list" class="day-blocks daily-blocks"></div>
         </div>
 
         <!-- ── VIEW: CALENDAR MONTH ── -->
