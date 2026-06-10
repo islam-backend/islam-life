@@ -829,7 +829,8 @@ function navigateTo(view, payload = {}) {
     state.client  = null;
     state.project = null;
     document.getElementById('view-daily').classList.add('active');
-    renderDailySummary();
+    subscribeCalendar();   // ← real-time listeners (same data as calendar/day)
+    renderDailySummary();  // ← immediate render with current state
   }
 
   updateHeader();
@@ -1186,6 +1187,13 @@ function renderDailySummary() {
               <span class="row-title">${t.title}</span>
               ${t.priority ? `<span class="row-prio ${priorityClass[t.priority]}">${priorityLabel[t.priority]}</span>` : ''}
               ${deadlineTag}
+              ${t.status !== 'done' ? `<button class="row-done-btn"
+                data-client="${t._clientId || ''}"
+                data-project="${t._projectId || ''}"
+                data-id="${t.id}"
+                title="خلّص التاسك">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>` : ''}
             </div>`;
         }).join('');
 
@@ -1223,6 +1231,34 @@ function renderDailySummary() {
       </div>
     `;
   }
+
+  // ── Wire row done buttons (✓) — mark task done without leaving the page ──
+  listEl?.querySelectorAll('.row-done-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation(); // prevent row click → navigate
+      if (btn.disabled) return;
+      btn.disabled = true;
+      // Optimistic UI: mark row visually done immediately
+      const row = btn.closest('.today-task-row');
+      if (row) {
+        row.classList.add('is-done');
+        const dot = row.querySelector('.row-status-dot');
+        if (dot) dot.className = 'row-status-dot status-done';
+        btn.style.opacity = '0';
+        setTimeout(() => btn.remove(), 200);
+      }
+      try {
+        await updateDoc(
+          taskDoc(btn.dataset.client, btn.dataset.project, btn.dataset.id),
+          { status: 'done', completedAt: serverTimestamp() }
+        );
+        toast('تاسك اتخلصت ✅', 'success');
+      } catch (err) {
+        toast('فشل التحديث', 'error');
+        renderDailySummary(); // revert optimistic on error
+      }
+    });
+  });
 
   // ── Wire task row clicks → navigate to kanban & highlight ──
   listEl?.querySelectorAll('.today-task-row').forEach(row => {
@@ -1476,13 +1512,15 @@ function subscribeCalendar() {
   if (state.dashUnsubProjects || state.dashUnsubTasks || state.unsubscribe) {
     // Already loaded by dashboard subscriptions — just render
     renderCalendar();
-    if (state.view === 'day') renderDayView();
+    if (state.view === 'day')   renderDayView();
+    if (state.view === 'daily') renderDailySummary();
     return;
   }
 
   const renderCalAndDay = () => {
     renderCalendar();
-    if (state.view === 'day') renderDayView();
+    if (state.view === 'day')   renderDayView();
+    if (state.view === 'daily') renderDailySummary();
   };
 
   const clientQ = query(clientsRef(), orderBy('createdAt', 'desc'));

@@ -4319,6 +4319,32 @@ body {
 .today-task-row.is-done .row-title { opacity: 0.45; text-decoration: line-through; }
 .today-task-row.is-done { opacity: 0.6; }
 
+/* ── Quick done button on each task row ── */
+.row-done-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(61, 185, 129, 0.10);
+  border: 1px solid rgba(61, 185, 129, 0.35);
+  color: var(--status-done);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+.today-task-row:hover .row-done-btn { opacity: 1; }
+.row-done-btn:hover {
+  background: var(--status-done);
+  color: #0F1115;
+  transform: scale(1.08);
+}
+.row-done-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
 .row-status-dot {
   width: 6px;
   height: 6px;
@@ -4406,6 +4432,7 @@ body {
 .win-label {
   font-size: 11px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .win-divider {
@@ -7340,8 +7367,9 @@ svg {
     opacity: 0.7;
   }
 
-  /* Always show the quick "Done" tick in day task cards */
-  .day-task-done-btn {
+  /* Always show the quick "Done" tick in day task cards & summary rows */
+  .day-task-done-btn,
+  .row-done-btn {
     opacity: 1;
   }
 
