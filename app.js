@@ -1150,8 +1150,13 @@ function renderDailySummary() {
         });
       });
 
-      // Sort groups: groups with overdue/doing first, then by pending count
-      const sortedGroups = [...groupMap.entries()].sort(([, aTasks], [, bTasks]) => {
+      // Sort groups: respect manual project.order first, then fallback to urgency
+      const sortedGroups = [...groupMap.entries()].sort(([aPid, aTasks], [bPid, bTasks]) => {
+        const aProj = state.allProjects.find(p => p.id === aPid);
+        const bProj = state.allProjects.find(p => p.id === bPid);
+        const aOrder = aProj?.order ?? 9999;
+        const bOrder = bProj?.order ?? 9999;
+        if (aOrder !== bOrder) return aOrder - bOrder;
         const aUrgent = aTasks.filter(t => isOverdue(t) || t.status === 'doing').length;
         const bUrgent = bTasks.filter(t => isOverdue(t) || t.status === 'doing').length;
         if (aUrgent !== bUrgent) return bUrgent - aUrgent;
@@ -3324,12 +3329,13 @@ function renderKanban() {
   const groups = { todo: [], doing: [], done: [] };
   filtered.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
 
-  // v16.0 — Order tasks within each column by orderIndex (ascending),
-  // falling back to createdAt (newest first) when not yet set.
+  // Order tasks: unordered (new) tasks appear first (newest at top),
+  // then drag-ordered tasks in their saved order.
   const sortInColumn = (a, b) => {
-    const ai = (typeof a.orderIndex === 'number') ? a.orderIndex : Number.POSITIVE_INFINITY;
-    const bi = (typeof b.orderIndex === 'number') ? b.orderIndex : Number.POSITIVE_INFINITY;
-    if (ai !== bi) return ai - bi;
+    const aHasOrder = typeof a.orderIndex === 'number';
+    const bHasOrder = typeof b.orderIndex === 'number';
+    if (aHasOrder !== bHasOrder) return aHasOrder ? 1 : -1;
+    if (aHasOrder && bHasOrder) return a.orderIndex - b.orderIndex;
     const at = a.createdAt?.seconds || 0;
     const bt = b.createdAt?.seconds || 0;
     return bt - at;

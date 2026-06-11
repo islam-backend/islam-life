@@ -4802,8 +4802,6 @@ body {
 }
 
 .day-block {
-  /* v21.0 — Box geometry locks: force border-box + min-width:0 so the
-     content can shrink to its grid track, never push beyond it. */
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -4816,8 +4814,10 @@ body {
   gap: 10px;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
   transition: var(--transition);
   animation: cardIn 0.22s ease;
+  align-self: start;
 }
 
 /* Block stays completely static on hover — no border colour change,
