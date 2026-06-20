@@ -2237,6 +2237,242 @@ body {
   color: var(--accent);
 }
 
+/* ── Column Move-All Button ── */
+.col-move-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  transition: var(--transition);
+  flex-shrink: 0;
+  margin-inline-end: 2px;
+}
+.col-move-btn:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Toolbar AI Button ── */
+.toolbar-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 8px 13px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.toolbar-ai-btn:hover {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: #A855F7;
+  color: #A855F7;
+}
+
+/* ── Task card in-plan indicator ── */
+.task-card.in-plan {
+  border-inline-start: 3px solid #A855F7;
+}
+.card-plan-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  margin-bottom: 5px;
+  background: rgba(168,85,247,0.15);
+  color: #A855F7;
+}
+.card-plan-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.card-plan-btn:hover { color: #A855F7; }
+
+/* ── AI Plan Modal ── */
+.ai-plan-modal {
+  max-width: 480px;
+}
+
+/* ── Settings Button in Sidebar Footer ── */
+.btn-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+  width: 100%;
+  margin-bottom: 8px;
+}
+.btn-settings:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+/* ── Settings Modal ── */
+.settings-modal { max-width: 440px; }
+.settings-section { margin-bottom: 8px; }
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 12px;
+}
+.settings-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-key-row .form-input { flex: 1; }
+.settings-key-status {
+  font-size: 12px;
+  margin-top: 6px;
+  font-weight: 600;
+}
+.settings-key-status.has-key { color: var(--status-done); }
+.settings-key-status.no-key  { color: var(--danger); }
+
+/* ── AI no-key notice ── */
+.ai-no-key-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(224,92,92,0.08);
+  border: 1px solid rgba(224,92,92,0.25);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.ai-no-key-notice span { font-size: 20px; flex-shrink: 0; }
+
+/* ── Hidden overrides ── */
+#ai-plan-section.hidden,
+#ai-api-key-section.hidden,
+#settings-modal-overlay.hidden,
+#ai-plan-tasks-summary.hidden { display: none; }
+
+.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 5px; display: block; }
+.form-hint a { color: var(--accent); text-decoration: none; }
+
+.ai-plan-tasks-summary {
+  margin-bottom: 14px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+.ai-plan-tasks-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+.ai-plan-tasks-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.ai-task-chip {
+  font-size: 11px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-weight: 600;
+}
+.ai-no-tasks {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.ai-plan-tasks-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.ai-brief-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ai-plan-status { font-size: 11px; color: var(--text-muted); }
+
+.btn-copy-brief {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-copy-brief:hover { background: var(--accent-hover); }
+
+.ai-plan-content {
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  height: 280px;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  direction: rtl;
+}
+.ai-plan-content:focus { border-color: var(--accent); }
+.ai-loading { color: var(--text-muted); text-align: center; padding: 20px; font-size: 14px; }
+
 /* â”€â”€ Toolbar Back Button â”€â”€ */
 .toolbar-back-btn {
   display: inline-flex;
@@ -4313,7 +4549,7 @@ body {
   gap: 8px;
   padding: 6px 14px;
   transition: background 0.1s;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .today-task-row:hover { background: var(--bg-card-hover); }
 .today-task-row.is-done .row-title { opacity: 0.45; text-decoration: line-through; }

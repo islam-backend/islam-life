@@ -289,97 +289,116 @@ function escapeMd(s) {
   return String(s ?? '').replace(/([_*`\[\]])/g, '\\$1');
 }
 
+// ASCII bar: fills `filled` out of `total` blocks (width=10)
+function asciiBar(value, max, width = 10) {
+  const filled = max > 0 ? Math.round((value / max) * width) : 0;
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+// Completion ring from percentage: ◉ full, ◎ empty, segments at 8
+function completionRing(pct) {
+  const total = 8;
+  const filled = Math.round((pct / 100) * total);
+  const ring = [];
+  for (let i = 0; i < total; i++) ring.push(i < filled ? '●' : '○');
+  // top row: 3 chars, mid rows: 1+space+1, bottom: 3
+  const [a,b,c,d,e,f,g,h] = ring;
+  return [
+    ` ${a}${b}${c} `,
+    `${h}   ${d}`,
+    `${g}   ${e}`,
+    ` ${f}${f}${f} `,  // bottom arc placeholder
+  ].join('\n');
+}
+
 function formatTelegram(r, { clients, projects, reportDay }) {
   const lines = [];
-  const divider = '━━━━━━━━━━━━━━━━━━';
 
+  // ── Header ──
   lines.push(`🌙 *ملخص اليوم*`);
-  lines.push(`📅 ${escapeMd(fmtDate(reportDay))}`);
-  lines.push(divider);
+  lines.push(`📅 _${escapeMd(fmtDate(reportDay))}_`);
   lines.push('');
 
-  // Quick stats line
-  const statBits = [
-    `✅ *${r.doneToday.length}* مهمة منجزة`,
-    `⏱ *${fmtHours(r.totalMinutes)}* تركيز`,
-  ];
-  if (r.completionRate !== null) statBits.push(`📈 *${r.completionRate}%* إنجاز`);
-  lines.push(statBits.join('   ·   '));
+  // ── Visual dashboard card ──
+  const pct = r.completionRate ?? 0;
+  const pctBar = asciiBar(pct, 100, 12);
+  const overdueCount = r.overdue.length;
+  const inProgressCount = r.inProgress.length;
+
+  lines.push('```');
+  lines.push(`┌─────────────────────────┐`);
+  lines.push(`│  ✅  ${String(r.doneToday.length).padStart(3)}  منجزة اليوم      │`);
+  lines.push(`│  ⏳  ${String(inProgressCount).padStart(3)}  جاري التنفيذ    │`);
+  lines.push(`│  ⏱   ${String(fmtHours(r.totalMinutes)).padEnd(5)} تركيز فعلي  │`);
+  if (overdueCount > 0)
+    lines.push(`│  🔴  ${String(overdueCount).padStart(3)}  متأخرة ⚠️          │`);
+  lines.push(`├─────────────────────────┤`);
+  lines.push(`│  إنجاز  ${pctBar}  ${String(pct).padStart(3)}%  │`);
+  lines.push(`└─────────────────────────┘`);
+  lines.push('```');
   lines.push('');
 
-  // Done today — grouped by project
-  lines.push(`✅ *إنجازات اليوم*`);
-  if (r.doneToday.length === 0) {
-    lines.push('_لا توجد مهام مُغلقة_');
-  } else {
+  // ── Focus bar chart ──
+  if (r.focusByProject.size > 0) {
+    lines.push(`⏱ *توزيع التركيز*`);
+    lines.push('```');
+    const sorted = [...r.focusByProject.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [pid, mins] of sorted.slice(0, 5)) {
+      const name = projectNameFor(projects, pid);
+      const pctF = r.totalMinutes ? Math.round((mins / r.totalMinutes) * 100) : 0;
+      const bar = asciiBar(mins, r.totalMinutes, 8);
+      const label = name.length > 10 ? name.slice(0, 9) + '…' : name.padEnd(10);
+      lines.push(`${label}  ${bar}  ${fmtHours(mins)}`);
+    }
+    lines.push('```');
+    lines.push('');
+  }
+
+  // ── Done today — compact ──
+  if (r.doneToday.length > 0) {
+    lines.push(`✅ *منجزات اليوم* _(${r.doneToday.length})_`);
     for (const [pid, list] of r.doneByProjectGroup) {
-      lines.push('');
       lines.push(`📌 _${escapeMd(projectLabel(projects, clients, pid))}_`);
       for (const t of list) {
         const time = toDate(t.completedAt);
         const timeStr = time ? ` _(${escapeMd(fmtTime(time))})_` : '';
-        lines.push(`   ✓ ${escapeMd(t.title || '—')}${timeStr}`);
+        lines.push(`  ✓ ${escapeMd(t.title || '—')}${timeStr}`);
       }
     }
-  }
-  lines.push('');
-  lines.push(divider);
-
-  // Focus
-  lines.push('');
-  lines.push(`⏱ *وقت التركيز اليوم* — ${fmtHours(r.totalMinutes)}`);
-  if (r.focusByProject.size === 0) {
-    lines.push('_لم يتم تسجيل أي جلسة بومودورو_');
-  } else {
-    const sorted = [...r.focusByProject.entries()].sort((a, b) => b[1] - a[1]);
-    for (const [pid, mins] of sorted) {
-      const pct = r.totalMinutes ? Math.round((mins / r.totalMinutes) * 100) : 0;
-      lines.push(`• ${escapeMd(projectLabel(projects, clients, pid))} — *${fmtHours(mins)}* _(${pct}%)_`);
-    }
-  }
-  lines.push('');
-  lines.push(divider);
-
-  // Tomorrow
-  const tomorrow = addDays(reportDay, 1);
-  lines.push('');
-  lines.push(`📅 *مهام الغد* — ${r.tomorrowTasks.length}`);
-  lines.push(`_${escapeMd(fmtDate(tomorrow))}_`);
-  if (r.tomorrowTasks.length === 0) {
     lines.push('');
+  }
+
+  // ── Tomorrow ──
+  const tomorrow = addDays(reportDay, 1);
+  lines.push(`📅 *مهام الغد* — ${escapeMd(fmtDate(tomorrow).split(' ').slice(0,2).join(' '))}`);
+  if (r.tomorrowTasks.length === 0) {
     lines.push('_لا توجد مهام مجدولة_');
   } else {
-    // Group by project
     const grouped = new Map();
     for (const t of r.tomorrowTasks) {
       if (!grouped.has(t._projectId)) grouped.set(t._projectId, []);
       grouped.get(t._projectId).push(t);
     }
     for (const [pid, list] of grouped) {
-      lines.push('');
       lines.push(`📌 _${escapeMd(projectLabel(projects, clients, pid))}_`);
       for (const t of list) {
-        const status = statusMeta(t.status).icon;
+        const icon = statusMeta(t.status).icon;
         const pm = priorityMeta(t.priority);
-        const prio = pm ? ` 🔺${escapeMd(pm.label)}` : '';
-        lines.push(`   ${status} ${escapeMd(t.title || '—')}${prio}`);
+        const prio = pm ? ` ${pm.label === 'عالية' ? '🔴' : pm.label === 'متوسطة' ? '🟡' : '🟢'}` : '';
+        lines.push(`  ${icon} ${escapeMd(t.title || '—')}${prio}`);
       }
     }
   }
+  lines.push('');
 
-  // Overdue
+  // ── Overdue — compact ──
   if (r.overdue.length > 0) {
-    lines.push('');
-    lines.push(divider);
-    lines.push('');
-    lines.push(`⚠️ *مهام متأخرة* — ${r.overdue.length}`);
-    for (const t of r.overdue.slice(0, 8)) {
+    lines.push(`⚠️ *متأخرة* _(${r.overdue.length})_`);
+    for (const t of r.overdue.slice(0, 5)) {
       const days = daysOverdue(t, r.todayStart);
-      const tag = days > 0 ? ` _(متأخرة ${days} ${days === 1 ? 'يوم' : 'أيام'})_` : '';
-      lines.push(`   ⏰ ${escapeMd(t.title || '—')}${tag}`);
-      lines.push(`      _${escapeMd(projectLabel(projects, clients, t._projectId))}_`);
+      lines.push(`  🔴 ${escapeMd(t.title || '—')} _${days}ي_`);
     }
-    if (r.overdue.length > 8) lines.push(`_…و ${r.overdue.length - 8} مهمة متأخرة أخرى_`);
+    if (r.overdue.length > 5) lines.push(`  _…و ${r.overdue.length - 5} أخرى_`);
   }
 
   return lines.join('\n');

@@ -27,6 +27,7 @@ import {
   query,
   orderBy,
   getDocs,
+  getDoc,
   setDoc,
   writeBatch,
   increment
@@ -3407,15 +3408,22 @@ function taskCardHTML(task) {
     ? `<img class="task-card-thumb" src="${task.imageUrl}" alt="" data-img="${task.imageUrl}" title="عرض الصورة" />`
     : '';
 
+  const planBadge = task.inPlan
+    ? `<span class="card-plan-badge in-plan" title="ضمن الخطة">🎯 في الخطة</span>`
+    : '';
+  const planToggleBtn = `<button class="card-plan-btn" data-id="${task.id}" title="${task.inPlan ? 'إزالة من الخطة' : 'إضافة للخطة'}">${task.inPlan ? '★' : '☆'}</button>`;
+
   return `
-    <div class="task-card" id="tc-${task.id}" draggable="true" data-id="${task.id}">
+    <div class="task-card${task.inPlan ? ' in-plan' : ''}" id="tc-${task.id}" draggable="true" data-id="${task.id}">
       <div class="card-top" style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
         <div class="card-title">${escapeHtml(task.title)}</div>
         <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
+          ${planToggleBtn}
           <button class="card-edit-btn" data-id="${task.id}" title="تعديل المهمة">✏️</button>
           <button class="card-menu-btn" data-id="${task.id}" title="حذف المهمة">✕</button>
         </div>
       </div>
+      ${planBadge}
       ${task.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.55">${escapeHtml(task.notes)}</div>` : ''}
       ${imgBlock}
       <div class="card-footer" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
@@ -5351,5 +5359,307 @@ function closeAllFocusDropdowns() {
     if (e.key === 'Escape') closeAllFocusDropdowns();
   });
 })();
+
+// ════════════════════════════════════════════════════════════════
+//  FEATURE: MOVE ALL TASKS TO NEXT STAGE
+// ════════════════════════════════════════════════════════════════
+
+async function moveAllTasksToNext(fromStatus, toStatus) {
+  if (!state.client || !state.project) return;
+  const tasks = state.tasks.filter(t => t.status === fromStatus);
+  if (tasks.length === 0) {
+    toast('مفيش تاسكات هنا', 'info');
+    return;
+  }
+  const labels = { todo: 'المطلوب', doing: 'جاري التنفيذ', done: 'تم الإنتهاء' };
+  try {
+    const batch = writeBatch(db);
+    tasks.forEach(t => {
+      const update = { status: toStatus };
+      if (toStatus === 'done') update.completedAt = serverTimestamp();
+      batch.update(taskDoc(state.client.id, state.project.id, t.id), update);
+    });
+    await batch.commit();
+    toast(`تم نقل ${tasks.length} تاسك إلى "${labels[toStatus]}" ✅`, 'success');
+  } catch (err) {
+    toast('فشل نقل التاسكات', 'error');
+    console.error(err);
+  }
+}
+
+document.getElementById('col-move-todo-btn')?.addEventListener('click', () => {
+  moveAllTasksToNext('todo', 'doing');
+});
+document.getElementById('col-move-doing-btn')?.addEventListener('click', () => {
+  moveAllTasksToNext('doing', 'done');
+});
+
+
+// ════════════════════════════════════════════════════════════════
+//  FEATURE: SETTINGS MODAL
+// ════════════════════════════════════════════════════════════════
+
+function getGeminiKey() {
+  return localStorage.getItem('gemini_api_key') || '';
+}
+
+function openSettingsModal() {
+  const overlay   = document.getElementById('settings-modal-overlay');
+  const keyInput  = document.getElementById('settings-gemini-key');
+  const statusEl  = document.getElementById('settings-gemini-status');
+  if (!overlay) return;
+
+  const existing = getGeminiKey();
+  if (keyInput) {
+    keyInput.value = existing ? '••••••••••••••••' : '';
+    keyInput.dataset.unchanged = existing ? 'true' : 'false';
+    keyInput.type = 'password';
+  }
+  if (statusEl) {
+    statusEl.textContent = existing ? '✅ Key محفوظ' : '❌ لا يوجد Key';
+    statusEl.className   = 'settings-key-status ' + (existing ? 'has-key' : 'no-key');
+  }
+  overlay.classList.remove('hidden');
+}
+
+function saveSettings() {
+  const keyInput = document.getElementById('settings-gemini-key');
+  const statusEl = document.getElementById('settings-gemini-status');
+  const val      = keyInput?.value.trim();
+
+  if (keyInput?.dataset.unchanged === 'true' && val === '••••••••••••••••') {
+    // unchanged — just close
+    document.getElementById('settings-modal-overlay')?.classList.add('hidden');
+    return;
+  }
+
+  if (val && val !== '••••••••••••••••') {
+    localStorage.setItem('gemini_api_key', val);
+    if (statusEl) { statusEl.textContent = '✅ Key محفوظ'; statusEl.className = 'settings-key-status has-key'; }
+    toast('تم حفظ Gemini API Key ✅', 'success');
+  } else if (!val) {
+    localStorage.removeItem('gemini_api_key');
+    if (statusEl) { statusEl.textContent = '❌ تم مسح الـ Key'; statusEl.className = 'settings-key-status no-key'; }
+    toast('تم مسح الـ Key', 'info');
+  }
+  document.getElementById('settings-modal-overlay')?.classList.add('hidden');
+}
+
+document.getElementById('btn-open-settings')?.addEventListener('click', openSettingsModal);
+document.getElementById('close-settings-modal-btn')?.addEventListener('click', () => {
+  document.getElementById('settings-modal-overlay')?.classList.add('hidden');
+});
+document.getElementById('cancel-settings-modal-btn')?.addEventListener('click', () => {
+  document.getElementById('settings-modal-overlay')?.classList.add('hidden');
+});
+document.getElementById('save-settings-btn')?.addEventListener('click', saveSettings);
+
+// Toggle key visibility
+document.getElementById('settings-toggle-key-vis')?.addEventListener('click', () => {
+  const inp = document.getElementById('settings-gemini-key');
+  if (!inp) return;
+  // If still showing bullets placeholder, clear it so user can type
+  if (inp.dataset.unchanged === 'true') {
+    inp.value = '';
+    inp.dataset.unchanged = 'false';
+  }
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+});
+
+// ════════════════════════════════════════════════════════════════
+//  FEATURE: GEMINI AI PLAN
+// ════════════════════════════════════════════════════════════════
+
+function openAiPlanModal() {
+  if (!state.client || !state.project) {
+    toast('افتح مشروع الأول', 'error');
+    return;
+  }
+  const overlay       = document.getElementById('ai-modal-overlay');
+  const noKeySection  = document.getElementById('ai-api-key-section');
+  const planSection   = document.getElementById('ai-plan-section');
+  const tasksSummary  = document.getElementById('ai-plan-tasks-summary');
+  const tasksList     = document.getElementById('ai-plan-tasks-list');
+  const planContent   = document.getElementById('ai-plan-content');
+  const planStatus    = document.getElementById('ai-plan-status');
+  const submitBtn     = document.getElementById('submit-ai-modal-btn');
+  if (!overlay) return;
+
+  const hasKey = !!getGeminiKey();
+
+  // Show/hide no-key notice
+  noKeySection.classList.toggle('hidden', hasKey);
+  submitBtn.disabled = !hasKey;
+
+  // Show tasks marked inPlan
+  const inPlanTasks = state.tasks.filter(t => t.inPlan);
+  if (tasksList) {
+    if (inPlanTasks.length === 0) {
+      tasksList.innerHTML = '<span class="ai-no-tasks">لا توجد تاسكات محددة — اضغط ☆ على أي تاسك لإضافته</span>';
+    } else {
+      const statusIcon = { todo: '⬜', doing: '🟡', done: '✅' };
+      tasksList.innerHTML = inPlanTasks.map(t =>
+        `<div class="ai-task-chip">${statusIcon[t.status] || '⬜'} ${escapeHtml(t.title)}</div>`
+      ).join('');
+    }
+    tasksSummary.classList.remove('hidden');
+  }
+
+  // Show previously saved brief if exists
+  const savedBrief = state.project.aiBrief;
+  if (savedBrief) {
+    planSection.classList.remove('hidden');
+    planContent.value = savedBrief.content || '';
+    planStatus.textContent = `آخر brief: ${new Date((savedBrief.generatedAt?.seconds || 0) * 1000).toLocaleDateString('ar-EG')} · ${savedBrief.taskCount || 0} تاسك`;
+  } else {
+    planSection.classList.add('hidden');
+    planContent.value = '';
+    planStatus.textContent = '';
+  }
+
+  submitBtn.textContent = inPlanTasks.length > 0 ? `✨ توليد Brief (${inPlanTasks.length} تاسك)` : '✨ توليد البريف';
+  overlay.classList.remove('hidden');
+}
+
+async function submitAiPlanModal() {
+  const planSection = document.getElementById('ai-plan-section');
+  const planContent = document.getElementById('ai-plan-content');
+  const planStatus  = document.getElementById('ai-plan-status');
+  const submitBtn   = document.getElementById('submit-ai-modal-btn');
+
+  const apiKey = getGeminiKey();
+  if (!apiKey) {
+    toast('حط Gemini API Key في الإعدادات ⚙️ الأول', 'error');
+    return;
+  }
+
+  if (!state.client || !state.project) return;
+
+  const inPlanTasks = state.tasks.filter(t => t.inPlan);
+  const allTasks    = state.tasks;
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = '⏳ Gemini شغّال...';
+  planSection.classList.remove('hidden');
+  planStatus.textContent = 'جاري التوليد...';
+  planContent.value = '';
+
+  // Build detailed task description for Gemini
+  const priorityAr = { high: 'عالية 🔴', medium: 'متوسطة 🟡', low: 'منخفضة 🟢' };
+  const statusAr   = { todo: 'لم تبدأ', doing: 'جاري التنفيذ', done: 'منتهية' };
+
+  const targetTasks = inPlanTasks.length > 0 ? inPlanTasks : allTasks.filter(t => t.status !== 'done');
+
+  const taskDetails = targetTasks.map((t, i) => {
+    const lines = [`${i + 1}. ${t.title}`];
+    if (t.status) lines.push(`   - الحالة: ${statusAr[t.status] || t.status}`);
+    if (t.priority) lines.push(`   - الأولوية: ${priorityAr[t.priority] || t.priority}`);
+    if (t.notes) lines.push(`   - تفاصيل: ${t.notes}`);
+    return lines.join('\n');
+  }).join('\n\n');
+
+  const otherDone = allTasks.filter(t => t.status === 'done' && !t.inPlan);
+
+  const prompt = `أنت خبير تقني متخصص في كتابة Task Briefs جاهزة للإرسال لـ AI assistant (Claude) لتنفيذها مباشرةً في الكود.
+
+المعلومات:
+- المشروع: "${state.project.name || 'مشروع'}"
+- العميل: "${state.client.name || 'عميل'}"
+- المهام المنجزة مسبقاً: ${otherDone.length} مهمة
+
+المهام المطلوب عمل Brief لها (${targetTasks.length} مهمة):
+${taskDetails || 'لا توجد مهام محددة'}
+
+اكتب Brief واضح ومفصّل جاهز للإرسال لـ Claude مباشرة بدون أي تعديل.
+
+البريف يجب أن:
+1. يبدأ بجملة سياق قصيرة عن المشروع والعميل
+2. يشرح كل مهمة بوضوح كامل — ما المطلوب بالضبط
+3. يحدد ترتيب التنفيذ المنطقي
+4. يذكر أي قيود أو اعتبارات تقنية مذكورة في التفاصيل
+5. يكون مباشراً وتنفيذياً — Claude يقدر يشتغل عليه فوراً
+
+اكتب البريف بالعربي. لا تضيف مقدمات أو شرح — ابدأ مباشرة بالبريف.`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      if (res.status === 400 && errBody?.error?.message?.includes('API_KEY')) {
+        localStorage.removeItem('gemini_api_key');
+        throw new Error('API Key غلط — تم مسحه، حاول تاني');
+      }
+      throw new Error(`Gemini error ${res.status}`);
+    }
+
+    const data    = await res.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '—';
+
+    // Save brief to project doc
+    await updateDoc(projectDoc(state.client.id, state.project.id), {
+      aiBrief: { content, generatedAt: serverTimestamp(), taskCount: targetTasks.length },
+    });
+
+    planContent.value = content;
+    planStatus.textContent = `✅ جاهز — ${targetTasks.length} تاسك · الآن`;
+    toast('البريف جاهز — انسخه وابعته! 🚀', 'success');
+  } catch (err) {
+    planStatus.textContent = `خطأ: ${err.message}`;
+    toast(err.message, 'error');
+    console.error(err);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '✨ توليد Brief جديد';
+  }
+}
+
+document.getElementById('btn-ai-plan')?.addEventListener('click', openAiPlanModal);
+document.getElementById('close-ai-modal-btn')?.addEventListener('click', () => {
+  document.getElementById('ai-modal-overlay')?.classList.add('hidden');
+});
+document.getElementById('cancel-ai-modal-btn')?.addEventListener('click', () => {
+  document.getElementById('ai-modal-overlay')?.classList.add('hidden');
+});
+document.getElementById('submit-ai-modal-btn')?.addEventListener('click', submitAiPlanModal);
+document.getElementById('btn-copy-brief')?.addEventListener('click', () => {
+  const ta = document.getElementById('ai-plan-content');
+  if (!ta?.value) return;
+  navigator.clipboard.writeText(ta.value).then(() => {
+    const btn = document.getElementById('btn-copy-brief');
+    const orig = btn.textContent;
+    btn.textContent = '✅ تم النسخ!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  });
+});
+
+// ── Toggle inPlan on task card ──────────────────────────────────
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.card-plan-btn');
+  if (!btn || !state.client || !state.project) return;
+  e.stopPropagation();
+  const taskId = btn.dataset.id;
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  btn.disabled = true;
+  try {
+    await updateDoc(taskDoc(state.client.id, state.project.id, taskId), {
+      inPlan: !task.inPlan,
+    });
+  } catch (err) {
+    toast('فشل التحديث', 'error');
+    btn.disabled = false;
+  }
+});
 
 
