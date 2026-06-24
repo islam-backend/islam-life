@@ -14,40 +14,20 @@ service cloud.firestore {
           && request.auth.token.email == 'islam.walied96@gmail.com';
     }
 
-    // ── Helper: shared project access (read/write tasks only) ──
-    function hasShareAccess(clientId, projectId) {
-      let shareId = clientId + '_' + projectId;
-      return request.auth != null
-          && exists(/databases/$(database)/documents/shares/$(shareId))
-          && get(/databases/$(database)/documents/shares/$(shareId)).data.email == request.auth.token.email;
-    }
-
-    // ── Share links collection ──
-    match /shares/{shareId} {
-      allow read: if true;
-      allow write: if isOwner();
-    }
-
-    // ── Direct paths ──
+    // ── Direct paths — owner-only across the board ──
     match /clients/{clientId} {
       allow read, write: if isOwner();
 
       match /projects/{projectId} {
-        allow read: if isOwner() || hasShareAccess(clientId, projectId);
-        allow write: if isOwner();
+        allow read, write: if isOwner();
 
         match /tasks/{taskId} {
-          allow read, write: if isOwner() || hasShareAccess(clientId, projectId);
+          allow read, write: if isOwner();
         }
       }
     }
 
-    // ── Finance Hub ──
-    match /envelopes/{envId}  { allow read, write: if isOwner(); }
-    match /incomes/{incomeId} { allow read, write: if isOwner(); }
-    match /expenses/{expId}   { allow read, write: if isOwner(); }
-    match /transfers/{trId}   { allow read, write: if isOwner(); }
-    match /sources/{srcId}    { allow read, write: if isOwner(); }
+    // ── App metadata + focus sessions ──
     match /meta/{docId}       { allow read, write: if isOwner(); }
     match /focusSessions/{sessionId} { allow read, write: if isOwner(); }
 

@@ -101,11 +101,6 @@
 
       <span class="nav-label">المالية</span>
 
-      <div class="nav-item" id="nav-finance" title="المركز المالي">
-        <span class="nav-icon">💰</span>
-        <span>المركز المالي</span>
-      </div>
-
       <span class="nav-label">قريباً</span>
 
       <div class="nav-item disabled" title="قريباً">
@@ -287,126 +282,6 @@
           <div class="day-blocks" id="day-blocks">
             <!-- Client+Project compact blocks rendered by JS -->
           </div>
-        </div>
-
-        <!-- ── VIEW: FINANCE HUB (v8 — Envelopes & Mandatory Allocation) ── -->
-        <div class="view" id="view-finance">
-          <div class="finance-toolbar">
-            <div class="finance-toolbar-left">
-              <h2 class="finance-title">💰 المركز المالي</h2>
-            </div>
-            <div class="finance-toolbar-actions">
-              <button class="finance-privacy-btn" id="fin-privacy-toggle" type="button" aria-label="إظهار/إخفاء الأرقام الحساسة" title="إظهار/إخفاء">
-                <svg class="eye-icon eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-                <svg class="eye-icon eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-11-8-11-8a19.6 19.6 0 014.22-5.31"/>
-                  <path d="M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 8 11 8a19.56 19.56 0 01-2.16 3.19"/>
-                  <path d="M14.12 14.12A3 3 0 119.88 9.88"/>
-                  <line x1="1" y1="1" x2="23" y2="23"/>
-                </svg>
-              </button>
-              <button class="toolbar-add-btn finance-add-income" id="btn-add-income" type="button" aria-label="تسجيل دخل">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                <span>تسجيل دخل</span>
-              </button>
-              <button class="toolbar-add-btn" id="btn-add-expense" type="button" aria-label="تسجيل مصروف">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                <span>تسجيل مصروف</span>
-              </button>
-              <button class="toolbar-add-btn finance-add-transfer" id="btn-add-transfer" type="button" aria-label="تحويل بين الأظرف">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="17 1 21 5 17 9" />
-                  <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                  <polyline points="7 23 3 19 7 15" />
-                  <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                </svg>
-                <span>تحويل</span>
-              </button>
-              <button class="toolbar-add-btn finance-add-envelope" id="btn-add-envelope" type="button" aria-label="إضافة ظرف جديد">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                <span>ظرف جديد</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- A. Pending-allocation strip (only visible when there are frozen incomes) -->
-          <div class="finance-pending-strip" id="fin-pending-strip" hidden>
-            <div class="finance-pending-icon">⏳</div>
-            <div class="finance-pending-body">
-              <div class="finance-pending-title">دخل مُجمَّد بانتظار التوزيع</div>
-              <div class="finance-pending-sub" id="fin-pending-sub">— لا يمكن صرف هذه الأموال قبل التوزيع 100% على الأظرف</div>
-            </div>
-            <button class="finance-pending-cta" id="fin-pending-cta" type="button">وزِّع الآن →</button>
-          </div>
-
-          <!-- B. Headline stat cards: 4 totals -->
-          <div class="finance-stats-row finance-stats-4">
-            <div class="finance-stat-card stat-balance">
-              <span class="finance-stat-label">🏦 إجمالي الأرصدة</span>
-              <span class="finance-stat-value privacy-sensitive" id="fin-stat-balance">0</span>
-              <span class="finance-stat-sub" id="fin-stat-balance-sub">في الأظرف</span>
-            </div>
-            <div class="finance-stat-card stat-pending">
-              <span class="finance-stat-label">⏳ دخل غير موزّع</span>
-              <span class="finance-stat-value privacy-sensitive" id="fin-stat-pending">0</span>
-              <span class="finance-stat-sub" id="fin-stat-pending-sub">0 معاملة مجمَّدة</span>
-            </div>
-            <div class="finance-stat-card stat-spent">
-              <span class="finance-stat-label">💸 إجمالي الصرف</span>
-              <span class="finance-stat-value privacy-sensitive" id="fin-stat-spent">0</span>
-              <span class="finance-stat-sub" id="fin-stat-spent-sub">0 عملية</span>
-            </div>
-            <div class="finance-stat-card stat-income">
-              <span class="finance-stat-label">💼 إجمالي الدخل</span>
-              <span class="finance-stat-value privacy-sensitive" id="fin-stat-income">0</span>
-              <span class="finance-stat-sub" id="fin-stat-income-sub">منذ بداية الاستخدام</span>
-            </div>
-          </div>
-
-          <!-- C. Envelopes — free-form section (no wrapping panel) -->
-          <section class="finance-section" id="fin-envelopes-section">
-            <header class="finance-section-head">
-              <h3 class="finance-section-title">📂 الأظرف الماليّة</h3>
-              <span class="finance-section-count" id="fin-envelopes-count">0 ظرف</span>
-            </header>
-            <div class="finance-envelopes-grid" id="fin-envelopes-grid">
-              <!-- Envelope cards rendered by JS -->
-            </div>
-          </section>
-
-          <!-- D. Transactions feed -->
-          <section class="finance-section" id="fin-tx-section">
-            <header class="finance-section-head">
-              <h3 class="finance-section-title">📋 سجل المعاملات</h3>
-              <span class="finance-section-count" id="fin-tx-count">0 معاملة</span>
-              <label class="finance-tx-select-all" title="تحديد الكل">
-                <input type="checkbox" id="fin-tx-select-all" />
-                <span class="finance-tx-check-box" aria-hidden="true"></span>
-                <span class="finance-tx-select-all-label">تحديد الكل</span>
-              </label>
-              <div class="finance-tx-tabs" id="fin-tx-tabs" role="tablist">
-                <button type="button" class="finance-tx-tab active" data-tab="all" role="tab">الكل</button>
-                <button type="button" class="finance-tx-tab" data-tab="income" role="tab">دخل</button>
-                <button type="button" class="finance-tx-tab" data-tab="expense" role="tab">مصروف</button>
-                <button type="button" class="finance-tx-tab" data-tab="transfer" role="tab">تحويل</button>
-              </div>
-            </header>
-            <div class="finance-tx-list" id="fin-tx-list">
-              <!-- Transaction rows rendered by JS -->
-            </div>
-          </section>
         </div>
 
         <!-- ── VIEW: FOCUS (v8.0 — Fluid, borderless) ── -->
@@ -711,7 +586,7 @@
   </div>
 
   <!-- ══════════════════════════════════
-     PROMISE-BASED CONFIRM DIALOG (v28.0 — Finance)
+     PROMISE-BASED CONFIRM DIALOG
 ═══════════════════════════════════ -->
   <div id="async-confirm-overlay" class="confirm-overlay hidden" role="alertdialog" aria-modal="true">
     <div class="confirm-box async-confirm-box">
