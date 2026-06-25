@@ -31,6 +31,13 @@ service cloud.firestore {
     match /meta/{docId}       { allow read, write: if isOwner(); }
     match /focusSessions/{sessionId} { allow read, write: if isOwner(); }
 
+    // ── Finance Hub (المصروفات) — owner-only ──
+    match /banks/{id}            { allow read, write: if isOwner(); }
+    match /envelopes/{id}        { allow read, write: if isOwner(); }
+    match /allocation_rules/{id} { allow read, write: if isOwner(); }
+    match /gold_assets/{id}      { allow read, write: if isOwner(); }
+    match /transactions/{id}     { allow read, write: if isOwner(); }
+
     // ── collectionGroup queries ──
     match /{path=**}/projects/{projectId} {
       allow read: if isOwner();

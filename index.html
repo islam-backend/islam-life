@@ -101,6 +101,11 @@
 
       <span class="nav-label">المالية</span>
 
+      <div class="nav-item" id="nav-finance" title="المصروفات">
+        <span class="nav-icon">💰</span>
+        <span>المصروفات</span>
+      </div>
+
       <span class="nav-label">قريباً</span>
 
       <div class="nav-item disabled" title="قريباً">
@@ -538,6 +543,74 @@
           </div><!-- /#board-area -->
         </div><!-- /#view-tasks -->
 
+        <!-- ── VIEW: FINANCE (المصروفات — Finance Hub) ── -->
+        <div class="view" id="view-finance">
+          <div class="fin-toolbar">
+            <button class="fin-btn fin-btn-income" id="btn-fin-income" type="button">
+              <span class="fin-btn-icon">＋</span><span>دخل</span>
+            </button>
+            <button class="fin-btn fin-btn-expense" id="btn-fin-expense" type="button">
+              <span class="fin-btn-icon">－</span><span>مصروف</span>
+            </button>
+            <div class="fin-toolbar-spacer"></div>
+            <button class="fin-btn fin-btn-ghost fin-btn-icon-only" id="btn-fin-privacy" type="button" title="إظهار/إخفاء الأرقام" aria-pressed="false">
+              <span class="fin-eye-show">🙈</span><span class="fin-eye-hide">👁️</span>
+            </button>
+            <button class="fin-btn fin-btn-ghost" id="btn-fin-manage" type="button" title="إدارة البنوك والأظرف">
+              <span class="fin-btn-icon">🏦</span><span>إدارة</span>
+            </button>
+            <button class="fin-btn fin-btn-ghost" id="btn-fin-rules" type="button" title="قواعد التوزيع">
+              <span class="fin-btn-icon">⚙️</span><span>القواعد</span>
+            </button>
+          </div>
+
+          <div class="fin-boxes" id="finance-boxes">
+
+            <!-- Box: Envelopes -->
+            <section class="fin-box" id="fin-box-envelopes" data-box-id="envelopes" draggable="true">
+              <div class="fin-box-header">
+                <h3 class="fin-box-title">✉️ الأظرف</h3>
+                <div class="fin-box-tools">
+                  <span class="fin-box-summary" id="fin-envelopes-total"></span>
+                </div>
+              </div>
+              <div class="fin-box-body fin-cards-grid" id="fin-envelopes-grid"></div>
+            </section>
+
+            <!-- Box: Banks -->
+            <section class="fin-box" id="fin-box-banks" data-box-id="banks" draggable="true">
+              <div class="fin-box-header">
+                <h3 class="fin-box-title">🏦 البنوك والسيولة</h3>
+                <div class="fin-box-tools">
+                  <span class="fin-box-summary" id="fin-banks-total"></span>
+                </div>
+              </div>
+              <div class="fin-box-body fin-cards-grid" id="fin-banks-grid"></div>
+            </section>
+
+            <!-- Box: Gold Vault -->
+            <section class="fin-box" id="fin-box-gold" data-box-id="gold" draggable="true">
+              <div class="fin-box-header">
+                <h3 class="fin-box-title">🥇 خزنة الذهب</h3>
+                <div class="fin-box-tools">
+                  <button class="fin-link-btn" id="fin-gold-prices-btn" type="button" title="تحديث الأسعار">الأسعار</button>
+                </div>
+              </div>
+              <div class="fin-box-body" id="fin-gold-body"></div>
+            </section>
+
+            <!-- Box: Transactions Feed -->
+            <section class="fin-box" id="fin-box-feed" data-box-id="feed" draggable="true">
+              <div class="fin-box-header">
+                <h3 class="fin-box-title">📜 آخر الحركات</h3>
+                <div class="fin-box-tools"></div>
+              </div>
+              <div class="fin-box-body" id="fin-feed-list"></div>
+            </section>
+
+          </div><!-- /#finance-boxes -->
+        </div><!-- /#view-finance -->
+
       </div><!-- /#content -->
 
 
@@ -677,6 +750,220 @@
         <button type="button" class="btn-ghost" id="cancel-ai-modal-btn">إغلاق</button>
         <button type="button" class="btn-primary" id="submit-ai-modal-btn">✨ توليد البريف</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+     FINANCE MODALS (المصروفات)
+══════════════════════════════════ -->
+
+  <!-- Income Modal -->
+  <div id="income-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>＋ إضافة دخل</h2>
+        <button class="modal-close" id="close-income-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="income-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">المبلغ</label>
+            <input type="number" id="income-amount" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">البنك المستلم</label>
+            <select id="income-bank" class="form-input" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">نوع الدخل</label>
+            <div class="fin-type-pills" id="income-type-pills">
+              <button type="button" class="fin-type-pill active" data-type="salary">💼 مرتب</button>
+              <button type="button" class="fin-type-pill" data-type="freelance">🧑‍💻 فريلانس</button>
+              <button type="button" class="fin-type-pill" data-type="normal">💵 عادي</button>
+            </div>
+            <input type="hidden" id="income-type" value="salary" />
+            <small class="form-hint" id="income-type-hint"></small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-income-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-primary" id="submit-income-btn">حفظ الدخل</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Expense Modal -->
+  <div id="expense-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>－ تسجيل مصروف</h2>
+        <button class="modal-close" id="close-expense-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="expense-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">المبلغ</label>
+            <input type="number" id="expense-amount" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">من ظرف (السبب)</label>
+            <select id="expense-envelope" class="form-input" required></select>
+            <small class="form-hint" id="expense-envelope-hint"></small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">من بنك (المصدر)</label>
+            <select id="expense-bank" class="form-input" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ملاحظة (اختياري)</label>
+            <input type="text" id="expense-note" class="form-input" maxlength="120" placeholder="على إيه اتصرفت؟" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-expense-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-danger" id="submit-expense-btn">تأكيد الصرف</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manual Allocation Modal (forced for Normal income) -->
+  <div id="alloc-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>🧩 توزيع الدخل (إجباري)</h2>
+      </div>
+      <div class="modal-body">
+        <p class="fin-alloc-intro">لازم توزّع كامل المبلغ (<span class="fin-alloc-total" id="alloc-total-display">0</span>) على الأظرف قبل ما تقدر تصرف منه.</p>
+        <div id="alloc-rows"></div>
+        <div class="fin-alloc-summary">
+          <span>المتبقي للتوزيع:</span>
+          <strong id="alloc-remaining">0</strong>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-primary" id="submit-alloc-btn" disabled>تأكيد التوزيع</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Allocation Rules Modal -->
+  <div id="rules-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>⚙️ قواعد توزيع الدخل</h2>
+        <button class="modal-close" id="close-rules-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="fin-rules-tabs">
+          <button type="button" class="fin-rules-tab active" data-rule="salary">💼 المرتب</button>
+          <button type="button" class="fin-rules-tab" data-rule="freelance">🧑‍💻 الفريلانس</button>
+        </div>
+        <div id="rules-rows"></div>
+        <div class="fin-alloc-summary">
+          <span>مجموع النسب:</span>
+          <strong id="rules-sum">0%</strong>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" id="cancel-rules-modal-btn">إلغاء</button>
+        <button type="button" class="btn-primary" id="save-rules-btn">💾 حفظ القاعدة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage Banks & Envelopes Modal -->
+  <div id="manage-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal manage-modal">
+      <div class="modal-header">
+        <h2>🏦 إدارة البنوك والأظرف</h2>
+        <button class="modal-close" id="close-manage-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="fin-rules-tabs">
+          <button type="button" class="fin-manage-tab active" data-kind="banks">🏦 البنوك</button>
+          <button type="button" class="fin-manage-tab" data-kind="envelopes">✉️ الأظرف</button>
+        </div>
+        <form id="manage-form" class="fin-manage-form">
+          <input type="hidden" id="manage-edit-id" value="" />
+          <input type="hidden" id="manage-color" value="" />
+          <div class="fin-manage-form-row">
+            <input type="text" id="manage-icon" class="form-input fin-icon-input" maxlength="2" placeholder="🏦" />
+            <input type="text" id="manage-name" class="form-input" maxlength="40" placeholder="الاسم" required />
+            <button type="submit" class="btn-primary btn-sm" id="manage-submit-btn">إضافة</button>
+          </div>
+          <input type="text" id="manage-desc" class="form-input" maxlength="80" placeholder="وصف مختصر (اختياري)" />
+          <div class="fin-color-swatches" id="manage-colors"></div>
+        </form>
+        <div id="manage-list" class="fin-manage-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gold Prices Modal -->
+  <div id="gold-prices-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>🥇 أسعار الجرام</h2>
+        <button class="modal-close" id="close-gold-prices-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="gold-prices-form">
+        <div class="modal-body">
+          <p class="form-hint" id="gold-prices-source-note"></p>
+          <div class="form-group">
+            <label class="form-label">عيار 24 (جنيه/جرام)</label>
+            <input type="number" id="gold-price-24" class="form-input" min="0" step="0.01" inputmode="decimal" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">عيار 21 (جنيه/جرام)</label>
+            <input type="number" id="gold-price-21" class="form-input" min="0" step="0.01" inputmode="decimal" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">عيار 18 (جنيه/جرام)</label>
+            <input type="number" id="gold-price-18" class="form-input" min="0" step="0.01" inputmode="decimal" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="fin-gold-refresh-btn">🔄 جلب تلقائي</button>
+          <button type="submit" class="btn-primary">💾 حفظ يدوي</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Gold Grams Modal (add / withdraw) -->
+  <div id="gold-grams-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="gold-grams-title">🥇 إضافة ذهب</h2>
+        <button class="modal-close" id="close-gold-grams-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="gold-grams-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">العيار</label>
+            <div class="fin-type-pills" id="gold-karat-pills">
+              <button type="button" class="fin-type-pill active" data-karat="24">عيار 24</button>
+              <button type="button" class="fin-type-pill" data-karat="21">عيار 21</button>
+              <button type="button" class="fin-type-pill" data-karat="18">عيار 18</button>
+            </div>
+            <input type="hidden" id="gold-karat" value="24" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">عدد الجرامات</label>
+            <input type="number" id="gold-grams" class="form-input" min="0" step="0.001" inputmode="decimal" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">ملاحظة (اختياري)</label>
+            <input type="text" id="gold-notes" class="form-input" maxlength="80" placeholder="مثلاً: غويشة / سبيكة" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-gold-grams-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-primary" id="submit-gold-grams-btn">حفظ</button>
+        </div>
+      </form>
     </div>
   </div>
 

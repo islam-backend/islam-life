@@ -269,6 +269,10 @@ if (navClients) {
 if (navFocus) {
   navFocus.addEventListener('click', () => navigateTo('focus'));
 }
+const navFinance = document.getElementById('nav-finance');
+if (navFinance) {
+  navFinance.addEventListener('click', () => navigateTo('finance'));
+}
 
 // ── Collapsible Dashboard Projects Section Toggle ──
 document.addEventListener('click', e => {
@@ -463,6 +467,18 @@ const userStatsDoc = ()                        => doc(db, 'meta', 'userStats');
 // v15 — Cloud-mirrored pomodoro log so the nightly report can read today's focus.
 const focusSessionsRef = ()   => collection(db, 'focusSessions');
 
+// ── Finance Hub Refs (المصروفات) ──────────────────────────────
+const banksRef         = ()      => collection(db, 'banks');
+const envelopesRef     = ()      => collection(db, 'envelopes');
+const transactionsRef  = ()      => collection(db, 'transactions');
+const goldAssetsRef    = ()      => collection(db, 'gold_assets');
+const bankDoc          = (id)    => doc(db, 'banks', id);
+const envelopeDoc      = (id)    => doc(db, 'envelopes', id);
+const goldAssetDoc     = (id)    => doc(db, 'gold_assets', id);
+const transactionDoc   = (id)    => doc(db, 'transactions', id);
+const allocRuleDoc     = (type)  => doc(db, 'allocation_rules', type);   // type: 'salary' | 'freelance'
+const goldPricesDoc    = ()      => doc(db, 'meta', 'goldPrices');
+
 // ── App State ──────────────────────────────────────────────────
 const state = {
   view:        'dashboard',  // 'dashboard' | 'clients' | 'projects' | 'tasks'
@@ -507,6 +523,16 @@ const state = {
   calendarCursor:       null,     // Date pointing at the displayed month
   dayDate:              null,     // Date selected for day-details view
   totalRestHours:       Number(localStorage.getItem('totalRestHours')) || 0,
+  // Finance Hub state (المصروفات)
+  banks:        [],
+  envelopes:    [],
+  transactions: [],
+  goldAssets:   [],
+  allocRules:   { salary: [], freelance: [] },
+  goldPrices:   null,            // { p24, p21, p18, source, updatedAt }
+  finUnsub:     [],              // array of onSnapshot unsubscribers
+  pendingIncomeTxId: null,       // normal-income tx awaiting forced allocation
+  pendingIncomeAmount: 0,
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -524,6 +550,7 @@ function cleanupListeners() {
   safeUnsub(state.dashUnsubStats);       state.dashUnsubStats = null;
   safeUnsub(state.projUnsub);            state.projUnsub = null;
   safeUnsub(state.taskUnsub);            state.taskUnsub = null;
+  (state.finUnsub || []).forEach(safeUnsub); state.finUnsub = [];
   cancelPendingRenders();
 }
 
@@ -754,10 +781,12 @@ function navigateTo(view, payload = {}) {
   const showDashActive    = (view === 'dashboard') || (view === 'daily') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
   const showFocusActive   = (view === 'focus');
+  const showFinanceActive = (view === 'finance');
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
   document.getElementById('nav-focus')?.classList.toggle('active', !!showFocusActive);
+  document.getElementById('nav-finance')?.classList.toggle('active', !!showFinanceActive);
 
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -797,6 +826,12 @@ function navigateTo(view, payload = {}) {
     state.project = null;
     document.getElementById('view-focus').classList.add('active');
     subscribeFocus();
+
+  } else if (view === 'finance') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-finance').classList.add('active');
+    subscribeFinance();
 
   } else if (view === 'tasks') {
     if (payload.client)  state.client  = payload.client;
@@ -2683,6 +2718,11 @@ function updateHeader() {
     titleEl.textContent = '📅 تفاصيل اليوم';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
+
+  } else if (state.view === 'finance') {
+    titleEl.textContent = '💰 المصروفات';
+    statsEl.innerHTML   = '';
+    actionsEl.innerHTML = '';
   }
 }
 
@@ -4313,4 +4353,850 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+
+// ════════════════════════════════════════════════════════════════
+//  FINANCE HUB (المصروفات) — Envelopes · Banks · Gold · Rules
+// ════════════════════════════════════════════════════════════════
+
+const FIN_CUR = 'ج.م';
+const FIN_DEFAULT_ORDER = ['envelopes', 'banks', 'gold', 'feed'];
+
+// ── Small helpers ──────────────────────────────────────────────
+function finFmt(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+function finPriv(inner) { return `<span class="privacy-sensitive">${inner}</span>`; }
+// Category color for an envelope/bank — stored color, else deterministic from the name
+function finColorFor(item) {
+  if (item && item.color) return item.color;
+  const s = (item && item.name) || '';
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return COLORS[h % COLORS.length];
+}
+function finHexA(hex, a) {
+  const m = String(hex || '#3574F0').replace('#', '');
+  const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function finBadge(icon, color) {
+  return `<span class="fin-card-icon" style="background:${finHexA(color, .16)};border-color:${finHexA(color, .42)}">${escapeHtml(icon)}</span>`;
+}
+function finTsMillis(ts) {
+  if (!ts) return 0;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts.seconds) return ts.seconds * 1000;
+  const t = new Date(ts).getTime();
+  return isNaN(t) ? 0 : t;
+}
+const finShow = (id) => document.getElementById(id)?.classList.remove('hidden');
+const finHide = (id) => document.getElementById(id)?.classList.add('hidden');
+
+// ── Subscriptions ──────────────────────────────────────────────
+function subscribeFinance() {
+  const push = (u) => state.finUnsub.push(u);
+  const onErr = (label) => (e) => console.error('finance snapshot:', label, e);
+
+  push(onSnapshot(banksRef(), snap => {
+    state.banks = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    setOnline();
+    debounceRender(renderFinance);
+  }, onErr('banks')));
+
+  push(onSnapshot(envelopesRef(), snap => {
+    state.envelopes = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    debounceRender(renderFinance);
+  }, onErr('envelopes')));
+
+  push(onSnapshot(transactionsRef(), snap => {
+    state.transactions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    debounceRender(renderFinance);
+  }, onErr('transactions')));
+
+  push(onSnapshot(goldAssetsRef(), snap => {
+    state.goldAssets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    debounceRender(renderFinance);
+  }, onErr('gold')));
+
+  push(onSnapshot(allocRuleDoc('salary'), d => {
+    state.allocRules.salary = d.exists() ? (d.data().allocations || []) : [];
+    debounceRender(renderFinance);
+  }, onErr('rule.salary')));
+
+  push(onSnapshot(allocRuleDoc('freelance'), d => {
+    state.allocRules.freelance = d.exists() ? (d.data().allocations || []) : [];
+    debounceRender(renderFinance);
+  }, onErr('rule.freelance')));
+
+  push(onSnapshot(goldPricesDoc(), d => {
+    state.goldPrices = d.exists() ? d.data() : null;
+    debounceRender(renderFinance);
+  }, onErr('goldPrices')));
+
+  // Immediate paint so box order / empty states show before data lands
+  reorderFinanceBoxes();
+  renderFinance();
+}
+
+// ── Box ordering ───────────────────────────────────────────────
+function getFinOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('finance-box-order'));
+    if (Array.isArray(saved)) {
+      const valid = saved.filter(x => FIN_DEFAULT_ORDER.includes(x));
+      FIN_DEFAULT_ORDER.forEach(x => { if (!valid.includes(x)) valid.push(x); });
+      return valid;
+    }
+  } catch { /* ignore */ }
+  return [...FIN_DEFAULT_ORDER];
+}
+function reorderFinanceBoxes() {
+  const container = document.getElementById('finance-boxes');
+  if (!container) return;
+  getFinOrder().forEach(id => {
+    const box = container.querySelector(`[data-box-id="${id}"]`);
+    if (box) container.appendChild(box);
+  });
+}
+// Drag & Drop reorder — same UX as the clients/projects cards
+function reorderFinBoxes(draggedId, targetId) {
+  if (!draggedId || !targetId || draggedId === targetId) return;
+  const order = getFinOrder();
+  const from = order.indexOf(draggedId);
+  const to = order.indexOf(targetId);
+  if (from < 0 || to < 0) return;
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  localStorage.setItem('finance-box-order', JSON.stringify(order));
+  reorderFinanceBoxes();
+}
+function wireFinanceBoxDnD() {
+  const container = document.getElementById('finance-boxes');
+  if (!container) return;
+  container.querySelectorAll('.fin-box[data-box-id]').forEach(box => {
+    box.addEventListener('dragstart', e => {
+      // Only initiate a drag from the header handle — keeps inner buttons/feed usable
+      if (!e.target.closest('.fin-box-header')) { e.preventDefault(); return; }
+      state.draggedEntityId = box.dataset.boxId;
+      state.draggedEntityType = 'finbox';
+      box.classList.add('dragging-card');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    box.addEventListener('dragend', () => {
+      box.classList.remove('dragging-card');
+      state.draggedEntityId = null;
+      state.draggedEntityType = null;
+      container.querySelectorAll('.fin-box').forEach(b => b.classList.remove('drag-over-card'));
+    });
+    box.addEventListener('dragover', e => {
+      if (state.draggedEntityType !== 'finbox' || state.draggedEntityId === box.dataset.boxId) return;
+      e.preventDefault();
+      box.classList.add('drag-over-card');
+    });
+    box.addEventListener('dragleave', e => {
+      if (!box.contains(e.relatedTarget)) box.classList.remove('drag-over-card');
+    });
+    box.addEventListener('drop', e => {
+      e.preventDefault();
+      box.classList.remove('drag-over-card');
+      if (state.draggedEntityType !== 'finbox') return;
+      reorderFinBoxes(state.draggedEntityId, box.dataset.boxId);
+    });
+  });
+}
+function toggleFinPrivacy() {
+  const view = document.getElementById('view-finance');
+  if (!view) return;
+  const revealed = view.classList.toggle('privacy-revealed');
+  document.getElementById('btn-fin-privacy')?.setAttribute('aria-pressed', String(revealed));
+}
+
+// ── Render ─────────────────────────────────────────────────────
+function renderFinance() {
+  if (state.view !== 'finance') return;
+  reorderFinanceBoxes();
+  renderEnvelopesBox();
+  renderBanksBox();
+  renderGoldBox();
+  renderFeedBox();
+  // keep an open manage list fresh as balances change
+  if (!document.getElementById('manage-modal-overlay')?.classList.contains('hidden')) {
+    renderManageList();
+  }
+}
+
+function renderEnvelopesBox() {
+  const grid = document.getElementById('fin-envelopes-grid');
+  const totalEl = document.getElementById('fin-envelopes-total');
+  if (!grid) return;
+  const env = state.envelopes;
+  const total = env.reduce((s, e) => s + (Number(e.current_balance) || 0), 0);
+  if (totalEl) totalEl.innerHTML = env.length ? `الإجمالي: ${finPriv(finFmt(total) + ' ' + FIN_CUR)}` : '';
+  if (!env.length) {
+    grid.innerHTML = `<div class="fin-empty">مفيش أظرف لسه — <span class="fin-empty-link" data-fin-open="manage-envelopes">أضف ظرف</span></div>`;
+    return;
+  }
+  grid.innerHTML = env.map(e => {
+    const bal = Number(e.current_balance) || 0;
+    return `<div class="fin-card">
+      ${finBadge(e.icon || '✉️', finColorFor(e))}
+      <div class="fin-card-info">
+        <span class="fin-card-name">${escapeHtml(e.name || '')}</span>
+        <span class="fin-card-balance ${bal < 0 ? 'is-neg' : ''}">${finPriv(finFmt(bal))}<span class="fin-cur">${FIN_CUR}</span></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderBanksBox() {
+  const grid = document.getElementById('fin-banks-grid');
+  const totalEl = document.getElementById('fin-banks-total');
+  if (!grid) return;
+  const banks = state.banks;
+  const total = banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
+  if (totalEl) totalEl.innerHTML = banks.length ? `الإجمالي: ${finPriv(finFmt(total) + ' ' + FIN_CUR)}` : '';
+  if (!banks.length) {
+    grid.innerHTML = `<div class="fin-empty">مفيش بنوك لسه — <span class="fin-empty-link" data-fin-open="manage-banks">أضف بنك</span></div>`;
+    return;
+  }
+  grid.innerHTML = banks.map(b => {
+    const bal = Number(b.current_balance) || 0;
+    return `<div class="fin-card">
+      ${finBadge(b.icon || '🏦', finColorFor(b))}
+      <div class="fin-card-info">
+        <span class="fin-card-name">${escapeHtml(b.name || '')}</span>
+        <span class="fin-card-balance ${bal < 0 ? 'is-neg' : ''}">${finPriv(finFmt(bal))}<span class="fin-cur">${FIN_CUR}</span></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function finPricePerGram(karat) {
+  const p = state.goldPrices;
+  if (!p) return 0;
+  return Number(p['p' + karat]) || 0;
+}
+function renderGoldBox() {
+  const body = document.getElementById('fin-gold-body');
+  if (!body) return;
+  const byK = { 24: 0, 21: 0, 18: 0 };
+  state.goldAssets.forEach(a => {
+    const k = Number(a.karat);
+    if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0;
+  });
+  const totalGrams = byK[24] + byK[21] + byK[18];
+  const totalValue = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
+  const hasPrices = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
+  const breakdown = [24, 21, 18].filter(k => byK[k] > 0)
+    .map(k => `<span class="fin-gold-chip">ع${k}: ${finPriv(finFmt(byK[k]))} جم</span>`).join('');
+  body.innerHTML = `<div class="fin-gold">
+    <div class="fin-gold-main">
+      <div class="fin-gold-value">${hasPrices ? finPriv(finFmt(totalValue)) : '—'}<span class="fin-cur">${FIN_CUR}</span></div>
+      <div class="fin-gold-sub">إجمالي ${finPriv(finFmt(totalGrams))} جرام${hasPrices ? '' : ' · حدّد الأسعار لعرض القيمة'}</div>
+      ${breakdown ? `<div class="fin-gold-breakdown">${breakdown}</div>` : ''}
+    </div>
+    <div class="fin-gold-actions">
+      <button class="fin-gold-btn add" id="fin-gold-add" type="button" title="إضافة ذهب">＋</button>
+      <button class="fin-gold-btn sub" id="fin-gold-sub" type="button" title="سحب ذهب">－</button>
+    </div>
+  </div>`;
+}
+
+function renderFeedBox() {
+  const list = document.getElementById('fin-feed-list');
+  if (!list) return;
+  const txs = [...state.transactions]
+    .sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt))
+    .slice(0, 25);
+  if (!txs.length) {
+    list.innerHTML = `<div class="fin-empty">مفيش حركات لسه</div>`;
+    return;
+  }
+  const bankName = id => state.banks.find(b => b.id === id)?.name || '—';
+  const envName = id => state.envelopes.find(e => e.id === id)?.name || '—';
+  list.innerHTML = txs.map(t => {
+    const income = t.type === 'income';
+    const typeLabel = income
+      ? ({ salary: 'مرتب 💼', freelance: 'فريلانس 🧑‍💻', normal: 'دخل عادي 💵' }[t.incomeType] || 'دخل')
+      : (t.note || 'مصروف');
+    const dest = income
+      ? `إلى ${escapeHtml(bankName(t.bankId))}`
+      : `${escapeHtml(envName(t.envelopeId))} · ${escapeHtml(bankName(t.bankId))}`;
+    const pending = income && t.incomeType === 'normal' && !t.allocated;
+    const dateStr = formatDate(t.createdAt);
+    return `<div class="fin-feed-row${pending ? ' is-pending' : ''}"${pending ? ` data-fin-alloc="${t.id}" style="cursor:pointer"` : ''}>
+      <span class="fin-feed-icon ${income ? 'income' : 'expense'}">${income ? '＋' : '－'}</span>
+      <div class="fin-feed-main">
+        <div class="fin-feed-title">${escapeHtml(typeLabel)}${pending ? '<span class="fin-feed-pending">يحتاج توزيع</span>' : ''}</div>
+        <div class="fin-feed-meta">${dest} · ${escapeHtml(dateStr)}</div>
+      </div>
+      <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(t.amount))}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Income (manual entry + auto allocation) ────────────────────
+function updateIncomeTypeHint() {
+  const t = document.getElementById('income-type')?.value;
+  const hint = document.getElementById('income-type-hint');
+  if (!hint) return;
+  if (t === 'normal') {
+    hint.textContent = 'هيتطلب منك توزيع المبلغ يدوياً على الأظرف فوراً.';
+    return;
+  }
+  const rule = (state.allocRules[t] || []).filter(r => Number(r.percent) > 0);
+  const sum = rule.reduce((s, r) => s + Number(r.percent), 0);
+  if (!rule.length || Math.round(sum) !== 100) {
+    hint.innerHTML = `⚠️ مفيش قاعدة ${t === 'salary' ? 'مرتب' : 'فريلانس'} مظبوطة (لازم 100%). عدّلها من «القواعد».`;
+  } else {
+    hint.textContent = `هيتوزع تلقائياً على ${rule.length} ظرف حسب القاعدة.`;
+  }
+}
+function openIncomeModal() {
+  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
+  const bankSel = document.getElementById('income-bank');
+  bankSel.innerHTML = state.banks.map(b => `<option value="${b.id}">${escapeHtml((b.icon || '') + ' ' + b.name)}</option>`).join('');
+  document.getElementById('income-amount').value = '';
+  document.getElementById('income-type-pills').querySelectorAll('.fin-type-pill')
+    .forEach(p => p.classList.toggle('active', p.dataset.type === 'salary'));
+  document.getElementById('income-type').value = 'salary';
+  updateIncomeTypeHint();
+  finShow('income-modal-overlay');
+  setTimeout(() => document.getElementById('income-amount')?.focus(), 60);
+}
+async function submitIncome(e) {
+  e.preventDefault();
+  const amount = Number(document.getElementById('income-amount').value);
+  const bankId = document.getElementById('income-bank').value;
+  const type = document.getElementById('income-type').value;
+  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
+  if (!bankId) { toast('اختار البنك', 'error'); return; }
+  const btn = document.getElementById('submit-income-btn');
+  btn.disabled = true;
+  try {
+    if (type === 'salary' || type === 'freelance') {
+      const rule = (state.allocRules[type] || []).filter(r => Number(r.percent) > 0 && state.envelopes.find(e => e.id === r.envelopeId));
+      const sum = rule.reduce((s, r) => s + Number(r.percent), 0);
+      if (!rule.length || Math.round(sum) !== 100) {
+        toast('قاعدة التوزيع لازم تكون 100% على أظرف موجودة — عدّلها من «القواعد»', 'error');
+        btn.disabled = false; return;
+      }
+      const allocations = [];
+      let allocated = 0;
+      rule.forEach((r, i) => {
+        const amt = (i === rule.length - 1)
+          ? +(amount - allocated).toFixed(2)
+          : +(amount * r.percent / 100).toFixed(2);
+        if (i !== rule.length - 1) allocated += amt;
+        allocations.push({ envelopeId: r.envelopeId, amount: amt });
+      });
+      const batch = writeBatch(db);
+      batch.update(bankDoc(bankId), { current_balance: increment(amount) });
+      allocations.forEach(a => batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(a.amount) }));
+      const txRef = doc(transactionsRef());
+      batch.set(txRef, { type: 'income', amount, bankId, incomeType: type, allocated: true, allocations, createdAt: serverTimestamp() });
+      await batch.commit();
+      toast('تم تسجيل الدخل وتوزيعه ✅', 'success');
+      finHide('income-modal-overlay');
+    } else {
+      // Normal — lands in bank, frozen until manual 100% allocation
+      const batch = writeBatch(db);
+      batch.update(bankDoc(bankId), { current_balance: increment(amount) });
+      const txRef = doc(transactionsRef());
+      batch.set(txRef, { type: 'income', amount, bankId, incomeType: 'normal', allocated: false, allocations: [], createdAt: serverTimestamp() });
+      await batch.commit();
+      finHide('income-modal-overlay');
+      openManualAlloc(txRef.id, amount);
+    }
+  } catch (err) {
+    console.error(err);
+    toast('فشل حفظ الدخل', 'error');
+  }
+  btn.disabled = false;
+}
+
+// ── Forced manual allocation (Normal income) ──────────────────
+function openManualAlloc(txId, amount) {
+  if (!state.envelopes.length) { toast('لازم تضيف أظرف الأول عشان توزع', 'error'); return; }
+  state.pendingIncomeTxId = txId;
+  state.pendingIncomeAmount = amount;
+  document.getElementById('alloc-total-display').textContent = finFmt(amount) + ' ' + FIN_CUR;
+  document.getElementById('alloc-rows').innerHTML = state.envelopes.map(env => `
+    <div class="fin-alloc-row">
+      <span class="fin-alloc-label">${escapeHtml(env.icon || '✉️')} ${escapeHtml(env.name)}</span>
+      <input type="number" class="form-input fin-alloc-input" data-env="${env.id}" min="0" step="0.01" inputmode="decimal" placeholder="0">
+    </div>`).join('');
+  updateAllocRemaining();
+  finShow('alloc-modal-overlay');
+}
+function updateAllocRemaining() {
+  let sum = 0;
+  document.querySelectorAll('#alloc-rows .fin-alloc-input').forEach(i => sum += Number(i.value) || 0);
+  const remaining = +(state.pendingIncomeAmount - sum).toFixed(2);
+  const el = document.getElementById('alloc-remaining');
+  el.textContent = finFmt(remaining) + ' ' + FIN_CUR;
+  el.className = Math.abs(remaining) < 0.005 ? 'ok' : 'bad';
+  document.getElementById('submit-alloc-btn').disabled = Math.abs(remaining) >= 0.005;
+}
+async function submitManualAlloc() {
+  const inputs = [...document.querySelectorAll('#alloc-rows .fin-alloc-input')];
+  const allocations = inputs
+    .map(i => ({ envelopeId: i.dataset.env, amount: +(Number(i.value) || 0).toFixed(2) }))
+    .filter(a => a.amount > 0);
+  const sum = allocations.reduce((s, a) => s + a.amount, 0);
+  if (Math.abs(sum - state.pendingIncomeAmount) >= 0.005) { toast('لازم توزع كامل المبلغ', 'error'); return; }
+  const btn = document.getElementById('submit-alloc-btn');
+  btn.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    allocations.forEach(a => {
+      if (state.envelopes.find(e => e.id === a.envelopeId)) batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(a.amount) });
+    });
+    batch.update(transactionDoc(state.pendingIncomeTxId), { allocated: true, allocations });
+    await batch.commit();
+    toast('تم التوزيع ✅', 'success');
+    finHide('alloc-modal-overlay');
+    state.pendingIncomeTxId = null;
+  } catch (err) {
+    console.error(err);
+    toast('فشل التوزيع', 'error');
+    btn.disabled = false;
+  }
+}
+
+// ── Expense (behavioral block on envelope overspend) ──────────
+function updateExpenseHint() {
+  const env = state.envelopes.find(e => e.id === document.getElementById('expense-envelope').value);
+  const hint = document.getElementById('expense-envelope-hint');
+  if (env && hint) hint.textContent = `رصيد الظرف: ${finFmt(env.current_balance || 0)} ${FIN_CUR}`;
+}
+function openExpenseModal() {
+  if (!state.envelopes.length) { toast('أضف أظرف الأول من «إدارة»', 'error'); return; }
+  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
+  document.getElementById('expense-envelope').innerHTML = state.envelopes
+    .map(env => `<option value="${env.id}">${escapeHtml((env.icon || '') + ' ' + env.name)} — ${finFmt(env.current_balance || 0)}</option>`).join('');
+  document.getElementById('expense-bank').innerHTML = state.banks
+    .map(b => `<option value="${b.id}">${escapeHtml((b.icon || '') + ' ' + b.name)}</option>`).join('');
+  document.getElementById('expense-amount').value = '';
+  document.getElementById('expense-note').value = '';
+  updateExpenseHint();
+  finShow('expense-modal-overlay');
+  setTimeout(() => document.getElementById('expense-amount')?.focus(), 60);
+}
+async function submitExpense(e) {
+  e.preventDefault();
+  const amount = Number(document.getElementById('expense-amount').value);
+  const envelopeId = document.getElementById('expense-envelope').value;
+  const bankId = document.getElementById('expense-bank').value;
+  const note = document.getElementById('expense-note').value.trim();
+  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
+  const env = state.envelopes.find(e => e.id === envelopeId);
+  if (!env) { toast('اختار ظرف', 'error'); return; }
+  // ⛔ Behavioral block — overspending a single envelope is forbidden outright
+  if (amount > (Number(env.current_balance) || 0) + 0.005) {
+    toast(`🚫 الصرف اتمنع — رصيد ظرف «${env.name}» مايكفيش`, 'error');
+    return;
+  }
+  const bank = state.banks.find(b => b.id === bankId);
+  if (bank && amount > (Number(bank.current_balance) || 0) + 0.005) {
+    toast(`⚠️ تنبيه: رصيد بنك «${bank.name}» أقل من المبلغ`, 'info');
+  }
+  const btn = document.getElementById('submit-expense-btn');
+  btn.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    batch.update(envelopeDoc(envelopeId), { current_balance: increment(-amount) });
+    batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
+    const txRef = doc(transactionsRef());
+    batch.set(txRef, { type: 'expense', amount, bankId, envelopeId, note, createdAt: serverTimestamp() });
+    await batch.commit();
+    toast('تم تسجيل المصروف', 'success');
+    finHide('expense-modal-overlay');
+  } catch (err) {
+    console.error(err);
+    toast('فشل تسجيل المصروف', 'error');
+  }
+  btn.disabled = false;
+}
+
+// ── Allocation rules editor ───────────────────────────────────
+let finRulesTab = 'salary';
+function openRulesModal(type) {
+  if (!state.envelopes.length) { toast('أضف أظرف الأول من «إدارة»', 'error'); return; }
+  finRulesTab = (type === 'freelance') ? 'freelance' : 'salary';
+  document.querySelectorAll('.fin-rules-tab').forEach(t => t.classList.toggle('active', t.dataset.rule === finRulesTab));
+  renderRulesRows();
+  finShow('rules-modal-overlay');
+}
+function renderRulesRows() {
+  const rule = state.allocRules[finRulesTab] || [];
+  document.getElementById('rules-rows').innerHTML = state.envelopes.map(env => {
+    const r = rule.find(x => x.envelopeId === env.id);
+    return `<div class="fin-alloc-row">
+      <span class="fin-alloc-label">${escapeHtml(env.icon || '✉️')} ${escapeHtml(env.name)}</span>
+      <input type="number" class="form-input fin-rule-input" data-env="${env.id}" min="0" max="100" step="1" inputmode="numeric" value="${r ? Number(r.percent) : ''}" placeholder="0">
+      <span class="fin-alloc-suffix">%</span>
+    </div>`;
+  }).join('');
+  updateRulesSum();
+}
+function updateRulesSum() {
+  let sum = 0;
+  document.querySelectorAll('#rules-rows .fin-rule-input').forEach(i => sum += Number(i.value) || 0);
+  const el = document.getElementById('rules-sum');
+  el.textContent = sum + '%';
+  el.className = sum === 100 ? 'ok' : 'bad';
+}
+async function saveRules() {
+  const inputs = [...document.querySelectorAll('#rules-rows .fin-rule-input')];
+  const allocations = inputs
+    .map(i => ({ envelopeId: i.dataset.env, percent: Number(i.value) || 0 }))
+    .filter(a => a.percent > 0);
+  const sum = allocations.reduce((s, a) => s + a.percent, 0);
+  if (sum !== 100) { toast('مجموع النسب لازم يساوي 100%', 'error'); return; }
+  const btn = document.getElementById('save-rules-btn');
+  btn.disabled = true;
+  try {
+    await setDoc(allocRuleDoc(finRulesTab), { allocations, updatedAt: serverTimestamp() });
+    toast('تم حفظ القاعدة ✅', 'success');
+    finHide('rules-modal-overlay');
+  } catch (err) {
+    console.error(err);
+    toast('فشل حفظ القاعدة', 'error');
+  }
+  btn.disabled = false;
+}
+
+// ── Manage banks & envelopes (CRUD) ───────────────────────────
+let finManageTab = 'banks';
+let finManageEditId = null;
+function openManageModal(kind) {
+  finManageTab = (kind === 'envelopes') ? 'envelopes' : 'banks';
+  document.querySelectorAll('.fin-manage-tab').forEach(t => t.classList.toggle('active', t.dataset.kind === finManageTab));
+  resetManageForm();
+  renderManageList();
+  finShow('manage-modal-overlay');
+}
+function renderManageColors(selected) {
+  const wrap = document.getElementById('manage-colors');
+  if (!wrap) return;
+  const sel = selected || COLORS[0];
+  document.getElementById('manage-color').value = sel;
+  wrap.innerHTML = COLORS.map(c =>
+    `<button type="button" class="fin-swatch${c === sel ? ' active' : ''}" data-color="${c}" style="background:${c}" title="${c}" aria-label="لون"></button>`
+  ).join('');
+}
+function resetManageForm() {
+  finManageEditId = null;
+  document.getElementById('manage-edit-id').value = '';
+  document.getElementById('manage-icon').value = '';
+  document.getElementById('manage-name').value = '';
+  document.getElementById('manage-desc').value = '';
+  document.getElementById('manage-submit-btn').textContent = 'إضافة';
+  renderManageColors(COLORS[Math.floor(Math.random() * COLORS.length)]);
+}
+function renderManageList() {
+  const items = finManageTab === 'banks' ? state.banks : state.envelopes;
+  const list = document.getElementById('manage-list');
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = `<div class="fin-empty">مفيش ${finManageTab === 'banks' ? 'بنوك' : 'أظرف'} لسه</div>`;
+    return;
+  }
+  list.innerHTML = items.map(it => `<div class="fin-manage-item">
+    <span class="fin-mi-icon" style="background:${finHexA(finColorFor(it), .16)};border-color:${finHexA(finColorFor(it), .42)}">${escapeHtml(it.icon || (finManageTab === 'banks' ? '🏦' : '✉️'))}</span>
+    <span class="fin-mi-name">${escapeHtml(it.name)}</span>
+    <span class="fin-mi-bal">${finPriv(finFmt(it.current_balance || 0) + ' ' + FIN_CUR)}</span>
+    <button class="fin-mi-action edit" type="button" data-mi-edit="${it.id}" title="تعديل">✏️</button>
+    <button class="fin-mi-action del" type="button" data-mi-del="${it.id}" title="حذف">🗑️</button>
+  </div>`).join('');
+}
+async function submitManage(e) {
+  e.preventDefault();
+  const name = document.getElementById('manage-name').value.trim();
+  const icon = document.getElementById('manage-icon').value.trim();
+  const desc = document.getElementById('manage-desc').value.trim();
+  const color = document.getElementById('manage-color').value || COLORS[0];
+  if (!name) { toast('اكتب الاسم', 'error'); return; }
+  const btn = document.getElementById('manage-submit-btn');
+  btn.disabled = true;
+  try {
+    if (finManageEditId) {
+      const ref = finManageTab === 'banks' ? bankDoc(finManageEditId) : envelopeDoc(finManageEditId);
+      await updateDoc(ref, { name, icon, description: desc, color });
+      toast('تم التعديل', 'success');
+    } else {
+      const items = finManageTab === 'banks' ? state.banks : state.envelopes;
+      const maxOrder = items.reduce((m, i) => Math.max(m, i.sortOrder ?? 0), 0);
+      await addDoc(finManageTab === 'banks' ? banksRef() : envelopesRef(),
+        { name, icon, description: desc, color, current_balance: 0, sortOrder: maxOrder + 1, createdAt: serverTimestamp() });
+      toast('تمت الإضافة', 'success');
+    }
+    resetManageForm();
+  } catch (err) {
+    console.error(err);
+    toast('فشل الحفظ', 'error');
+  }
+  btn.disabled = false;
+}
+function editManageItem(id) {
+  const items = finManageTab === 'banks' ? state.banks : state.envelopes;
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  finManageEditId = id;
+  document.getElementById('manage-edit-id').value = id;
+  document.getElementById('manage-icon').value = it.icon || '';
+  document.getElementById('manage-name').value = it.name || '';
+  document.getElementById('manage-desc').value = it.description || '';
+  renderManageColors(finColorFor(it));
+  document.getElementById('manage-submit-btn').textContent = 'حفظ التعديل';
+  document.getElementById('manage-name').focus();
+}
+async function deleteManageItem(id) {
+  const items = finManageTab === 'banks' ? state.banks : state.envelopes;
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  const bal = Number(it.current_balance) || 0;
+  const ok = await confirmDialog({
+    title: `حذف ${finManageTab === 'banks' ? 'البنك' : 'الظرف'}`,
+    message: `متأكد تحذف «${it.name}»؟${bal ? ` رصيده الحالي ${finFmt(bal)} ${FIN_CUR}.` : ''}`,
+    confirmText: 'نعم، احذف',
+  });
+  if (!ok) return;
+  try {
+    await deleteDoc(finManageTab === 'banks' ? bankDoc(id) : envelopeDoc(id));
+    toast('تم الحذف', 'success');
+    if (finManageEditId === id) resetManageForm();
+  } catch (err) {
+    console.error(err);
+    toast('فشل الحذف', 'error');
+  }
+}
+
+// ── Gold prices (free API + manual fallback) ──────────────────
+function openGoldPricesModal() {
+  const p = state.goldPrices;
+  document.getElementById('gold-price-24').value = p?.p24 ?? '';
+  document.getElementById('gold-price-21').value = p?.p21 ?? '';
+  document.getElementById('gold-price-18').value = p?.p18 ?? '';
+  const note = document.getElementById('gold-prices-source-note');
+  note.textContent = p?.updatedAt
+    ? `آخر تحديث: ${formatDate(p.updatedAt)} (${p.source === 'api' ? 'تلقائي' : 'يدوي'})`
+    : 'مفيش أسعار محفوظة — اضغط «جلب تلقائي» أو اكتبها يدوياً.';
+  finShow('gold-prices-modal-overlay');
+}
+async function saveGoldPrices(e) {
+  e.preventDefault();
+  const p24 = Number(document.getElementById('gold-price-24').value) || 0;
+  const p21 = Number(document.getElementById('gold-price-21').value) || 0;
+  const p18 = Number(document.getElementById('gold-price-18').value) || 0;
+  if (!(p24 || p21 || p18)) { toast('اكتب سعر واحد على الأقل', 'error'); return; }
+  try {
+    await setDoc(goldPricesDoc(), { p24, p21, p18, source: 'manual', updatedAt: serverTimestamp() });
+    toast('تم حفظ الأسعار', 'success');
+    finHide('gold-prices-modal-overlay');
+  } catch (err) {
+    console.error(err);
+    toast('فشل الحفظ', 'error');
+  }
+}
+async function fetchGoldPricesAuto() {
+  const btn = document.getElementById('fin-gold-refresh-btn');
+  const orig = btn.textContent;
+  btn.textContent = '...'; btn.disabled = true;
+  try {
+    let usdPerOz = Number(sessionStorage.getItem('fin-gold-xau')) || null;
+    if (!usdPerOz) {
+      const res = await fetch('https://api.gold-api.com/price/XAU');
+      if (!res.ok) throw new Error('api');
+      const data = await res.json();
+      usdPerOz = Number(data.price);
+      if (usdPerOz) sessionStorage.setItem('fin-gold-xau', String(usdPerOz));
+    }
+    if (!usdPerOz) throw new Error('noprice');
+    const usdEgp = Number(localStorage.getItem('fin-usd-egp')) || 50;
+    const gram24 = usdPerOz / 31.1034768 * usdEgp;
+    document.getElementById('gold-price-24').value = gram24.toFixed(2);
+    document.getElementById('gold-price-21').value = (gram24 * 21 / 24).toFixed(2);
+    document.getElementById('gold-price-18').value = (gram24 * 18 / 24).toFixed(2);
+    toast('تم الجلب — راجع الأسعار وعدّل سعر الدولار لو محتاج ثم احفظ', 'info');
+  } catch (err) {
+    console.error('gold fetch', err);
+    toast('تعذّر الجلب التلقائي — اكتب السعر يدوياً', 'error');
+  }
+  btn.textContent = orig; btn.disabled = false;
+}
+
+// ── Gold grams add / withdraw ─────────────────────────────────
+let finGoldMode = 'add';
+function openGoldGramsModal(mode) {
+  finGoldMode = (mode === 'sub') ? 'sub' : 'add';
+  document.getElementById('gold-grams-title').textContent = finGoldMode === 'add' ? '🥇 إضافة ذهب' : '🥇 سحب ذهب';
+  document.getElementById('submit-gold-grams-btn').textContent = finGoldMode === 'add' ? 'إضافة' : 'سحب';
+  document.getElementById('gold-grams').value = '';
+  document.getElementById('gold-notes').value = '';
+  document.getElementById('gold-karat-pills').querySelectorAll('.fin-type-pill')
+    .forEach(p => p.classList.toggle('active', p.dataset.karat === '24'));
+  document.getElementById('gold-karat').value = '24';
+  document.getElementById('gold-notes').closest('.form-group').style.display = finGoldMode === 'add' ? '' : 'none';
+  finShow('gold-grams-modal-overlay');
+}
+async function submitGoldGrams(e) {
+  e.preventDefault();
+  const karat = Number(document.getElementById('gold-karat').value);
+  const grams = Number(document.getElementById('gold-grams').value);
+  const notes = document.getElementById('gold-notes').value.trim();
+  if (!(grams > 0)) { toast('حط عدد جرامات صحيح', 'error'); return; }
+  const btn = document.getElementById('submit-gold-grams-btn');
+  btn.disabled = true;
+  try {
+    if (finGoldMode === 'add') {
+      await addDoc(goldAssetsRef(), { karat, grams_owned: grams, purchase_date: toLocalISODate(new Date()), notes, createdAt: serverTimestamp() });
+      toast('تمت إضافة الذهب', 'success');
+    } else {
+      const assets = state.goldAssets
+        .filter(a => Number(a.karat) === karat)
+        .sort((a, b) => finTsMillis(a.createdAt) - finTsMillis(b.createdAt));
+      const total = assets.reduce((s, a) => s + (Number(a.grams_owned) || 0), 0);
+      if (grams > total + 0.0005) {
+        toast(`🚫 معندكش غير ${finFmt(total)} جم من عيار ${karat}`, 'error');
+        btn.disabled = false; return;
+      }
+      let remaining = grams;
+      const batch = writeBatch(db);
+      for (const a of assets) {
+        if (remaining <= 0.0005) break;
+        const have = Number(a.grams_owned) || 0;
+        if (have <= remaining + 0.0005) { batch.delete(goldAssetDoc(a.id)); remaining -= have; }
+        else { batch.update(goldAssetDoc(a.id), { grams_owned: +(have - remaining).toFixed(3) }); remaining = 0; }
+      }
+      await batch.commit();
+      toast('تم سحب الذهب', 'success');
+    }
+    finHide('gold-grams-modal-overlay');
+  } catch (err) {
+    console.error(err);
+    toast('فشل العملية', 'error');
+  }
+  btn.disabled = false;
+}
+
+// ── Generic pill selector wiring ──────────────────────────────
+function bindFinPills(containerId, hiddenId, attr, onChange) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.addEventListener('click', e => {
+    const pill = e.target.closest('.fin-type-pill');
+    if (!pill) return;
+    c.querySelectorAll('.fin-type-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    const hid = document.getElementById(hiddenId);
+    if (hid) hid.value = pill.dataset[attr];
+    if (onChange) onChange();
+  });
+}
+
+// ── Event bindings (static elements exist from page load) ─────
+(function bindFinanceUI() {
+  // Toolbar
+  document.getElementById('btn-fin-income')?.addEventListener('click', openIncomeModal);
+  document.getElementById('btn-fin-expense')?.addEventListener('click', openExpenseModal);
+  document.getElementById('btn-fin-manage')?.addEventListener('click', () => openManageModal('banks'));
+  document.getElementById('btn-fin-rules')?.addEventListener('click', () => openRulesModal('salary'));
+  document.getElementById('btn-fin-privacy')?.addEventListener('click', toggleFinPrivacy);
+  document.getElementById('fin-gold-prices-btn')?.addEventListener('click', openGoldPricesModal);
+
+  // Forms
+  document.getElementById('income-form')?.addEventListener('submit', submitIncome);
+  document.getElementById('expense-form')?.addEventListener('submit', submitExpense);
+  document.getElementById('gold-prices-form')?.addEventListener('submit', saveGoldPrices);
+  document.getElementById('gold-grams-form')?.addEventListener('submit', submitGoldGrams);
+  document.getElementById('manage-form')?.addEventListener('submit', submitManage);
+  document.getElementById('submit-alloc-btn')?.addEventListener('click', submitManualAlloc);
+  document.getElementById('save-rules-btn')?.addEventListener('click', saveRules);
+  document.getElementById('fin-gold-refresh-btn')?.addEventListener('click', fetchGoldPricesAuto);
+  document.getElementById('expense-envelope')?.addEventListener('change', updateExpenseHint);
+
+  // Pills
+  bindFinPills('income-type-pills', 'income-type', 'type', updateIncomeTypeHint);
+  bindFinPills('gold-karat-pills', 'gold-karat', 'karat');
+
+  // Close / cancel buttons → hide their overlay
+  const closeMap = {
+    'close-income-modal-btn': 'income-modal-overlay', 'cancel-income-modal-btn': 'income-modal-overlay',
+    'close-expense-modal-btn': 'expense-modal-overlay', 'cancel-expense-modal-btn': 'expense-modal-overlay',
+    'close-rules-modal-btn': 'rules-modal-overlay', 'cancel-rules-modal-btn': 'rules-modal-overlay',
+    'close-manage-modal-btn': 'manage-modal-overlay',
+    'close-gold-prices-modal-btn': 'gold-prices-modal-overlay',
+    'close-gold-grams-modal-btn': 'gold-grams-modal-overlay', 'cancel-gold-grams-modal-btn': 'gold-grams-modal-overlay',
+  };
+  Object.entries(closeMap).forEach(([btnId, ovId]) => {
+    document.getElementById(btnId)?.addEventListener('click', () => finHide(ovId));
+  });
+
+  // Backdrop click closes (NOT the forced allocation modal)
+  ['income-modal-overlay', 'expense-modal-overlay', 'rules-modal-overlay', 'manage-modal-overlay', 'gold-prices-modal-overlay', 'gold-grams-modal-overlay'].forEach(id => {
+    const ov = document.getElementById(id);
+    ov?.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hidden'); });
+  });
+
+  // Live sums
+  document.getElementById('alloc-rows')?.addEventListener('input', updateAllocRemaining);
+  document.getElementById('rules-rows')?.addEventListener('input', updateRulesSum);
+
+  // Rules tabs
+  document.getElementById('rules-modal-overlay')?.addEventListener('click', e => {
+    const tab = e.target.closest('.fin-rules-tab');
+    if (!tab) return;
+    finRulesTab = tab.dataset.rule;
+    document.querySelectorAll('.fin-rules-tab').forEach(t => t.classList.toggle('active', t === tab));
+    renderRulesRows();
+  });
+
+  // Manage tabs + list actions
+  document.getElementById('manage-modal-overlay')?.addEventListener('click', e => {
+    const tab = e.target.closest('.fin-manage-tab');
+    if (tab) {
+      finManageTab = tab.dataset.kind;
+      document.querySelectorAll('.fin-manage-tab').forEach(t => t.classList.toggle('active', t === tab));
+      resetManageForm();
+      renderManageList();
+      return;
+    }
+    const swatch = e.target.closest('.fin-swatch');
+    if (swatch) {
+      document.getElementById('manage-color').value = swatch.dataset.color;
+      document.querySelectorAll('#manage-colors .fin-swatch').forEach(s => s.classList.toggle('active', s === swatch));
+      return;
+    }
+    const edit = e.target.closest('[data-mi-edit]');
+    if (edit) { editManageItem(edit.dataset.miEdit); return; }
+    const del = e.target.closest('[data-mi-del]');
+    if (del) { deleteManageItem(del.dataset.miDel); return; }
+  });
+
+  // Delegated clicks inside the finance view (dynamic elements)
+  document.getElementById('view-finance')?.addEventListener('click', e => {
+    const allocRow = e.target.closest('[data-fin-alloc]');
+    if (allocRow) {
+      const tx = state.transactions.find(t => t.id === allocRow.dataset.finAlloc);
+      if (tx) openManualAlloc(tx.id, Number(tx.amount) || 0);
+      return;
+    }
+    const openLink = e.target.closest('[data-fin-open]');
+    if (openLink) {
+      if (openLink.dataset.finOpen === 'manage-envelopes') openManageModal('envelopes');
+      else if (openLink.dataset.finOpen === 'manage-banks') openManageModal('banks');
+      return;
+    }
+    if (e.target.closest('#fin-gold-add')) { openGoldGramsModal('add'); return; }
+    if (e.target.closest('#fin-gold-sub')) { openGoldGramsModal('sub'); return; }
+  });
+
+  // Drag & drop reordering of the boxes (header = grab handle)
+  wireFinanceBoxDnD();
+})();
 
