@@ -533,6 +533,11 @@ const state = {
   finUnsub:     [],              // array of onSnapshot unsubscribers
   pendingIncomeTxId: null,       // normal-income tx awaiting forced allocation
   pendingIncomeAmount: 0,
+  envelope:       null,            // currently open envelope detail
+  bank:           null,            // currently open bank detail
+  finFilter:      { type: 'all', from: null, to: null },
+  finBankFilter:  { type: 'all', from: null, to: null },
+  finEnvFilter:   { type: 'all' },
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -778,10 +783,10 @@ function navigateTo(view, payload = {}) {
   }
 
   // Update sidebar nav active states
-  const showDashActive    = (view === 'dashboard') || (view === 'daily') || (view === 'tasks' && state.navigationSource === 'dashboard');
+  const showDashActive    = (view === 'dashboard') || (view === 'daily') || (view === 'finance-summary') || (view === 'tasks' && state.navigationSource === 'dashboard');
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
   const showFocusActive   = (view === 'focus');
-  const showFinanceActive = (view === 'finance');
+  const showFinanceActive = view === 'finance' || view === 'finance-banks' || view === 'finance-bank' || view === 'finance-envelopes' || view === 'finance-envelope' || view === 'finance-gold';
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
@@ -828,9 +833,54 @@ function navigateTo(view, payload = {}) {
     subscribeFocus();
 
   } else if (view === 'finance') {
+    state.client   = null;
+    state.project  = null;
+    state.envelope = null;
+    document.getElementById('view-finance').classList.add('active');
+    subscribeFinance();
+
+  } else if (view === 'finance-banks') {
     state.client  = null;
     state.project = null;
-    document.getElementById('view-finance').classList.add('active');
+    state.bank    = null;
+    document.getElementById('view-finance-banks').classList.add('active');
+    subscribeFinance();
+
+  } else if (view === 'finance-bank') {
+    state.client  = null;
+    state.project = null;
+    state.bank    = payload.bank || null;
+    state.finBankFilter = { type: 'all', from: null, to: null };
+    document.getElementById('view-finance-bank').classList.add('active');
+    subscribeFinance();
+    renderBankDetail();
+
+  } else if (view === 'finance-envelopes') {
+    state.client  = null;
+    state.project = null;
+    state.envelope = null;
+    document.getElementById('view-finance-envelopes').classList.add('active');
+    subscribeFinance();
+
+  } else if (view === 'finance-envelope') {
+    state.client  = null;
+    state.project = null;
+    state.envelope = payload.envelope || null;
+    state.finEnvFilter = { type: 'all' };
+    document.getElementById('view-finance-envelope').classList.add('active');
+    subscribeFinance();
+    renderEnvelopeDetail();
+
+  } else if (view === 'finance-gold') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-finance-gold').classList.add('active');
+    subscribeFinance();
+
+  } else if (view === 'finance-summary') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-finance-summary').classList.add('active');
     subscribeFinance();
 
   } else if (view === 'tasks') {
@@ -2026,6 +2076,13 @@ function wireDayBlocksDnD(containerId, rerenderFn) {
     portalDaily.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
   }
 
+  const portalFinance = document.getElementById('dash-portal-finance');
+  if (portalFinance) {
+    const go = () => navigateTo('finance-summary');
+    portalFinance.addEventListener('click', go);
+    portalFinance.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  }
+
   const backDaily = document.getElementById('btn-back-daily');
   if (backDaily) backDaily.addEventListener('click', () => navigateTo('dashboard'));
 
@@ -2719,7 +2776,7 @@ function updateHeader() {
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
 
-  } else if (state.view === 'finance') {
+  } else if (['finance','finance-summary','finance-banks','finance-bank','finance-envelopes','finance-envelope','finance-gold'].includes(state.view)) {
     titleEl.textContent = '💰 المصروفات';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
@@ -2741,6 +2798,44 @@ function updateBreadcrumb() {
              <span class="breadcrumb-link" data-to="clients">العملاء</span>
              <span class="breadcrumb-sep">›</span>
              <span class="breadcrumb-current">${escapeHtml(state.client.name)}</span>`;
+  }
+
+  // ── Finance breadcrumbs ──
+  if (state.view === 'finance') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">💰 المصروفات</span>`;
+  } else if (state.view === 'finance-summary') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">💰 ملخص المصروفات</span>`;
+  } else if (state.view === 'finance-banks') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance">💰 المصروفات</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">🏦 البنوك</span>`;
+  } else if (state.view === 'finance-bank') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance">💰 المصروفات</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance-banks">🏦 البنوك</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">${escapeHtml(state.bank?.name || '')}</span>`;
+  } else if (state.view === 'finance-envelopes') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance">💰 المصروفات</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">✉️ الأظرف</span>`;
+  } else if (state.view === 'finance-envelope') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance">💰 المصروفات</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance-envelopes">✉️ الأظرف</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">${escapeHtml(state.envelope?.name || '')}</span>`;
+  } else if (state.view === 'finance-gold') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance">💰 المصروفات</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">🥇 الذهب</span>`;
   }
 
   if (state.view === 'tasks') {
@@ -2781,6 +2876,12 @@ function updateBreadcrumb() {
         navigateTo('day', { date: state.dayDate || new Date() });
       } else if (to === 'clients') {
         navigateTo('clients');
+      } else if (to === 'finance') {
+        navigateTo('finance');
+      } else if (to === 'finance-banks') {
+        navigateTo('finance-banks');
+      } else if (to === 'finance-envelopes') {
+        navigateTo('finance-envelopes');
       } else if (to === 'projects') {
         if (el.dataset.client) {
           navigateTo('projects', { client: state.client });
@@ -4359,7 +4460,6 @@ document.addEventListener('click', async (e) => {
 // ════════════════════════════════════════════════════════════════
 
 const FIN_CUR = 'ج.م';
-const FIN_DEFAULT_ORDER = ['envelopes', 'banks', 'gold', 'feed'];
 
 // ── Small helpers ──────────────────────────────────────────────
 function finFmt(n) {
@@ -4393,6 +4493,19 @@ function finTsMillis(ts) {
 const finShow = (id) => document.getElementById(id)?.classList.remove('hidden');
 const finHide = (id) => document.getElementById(id)?.classList.add('hidden');
 
+// ── renderFinHub — router that picks the right render fn ───────
+function renderFinHub() {
+  updateDashFinancePortal();
+  const v = state.view;
+  if      (v === 'finance')           renderFinanceHome();
+  else if (v === 'finance-banks')     renderBanksList();
+  else if (v === 'finance-bank')      renderBankDetail();
+  else if (v === 'finance-envelopes') renderEnvelopesBox();
+  else if (v === 'finance-envelope')  renderEnvelopeDetail();
+  else if (v === 'finance-gold')      renderGoldBox();
+  else if (v === 'finance-summary')   renderFinanceSummary();
+}
+
 // ── Subscriptions ──────────────────────────────────────────────
 function subscribeFinance() {
   const push = (u) => state.finUnsub.push(u);
@@ -4402,130 +4515,247 @@ function subscribeFinance() {
     state.banks = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     setOnline();
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('banks')));
 
   push(onSnapshot(envelopesRef(), snap => {
     state.envelopes = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('envelopes')));
 
   push(onSnapshot(transactionsRef(), snap => {
     state.transactions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('transactions')));
 
   push(onSnapshot(goldAssetsRef(), snap => {
     state.goldAssets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('gold')));
 
   push(onSnapshot(allocRuleDoc('salary'), d => {
     state.allocRules.salary = d.exists() ? (d.data().allocations || []) : [];
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('rule.salary')));
 
   push(onSnapshot(allocRuleDoc('freelance'), d => {
     state.allocRules.freelance = d.exists() ? (d.data().allocations || []) : [];
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('rule.freelance')));
 
   push(onSnapshot(goldPricesDoc(), d => {
     state.goldPrices = d.exists() ? d.data() : null;
-    debounceRender(renderFinance);
+    debounceRender(renderFinHub);
   }, onErr('goldPrices')));
 
-  // Immediate paint so box order / empty states show before data lands
-  reorderFinanceBoxes();
-  renderFinance();
+  // Immediate paint with whatever data is already in state
+  renderFinHub();
 }
 
-// ── Box ordering ───────────────────────────────────────────────
-function getFinOrder() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('finance-box-order'));
-    if (Array.isArray(saved)) {
-      const valid = saved.filter(x => FIN_DEFAULT_ORDER.includes(x));
-      FIN_DEFAULT_ORDER.forEach(x => { if (!valid.includes(x)) valid.push(x); });
-      return valid;
-    }
-  } catch { /* ignore */ }
-  return [...FIN_DEFAULT_ORDER];
-}
-function reorderFinanceBoxes() {
-  const container = document.getElementById('finance-boxes');
-  if (!container) return;
-  getFinOrder().forEach(id => {
-    const box = container.querySelector(`[data-box-id="${id}"]`);
-    if (box) container.appendChild(box);
-  });
-}
-// Drag & Drop reorder — same UX as the clients/projects cards
-function reorderFinBoxes(draggedId, targetId) {
-  if (!draggedId || !targetId || draggedId === targetId) return;
-  const order = getFinOrder();
-  const from = order.indexOf(draggedId);
-  const to = order.indexOf(targetId);
-  if (from < 0 || to < 0) return;
-  const [moved] = order.splice(from, 1);
-  order.splice(to, 0, moved);
-  localStorage.setItem('finance-box-order', JSON.stringify(order));
-  reorderFinanceBoxes();
-}
-function wireFinanceBoxDnD() {
-  const container = document.getElementById('finance-boxes');
-  if (!container) return;
-  container.querySelectorAll('.fin-box[data-box-id]').forEach(box => {
-    box.addEventListener('dragstart', e => {
-      // Only initiate a drag from the header handle — keeps inner buttons/feed usable
-      if (!e.target.closest('.fin-box-header')) { e.preventDefault(); return; }
-      state.draggedEntityId = box.dataset.boxId;
-      state.draggedEntityType = 'finbox';
-      box.classList.add('dragging-card');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    box.addEventListener('dragend', () => {
-      box.classList.remove('dragging-card');
-      state.draggedEntityId = null;
-      state.draggedEntityType = null;
-      container.querySelectorAll('.fin-box').forEach(b => b.classList.remove('drag-over-card'));
-    });
-    box.addEventListener('dragover', e => {
-      if (state.draggedEntityType !== 'finbox' || state.draggedEntityId === box.dataset.boxId) return;
-      e.preventDefault();
-      box.classList.add('drag-over-card');
-    });
-    box.addEventListener('dragleave', e => {
-      if (!box.contains(e.relatedTarget)) box.classList.remove('drag-over-card');
-    });
-    box.addEventListener('drop', e => {
-      e.preventDefault();
-      box.classList.remove('drag-over-card');
-      if (state.draggedEntityType !== 'finbox') return;
-      reorderFinBoxes(state.draggedEntityId, box.dataset.boxId);
-    });
-  });
-}
 function toggleFinPrivacy() {
-  const view = document.getElementById('view-finance');
-  if (!view) return;
-  const revealed = view.classList.toggle('privacy-revealed');
+  const mainView = document.getElementById('view-finance');
+  if (!mainView) return;
+  const revealed = mainView.classList.toggle('privacy-revealed');
+  ['view-finance-banks','view-finance-bank','view-finance-envelopes','view-finance-envelope','view-finance-gold','view-finance-summary'].forEach(id => {
+    document.getElementById(id)?.classList.toggle('privacy-revealed', revealed);
+  });
+  document.querySelectorAll('.fin-priv-toggle').forEach(btn => btn.setAttribute('aria-pressed', String(revealed)));
   document.getElementById('btn-fin-privacy')?.setAttribute('aria-pressed', String(revealed));
 }
 
 // ── Render ─────────────────────────────────────────────────────
-function renderFinance() {
+function updateDashFinancePortal() {
+  const dashFinSub = document.getElementById('dash-finance-subtitle');
+  if (!dashFinSub) return;
+  const banksTotal  = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
+  const byK = { 24: 0, 21: 0, 18: 0 };
+  state.goldAssets.forEach(a => { const k = Number(a.karat); if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0; });
+  const goldGrams   = byK[24] + byK[21] + byK[18];
+  const goldValue   = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
+  const hasPrices   = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
+  const totalAssets = banksTotal + goldValue;
+  const parts = [`🏦 ${finFmt(banksTotal)}`];
+  if (hasPrices && goldGrams > 0) parts.push(`🥇 ${finFmt(goldValue)}`);
+  dashFinSub.innerHTML = `${finFmt(totalAssets)} ${FIN_CUR} &nbsp;·&nbsp; ${parts.join(' · ')}`;
+}
+
+function renderFinanceHome() {
   if (state.view !== 'finance') return;
-  reorderFinanceBoxes();
-  renderEnvelopesBox();
-  renderBanksBox();
-  renderGoldBox();
-  renderFeedBox();
-  // keep an open manage list fresh as balances change
+
+  // Compute numbers
+  const banksTotal = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
+  const byK = { 24: 0, 21: 0, 18: 0 };
+  state.goldAssets.forEach(a => { const k = Number(a.karat); if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0; });
+  const goldGrams  = byK[24] + byK[21] + byK[18];
+  const goldValue  = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
+  const hasPrices  = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
+  const totalAssets = banksTotal + goldValue;
+
+  // ── Summary bar — Option B (Net Worth Hero, no graph) ──
+  const summaryBar = document.getElementById('fin-summary-bar');
+  if (summaryBar) {
+    // Envelope tags with remaining balance + mini progress
+    const envTags = state.envelopes.map(e => {
+      const remaining = Number(e.current_balance) || 0;
+      const budget    = Number(e.budget) || 0;
+      const pct  = budget > 0 ? Math.min(100, Math.round((remaining / budget) * 100)) : -1;
+      const cls  = pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'ok';
+      return `<div class="fin-hero-env-tag">
+        <span class="fin-hero-env-name">${escapeHtml(e.icon || '✉️')} ${escapeHtml(e.name || '')}</span>
+        <span class="fin-hero-env-val privacy-sensitive">${finFmt(remaining)}</span>
+        ${pct >= 0 ? `<div class="fin-card-prog" style="width:36px;margin:0"><div class="fin-card-prog-fill ${cls}" style="width:${pct}%"></div></div>` : ''}
+      </div>`;
+    }).join('');
+
+    summaryBar.innerHTML = `
+      <div class="fin-hero-card">
+        <div class="fin-hero-main">
+          <div class="fin-hero-lbl">صافي الأصول</div>
+          <div class="fin-hero-num privacy-sensitive">${finFmt(totalAssets)}<span class="fin-hero-cur"> ${FIN_CUR}</span></div>
+        </div>
+        <div class="fin-hero-divider"></div>
+        <div class="fin-hero-sub-row">
+          <div class="fin-hero-sub">
+            <span class="fin-hero-sub-icon">🏦</span>
+            <div class="fin-hero-sub-txt">
+              <span class="fin-hero-sub-lbl">البنوك</span>
+              <span class="fin-hero-sub-val privacy-sensitive">${finFmt(banksTotal)} <span class="fin-hero-sub-cur">${FIN_CUR}</span></span>
+            </div>
+          </div>
+          <div class="fin-hero-sub">
+            <span class="fin-hero-sub-icon">🥇</span>
+            <div class="fin-hero-sub-txt">
+              <span class="fin-hero-sub-lbl">الذهب</span>
+              <span class="fin-hero-sub-val privacy-sensitive" style="color:#F0A835">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جم'}</span>
+            </div>
+          </div>
+        </div>
+        ${envTags.length ? `<div class="fin-hero-env-row">${envTags}</div>` : ''}
+      </div>`;
+  }
+
+  // ── Hub cards (entity-card style, rendered into #fin-hub-cards) ──
+  const grid = document.getElementById('fin-hub-cards');
+  if (!grid) return;
+
+  const envTotal = state.envelopes.reduce((s, e) => s + (Number(e.current_balance) || 0), 0);
+
+  grid.innerHTML = `
+    <div class="entity-card" id="fin-hub-banks" role="button" tabindex="0">
+      <div class="card-header-row">
+        <div class="card-avatar" style="background:rgba(53,116,240,.18);font-size:20px">🏦</div>
+        <span class="card-arrow">←</span>
+      </div>
+      <div class="card-name">البنوك والسيولة</div>
+      <div class="card-desc privacy-sensitive">${finFmt(banksTotal)} ${FIN_CUR}</div>
+      <div class="card-meta">
+        <span>${state.banks.length} بنك</span>
+        <span>${state.banks.length ? state.banks.map(b => escapeHtml(b.name)).join(' · ') : 'أضف بنكك الأول'}</span>
+      </div>
+    </div>
+    <div class="entity-card" id="fin-hub-envelopes" role="button" tabindex="0">
+      <div class="card-header-row">
+        <div class="card-avatar" style="background:rgba(240,168,53,.18);font-size:20px">✉️</div>
+        <span class="card-arrow">←</span>
+      </div>
+      <div class="card-name">الأظرف</div>
+      <div class="card-desc privacy-sensitive">${finFmt(envTotal)} ${FIN_CUR}</div>
+      <div class="card-meta">
+        <span>${state.envelopes.length} ظرف</span>
+        <span>${state.envelopes.length ? state.envelopes.map(e => escapeHtml(e.name)).join(' · ') : 'أضف ظرفك الأول'}</span>
+      </div>
+    </div>
+    <div class="entity-card" id="fin-hub-gold" role="button" tabindex="0">
+      <div class="card-header-row">
+        <div class="card-avatar" style="background:rgba(240,168,53,.25);font-size:20px">🥇</div>
+        <span class="card-arrow">←</span>
+      </div>
+      <div class="card-name">خزنة الذهب</div>
+      <div class="card-desc privacy-sensitive">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جرام'}</div>
+      <div class="card-meta">
+        <span>${finFmt(goldGrams)} جم</span>
+        <span>${hasPrices ? 'السعر محدّث' : 'حدّد الأسعار لعرض القيمة'}</span>
+      </div>
+    </div>`;
+
+  // Wire clicks
+  document.getElementById('fin-hub-banks')?.addEventListener('click', () => navigateTo('finance-banks'));
+  document.getElementById('fin-hub-envelopes')?.addEventListener('click', () => navigateTo('finance-envelopes'));
+  document.getElementById('fin-hub-gold')?.addEventListener('click', () => navigateTo('finance-gold'));
+  document.getElementById('fin-hub-banks')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-banks'); });
+  document.getElementById('fin-hub-envelopes')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-envelopes'); });
+  document.getElementById('fin-hub-gold')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-gold'); });
+
   if (!document.getElementById('manage-modal-overlay')?.classList.contains('hidden')) {
     renderManageList();
   }
+}
+
+// legacy alias kept for modal re-renders
+function renderFinance() { renderFinanceHome(); }
+
+function renderFinanceSummary() {
+  if (state.view !== 'finance-summary') return;
+  const el = document.getElementById('fin-summary-content');
+  if (!el) return;
+
+  const banksTotal  = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
+  const byK = { 24: 0, 21: 0, 18: 0 };
+  state.goldAssets.forEach(a => { const k = Number(a.karat); if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0; });
+  const goldGrams   = byK[24] + byK[21] + byK[18];
+  const goldValue   = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
+  const hasPrices   = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
+  const totalAssets = banksTotal + goldValue;
+
+  // Envelope tags — same as renderFinanceHome, each clickable
+  const envTags = state.envelopes.map(e => {
+    const remaining = Number(e.current_balance) || 0;
+    const budget    = Number(e.budget) || 0;
+    const pct  = budget > 0 ? Math.min(100, Math.round((remaining / budget) * 100)) : -1;
+    const cls  = pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'ok';
+    return `<div class="fin-hero-env-tag" style="cursor:pointer" data-sum-env="${e.id}">
+      <span class="fin-hero-env-name">${escapeHtml(e.icon || '✉️')} ${escapeHtml(e.name || '')}</span>
+      <span class="fin-hero-env-val privacy-sensitive">${finFmt(remaining)}</span>
+      ${pct >= 0 ? `<div class="fin-card-prog" style="width:36px;margin:0"><div class="fin-card-prog-fill ${cls}" style="width:${pct}%"></div></div>` : ''}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="fin-hero-card">
+      <div class="fin-hero-main">
+        <div class="fin-hero-lbl">صافي الأصول</div>
+        <div class="fin-hero-num privacy-sensitive">${finFmt(totalAssets)}<span class="fin-hero-cur"> ${FIN_CUR}</span></div>
+      </div>
+      <div class="fin-hero-divider"></div>
+      <div class="fin-hero-sub-row">
+        <div class="fin-hero-sub" id="fin-sum-banks-sub" style="cursor:pointer">
+          <span class="fin-hero-sub-icon">🏦</span>
+          <div class="fin-hero-sub-txt">
+            <span class="fin-hero-sub-lbl">البنوك</span>
+            <span class="fin-hero-sub-val privacy-sensitive">${finFmt(banksTotal)} <span class="fin-hero-sub-cur">${FIN_CUR}</span></span>
+          </div>
+        </div>
+        <div class="fin-hero-sub" id="fin-sum-gold-sub" style="cursor:pointer">
+          <span class="fin-hero-sub-icon">🥇</span>
+          <div class="fin-hero-sub-txt">
+            <span class="fin-hero-sub-lbl">الذهب</span>
+            <span class="fin-hero-sub-val privacy-sensitive" style="color:#F0A835">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جم'}</span>
+          </div>
+        </div>
+      </div>
+      ${envTags ? `<div class="fin-hero-env-row">${envTags}</div>` : ''}
+    </div>`;
+
+  // Wire clicks
+  document.getElementById('fin-sum-banks-sub')?.addEventListener('click', () => navigateTo('finance-banks'));
+  document.getElementById('fin-sum-gold-sub')?.addEventListener('click', () => navigateTo('finance-gold'));
+  el.querySelectorAll('[data-sum-env]').forEach(tag => {
+    tag.addEventListener('click', () => {
+      const envelope = state.envelopes.find(e => e.id === tag.dataset.sumEnv);
+      if (envelope) navigateTo('finance-envelope', { envelope });
+    });
+  });
 }
 
 function renderEnvelopesBox() {
@@ -4541,17 +4771,32 @@ function renderEnvelopesBox() {
   }
   grid.innerHTML = env.map(e => {
     const bal = Number(e.current_balance) || 0;
-    return `<div class="fin-card">
+    const budget = Number(e.budget) || 0;
+    const pct = budget > 0 ? Math.min(100, Math.round((bal / budget) * 100)) : -1;
+    const pctCls = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : 'ok';
+    return `<div class="fin-card fin-card-link" data-env-id="${e.id}" role="button" tabindex="0">
       ${finBadge(e.icon || '✉️', finColorFor(e))}
       <div class="fin-card-info">
         <span class="fin-card-name">${escapeHtml(e.name || '')}</span>
         <span class="fin-card-balance ${bal < 0 ? 'is-neg' : ''}">${finPriv(finFmt(bal))}<span class="fin-cur">${FIN_CUR}</span></span>
+        ${pct >= 0 ? `<div class="fin-card-prog"><div class="fin-card-prog-fill ${pctCls}" style="width:${pct}%"></div></div>` : ''}
       </div>
+      <span class="fin-card-arrow">←</span>
     </div>`;
   }).join('');
+
+  grid.querySelectorAll('.fin-card-link[data-env-id]').forEach(card => {
+    const go = () => {
+      const envelope = state.envelopes.find(e => e.id === card.dataset.envId);
+      if (envelope) navigateTo('finance-envelope', { envelope });
+    };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  });
 }
 
-function renderBanksBox() {
+
+function renderBanksList() {
   const grid = document.getElementById('fin-banks-grid');
   const totalEl = document.getElementById('fin-banks-total');
   if (!grid) return;
@@ -4564,14 +4809,102 @@ function renderBanksBox() {
   }
   grid.innerHTML = banks.map(b => {
     const bal = Number(b.current_balance) || 0;
-    return `<div class="fin-card">
+    return `<div class="fin-card fin-card-link" data-bank-id="${b.id}" role="button" tabindex="0">
       ${finBadge(b.icon || '🏦', finColorFor(b))}
       <div class="fin-card-info">
         <span class="fin-card-name">${escapeHtml(b.name || '')}</span>
         <span class="fin-card-balance ${bal < 0 ? 'is-neg' : ''}">${finPriv(finFmt(bal))}<span class="fin-cur">${FIN_CUR}</span></span>
       </div>
+      <span class="fin-card-arrow">←</span>
     </div>`;
   }).join('');
+  grid.querySelectorAll('.fin-card-link[data-bank-id]').forEach(card => {
+    const go = () => {
+      const bank = state.banks.find(b => b.id === card.dataset.bankId);
+      if (bank) navigateTo('finance-bank', { bank });
+    };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  });
+}
+// kept for any legacy calls (manage modal re-render)
+function renderBanksBox() { renderBanksList(); }
+
+function renderBankDetail() {
+  if (state.view !== 'finance-bank') return;
+  const bank = state.banks.find(b => b.id === state.bank?.id) || state.bank;
+  if (!bank) { navigateTo('finance-banks'); return; }
+  state.bank = bank;
+
+  const titleEl = document.getElementById('fin-bank-title');
+  if (titleEl) titleEl.textContent = `${bank.icon || '🏦'} ${bank.name || ''}`;
+
+  const bal   = Number(bank.current_balance) || 0;
+  const txAll = state.transactions.filter(t => t.bankId === bank.id);
+  const income = txAll.filter(t => t.type === 'income').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const statsEl = document.getElementById('fin-bank-stats');
+  if (statsEl) statsEl.innerHTML = `
+    <div class="fin-detail-stat">
+      <span class="fin-detail-stat-label">الرصيد الحالي</span>
+      <div class="fin-detail-stat-value${bal < 0 ? ' is-neg' : ''} privacy-sensitive">${finFmt(bal)}<span class="fin-cur"> ${FIN_CUR}</span></div>
+    </div>
+    <div class="fin-detail-stat">
+      <span class="fin-detail-stat-label">إجمالي الدخل</span>
+      <div class="fin-detail-stat-value is-pos privacy-sensitive">${finFmt(income)}<span class="fin-cur"> ${FIN_CUR}</span></div>
+    </div>
+    <div class="fin-detail-stat">
+      <span class="fin-detail-stat-label">عدد الحركات</span>
+      <div class="fin-detail-stat-value">${txAll.length}</div>
+    </div>`;
+
+  renderBankFeed();
+}
+
+function renderBankFeed() {
+  const list = document.getElementById('fin-bank-feed-list');
+  if (!list || !state.bank) return;
+  const { type: fType, from: fFrom, to: fTo } = state.finBankFilter;
+  let txs = state.transactions.filter(t => t.bankId === state.bank.id)
+    .sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt));
+  if (fType !== 'all') txs = txs.filter(t => t.type === fType);
+  if (fFrom)           txs = txs.filter(t => finTsMillis(t.createdAt) >= fFrom);
+  if (fTo)             txs = txs.filter(t => finTsMillis(t.createdAt) <= fTo + 86399999);
+
+  document.querySelectorAll('#fin-bank-feed-filters .fin-filter-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.filterType === fType);
+  });
+
+  if (!txs.length) {
+    list.innerHTML = `<div class="fin-empty">${state.transactions.filter(t => t.bankId === state.bank.id).length ? 'مفيش حركات بهذا الفلتر' : 'مفيش حركات لهذا البنك لسه'}</div>`;
+    return;
+  }
+  const envName = id => state.envelopes.find(e => e.id === id)?.name || '—';
+  list.innerHTML = txs.map(t => {
+    const income = t.type === 'income';
+    const typeLabel = income
+      ? ({ salary: 'مرتب 💼', freelance: 'فريلانس 🧑‍💻', normal: 'دخل عادي 💵' }[t.incomeType] || 'دخل')
+      : (t.note || 'مصروف');
+    const dest = income ? 'دخل' : escapeHtml(envName(t.envelopeId));
+    return `<div class="fin-feed-row" data-tx-id="${t.id}">
+      <span class="fin-feed-icon ${income ? 'income' : 'expense'}">${income ? '＋' : '－'}</span>
+      <div class="fin-feed-main">
+        <div class="fin-feed-title">${escapeHtml(typeLabel)}</div>
+        <div class="fin-feed-meta">${dest} · ${escapeHtml(formatDate(t.createdAt))}</div>
+      </div>
+      <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(t.amount))}</div>
+      <div class="fin-feed-actions">
+        <button class="fin-feed-act-btn" data-edit-tx="${t.id}" title="تعديل">✏️</button>
+        <button class="fin-feed-act-btn del" data-del-tx="${t.id}" title="حذف">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-del-tx]').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); deleteTx(btn.dataset.delTx); });
+  });
+  list.querySelectorAll('[data-edit-tx]').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); openEditTxModal(btn.dataset.editTx); });
+  });
 }
 
 function finPricePerGram(karat) {
@@ -4608,15 +4941,26 @@ function renderGoldBox() {
 function renderFeedBox() {
   const list = document.getElementById('fin-feed-list');
   if (!list) return;
-  const txs = [...state.transactions]
-    .sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt))
-    .slice(0, 25);
+
+  const { type: fType, from: fFrom, to: fTo } = state.finFilter;
+  let txs = [...state.transactions]
+    .sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt));
+
+  if (fType !== 'all') txs = txs.filter(t => t.type === fType);
+  if (fFrom)           txs = txs.filter(t => finTsMillis(t.createdAt) >= fFrom);
+  if (fTo)             txs = txs.filter(t => finTsMillis(t.createdAt) <= fTo + 86399999);
+
+  // sync filter pill active states
+  document.querySelectorAll('#fin-feed-filters .fin-filter-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.filterType === fType);
+  });
+
   if (!txs.length) {
-    list.innerHTML = `<div class="fin-empty">مفيش حركات لسه</div>`;
+    list.innerHTML = `<div class="fin-empty">${state.transactions.length ? 'مفيش حركات بهذا الفلتر' : 'مفيش حركات لسه'}</div>`;
     return;
   }
   const bankName = id => state.banks.find(b => b.id === id)?.name || '—';
-  const envName = id => state.envelopes.find(e => e.id === id)?.name || '—';
+  const envName  = id => state.envelopes.find(e => e.id === id)?.name || '—';
   list.innerHTML = txs.map(t => {
     const income = t.type === 'income';
     const typeLabel = income
@@ -4636,6 +4980,161 @@ function renderFeedBox() {
       <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(t.amount))}</div>
     </div>`;
   }).join('');
+}
+
+// ── Envelope Detail Page ──────────────────────────────────────
+function renderEnvelopeDetail() {
+  if (state.view !== 'finance-envelope') return;
+  // Always use fresh envelope data from state
+  const env = state.envelopes.find(e => e.id === state.envelope?.id) || state.envelope;
+  if (!env) { navigateTo('finance'); return; }
+  state.envelope = env;
+
+  const titleEl = document.getElementById('fin-env-title');
+  if (titleEl) titleEl.textContent = (env.icon || '✉️') + '  ' + (env.name || 'ظرف');
+
+  // ── Stats row ──
+  const statsEl = document.getElementById('fin-env-stats');
+  if (statsEl) {
+    const remaining = Number(env.current_balance) || 0;
+    const budget    = Number(env.budget) || 0;
+    const spent     = budget > 0 ? Math.max(0, budget - remaining) : null;
+    statsEl.innerHTML = `
+      <div class="fin-detail-stat">
+        <span class="fin-detail-stat-label">المتاح للصرف</span>
+        <span class="fin-detail-stat-value ${remaining < 0 ? 'is-neg' : 'is-pos'} privacy-sensitive">${finFmt(remaining)}<span class="fin-cur"> ${FIN_CUR}</span></span>
+      </div>
+      ${budget > 0 ? `
+      <div class="fin-detail-stat">
+        <span class="fin-detail-stat-label">الميزانية الكلية</span>
+        <span class="fin-detail-stat-value privacy-sensitive">${finFmt(budget)}<span class="fin-cur"> ${FIN_CUR}</span></span>
+      </div>
+      <div class="fin-detail-stat">
+        <span class="fin-detail-stat-label">تم الصرف</span>
+        <span class="fin-detail-stat-value privacy-sensitive">${finFmt(spent)}<span class="fin-cur"> ${FIN_CUR}</span></span>
+      </div>` : ''}
+    `;
+  }
+
+  // ── Progress bar ──
+  const progressWrap = document.getElementById('fin-env-progress-wrap');
+  if (progressWrap) {
+    const bal    = Number(env.current_balance) || 0;
+    const budget = Number(env.budget) || 0;
+    if (budget > 0) {
+      const pct    = Math.min(100, Math.round((bal / budget) * 100));
+      const pctCls = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : 'ok';
+      progressWrap.innerHTML = `
+        <div class="fin-env-prog-bar"><div class="fin-env-prog-fill ${pctCls}" style="width:${pct}%"></div></div>
+        <span class="fin-env-prog-label">${pct}% من الميزانية مستخدم</span>
+      `;
+      progressWrap.classList.remove('hidden');
+    } else {
+      progressWrap.classList.add('hidden');
+    }
+  }
+
+  renderEnvItems(env);
+  renderEnvFeed(env);
+}
+
+function renderEnvItems(env) {
+  const listEl  = document.getElementById('fin-env-items-list');
+  const totalEl = document.getElementById('fin-env-items-total');
+  if (!listEl) return;
+  const items = Array.isArray(env.items) ? env.items : [];
+  const total = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  if (totalEl) totalEl.textContent = items.length ? `إجمالي: ${finFmt(total)} ${FIN_CUR}` : '';
+  if (!items.length) {
+    listEl.innerHTML = `<div class="fin-empty">لا توجد بنود — أضف بنداً أدناه</div>`;
+    return;
+  }
+  listEl.innerHTML = items.map((it, idx) => `
+    <div class="fin-item-row" data-item-idx="${idx}">
+      <span class="fin-item-name">${escapeHtml(it.name || '')}</span>
+      <span class="fin-item-amount">${finFmt(it.amount || 0)}<span class="fin-cur"> ${FIN_CUR}</span></span>
+      <div class="fin-feed-actions" style="opacity:0">
+        <button class="fin-feed-act-btn fin-item-edit" type="button" data-item-id="${it.id}" title="تعديل">✏️</button>
+        <button class="fin-feed-act-btn del fin-item-del" type="button" data-item-idx="${idx}" title="حذف البند">🗑</button>
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.fin-item-row').forEach(row => {
+    row.addEventListener('mouseenter', () => row.querySelector('.fin-feed-actions').style.opacity = '1');
+    row.addEventListener('mouseleave', () => row.querySelector('.fin-feed-actions').style.opacity = '0');
+  });
+  listEl.querySelectorAll('.fin-item-edit').forEach(btn => {
+    btn.addEventListener('click', () => openEnvItemModal(btn.dataset.itemId));
+  });
+  listEl.querySelectorAll('.fin-item-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = Number(btn.dataset.itemIdx);
+      const confirmed = await confirmDialog({ title: 'حذف البند', message: `هتحذف "${items[idx]?.name}"؟`, icon: '🗑️', confirmText: 'احذف' });
+      if (!confirmed) return;
+      const newItems = [...items];
+      newItems.splice(idx, 1);
+      try {
+        await updateDoc(envelopeDoc(env.id), { items: newItems });
+        toast('تم حذف البند', 'success');
+      } catch (err) { toast('فشل الحذف', 'error'); console.error(err); }
+    });
+  });
+}
+
+function renderEnvFeed(env) {
+  const listEl = document.getElementById('fin-env-feed-list');
+  if (!listEl) return;
+  const fType = state.finEnvFilter?.type || 'all';
+
+  // sync pills
+  document.querySelectorAll('#fin-env-filter-pills .fin-filter-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.filterType === fType);
+  });
+
+  let txs = state.transactions.filter(t => {
+    if (t.type === 'expense') return t.envelopeId === env.id;
+    if (t.type === 'income' && Array.isArray(t.allocations)) {
+      return t.allocations.some(a => a.envelopeId === env.id);
+    }
+    return false;
+  }).sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt));
+
+  if (fType !== 'all') txs = txs.filter(t => t.type === fType);
+
+  if (!txs.length) {
+    listEl.innerHTML = `<div class="fin-empty">لا توجد حركات لهذا الظرف</div>`;
+    return;
+  }
+  const bankName = id => state.banks.find(b => b.id === id)?.name || '—';
+  listEl.innerHTML = txs.map(t => {
+    const income = t.type === 'income';
+    const typeLabel = income
+      ? ({ salary: 'مرتب 💼', freelance: 'فريلانس 🧑‍💻', normal: 'دخل عادي 💵' }[t.incomeType] || 'دخل')
+      : (t.note || 'مصروف');
+    const allocAmt = income && Array.isArray(t.allocations)
+      ? (t.allocations.find(a => a.envelopeId === env.id)?.amount ?? t.amount)
+      : t.amount;
+    return `<div class="fin-feed-row" data-tx-id="${t.id}">
+      <span class="fin-feed-icon ${income ? 'income' : 'expense'}">${income ? '＋' : '－'}</span>
+      <div class="fin-feed-main">
+        <div class="fin-feed-title">${escapeHtml(typeLabel)}</div>
+        <div class="fin-feed-meta">${escapeHtml(bankName(t.bankId))} · ${escapeHtml(formatDate(t.createdAt))}</div>
+      </div>
+      <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(allocAmt))}</div>
+      <div class="fin-feed-actions">
+        <button class="fin-feed-act-btn" data-edit-tx="${t.id}" title="تعديل">✏️</button>
+        <button class="fin-feed-act-btn del" data-del-tx="${t.id}" title="حذف">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('[data-del-tx]').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); deleteTx(btn.dataset.delTx); });
+  });
+  listEl.querySelectorAll('[data-edit-tx]').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); openEditTxModal(btn.dataset.editTx); });
+  });
 }
 
 // ── Income (manual entry + auto allocation) ────────────────────
@@ -4786,6 +5285,113 @@ function openExpenseModal() {
   finShow('expense-modal-overlay');
   setTimeout(() => document.getElementById('expense-amount')?.focus(), 60);
 }
+async function deleteTx(txId) {
+  const tx = state.transactions.find(t => t.id === txId);
+  if (!tx) return;
+  const label = tx.type === 'income' ? 'دخل' : 'مصروف';
+  const confirmed = await confirmDialog({
+    title: `حذف ${label}`,
+    message: `هتحذف ${label} بقيمة ${finFmt(tx.amount)} ${FIN_CUR}. الحذف مش هيتراجع — هيتم عكس الأرصدة تلقائياً.`,
+    icon: '🗑️',
+    confirmText: 'نعم، احذف',
+  });
+  if (!confirmed) return;
+  try {
+    const batch = writeBatch(db);
+    if (tx.type === 'expense') {
+      batch.update(bankDoc(tx.bankId), { current_balance: increment(tx.amount) });
+      if (tx.envelopeId) batch.update(envelopeDoc(tx.envelopeId), { current_balance: increment(tx.amount) });
+    } else if (tx.type === 'income') {
+      batch.update(bankDoc(tx.bankId), { current_balance: increment(-tx.amount) });
+      if (Array.isArray(tx.allocations)) {
+        tx.allocations.forEach(a => {
+          if (a.envelopeId) batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(-a.amount) });
+        });
+      }
+    }
+    batch.delete(transactionDoc(txId));
+    await batch.commit();
+    toast('تم الحذف', 'success');
+  } catch (err) {
+    console.error('deleteTx', err);
+    toast('حصل خطأ أثناء الحذف', 'error');
+  }
+}
+
+function openEditTxModal(txId) {
+  const tx = state.transactions.find(t => t.id === txId);
+  if (!tx) return;
+  document.getElementById('edit-tx-id').value   = txId;
+  document.getElementById('edit-tx-note').value = tx.note || '';
+  const envGroup = document.getElementById('edit-tx-envelope-group');
+  const envSel   = document.getElementById('edit-tx-envelope');
+  if (tx.type === 'expense') {
+    envGroup.style.display = '';
+    envSel.innerHTML = state.envelopes.map(e =>
+      `<option value="${e.id}"${e.id === tx.envelopeId ? ' selected' : ''}>${escapeHtml((e.icon||'') + ' ' + e.name)}</option>`
+    ).join('');
+  } else {
+    envGroup.style.display = 'none';
+  }
+  document.getElementById('edit-tx-modal-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('edit-tx-note').focus(), 60);
+}
+
+async function submitEditTx(e) {
+  e.preventDefault();
+  const txId = document.getElementById('edit-tx-id').value;
+  const tx   = state.transactions.find(t => t.id === txId);
+  if (!tx || !txId) return;
+  const note      = document.getElementById('edit-tx-note').value.trim();
+  const envelopeId = tx.type === 'expense' ? document.getElementById('edit-tx-envelope').value : tx.envelopeId;
+  const btn = document.getElementById('submit-edit-tx-btn');
+  btn.disabled = true;
+  try {
+    const updates = { note };
+    if (tx.type === 'expense' && envelopeId !== tx.envelopeId) {
+      // move expense between envelopes: reverse old, apply new
+      const batch = writeBatch(db);
+      if (tx.envelopeId) batch.update(envelopeDoc(tx.envelopeId), { current_balance: increment(tx.amount) });
+      batch.update(envelopeDoc(envelopeId), { current_balance: increment(-tx.amount) });
+      batch.update(transactionDoc(txId), { note, envelopeId });
+      await batch.commit();
+    } else {
+      await updateDoc(transactionDoc(txId), updates);
+    }
+    document.getElementById('edit-tx-modal-overlay').classList.add('hidden');
+    toast('تم التعديل', 'success');
+  } catch (err) {
+    console.error('submitEditTx', err);
+    toast('حصل خطأ', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openEnvItemModal(itemId) {
+  const editId = document.getElementById('env-item-edit-id');
+  const nameInp = document.getElementById('env-item-name-inp');
+  const amtInp  = document.getElementById('env-item-amount-inp');
+  const title   = document.querySelector('#env-item-modal-overlay h2');
+  const submitBtn = document.getElementById('submit-env-item-btn');
+  if (itemId) {
+    const item = (state.envelope?.items || []).find(i => i.id === itemId);
+    editId.value    = itemId;
+    nameInp.value   = item?.name   || '';
+    amtInp.value    = item?.amount || '';
+    if (title)     title.textContent  = '✏️ تعديل بند';
+    if (submitBtn) submitBtn.textContent = 'حفظ التعديل';
+  } else {
+    editId.value = '';
+    nameInp.value = '';
+    amtInp.value  = '';
+    if (title)     title.textContent  = '＋ إضافة بند';
+    if (submitBtn) submitBtn.textContent = 'حفظ البند';
+  }
+  document.getElementById('env-item-modal-overlay').classList.remove('hidden');
+  setTimeout(() => nameInp.focus(), 60);
+}
+
 async function submitExpense(e) {
   e.preventDefault();
   const amount = Number(document.getElementById('expense-amount').value);
@@ -5104,6 +5710,15 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
   // Toolbar
   document.getElementById('btn-fin-income')?.addEventListener('click', openIncomeModal);
   document.getElementById('btn-fin-expense')?.addEventListener('click', openExpenseModal);
+  document.getElementById('btn-env-expense')?.addEventListener('click', () => {
+    openExpenseModal();
+    // pre-select the current envelope
+    setTimeout(() => {
+      const sel = document.getElementById('expense-envelope');
+      if (sel && state.envelope) sel.value = state.envelope.id;
+      updateExpenseHint();
+    }, 80);
+  });
   document.getElementById('btn-fin-manage')?.addEventListener('click', () => openManageModal('banks'));
   document.getElementById('btn-fin-rules')?.addEventListener('click', () => openRulesModal('salary'));
   document.getElementById('btn-fin-privacy')?.addEventListener('click', toggleFinPrivacy);
@@ -5196,7 +5811,118 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
     if (e.target.closest('#fin-gold-sub')) { openGoldGramsModal('sub'); return; }
   });
 
-  // Drag & drop reordering of the boxes (header = grab handle)
-  wireFinanceBoxDnD();
+  // ── Back buttons ──
+  document.getElementById('btn-back-finance-banks')?.addEventListener('click', () => navigateTo('finance'));
+  document.getElementById('btn-back-finance-bank')?.addEventListener('click',  () => navigateTo('finance-banks'));
+  document.getElementById('btn-back-finance-envelopes')?.addEventListener('click', () => navigateTo('finance'));
+  document.getElementById('btn-back-finance-env')?.addEventListener('click',   () => navigateTo('finance-envelopes'));
+  document.getElementById('btn-back-finance-gold')?.addEventListener('click',  () => navigateTo('finance'));
+  document.getElementById('btn-back-finance-summary')?.addEventListener('click', () => navigateTo('dashboard'));
+
+  // ── Manage modal: restore all tabs on close ──
+  const restoreManageTabs = () => {
+    document.querySelectorAll('.fin-manage-tab').forEach(t => { t.style.display = ''; });
+  };
+  document.getElementById('close-manage-modal-btn')?.addEventListener('click', restoreManageTabs, true);
+
+  // ── Banks page: add bank (show only banks tab) ──
+  document.getElementById('btn-banks-add')?.addEventListener('click', () => {
+    finManageTab = 'banks';
+    document.querySelectorAll('.fin-manage-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.kind === 'banks');
+      t.style.display = t.dataset.kind === 'envelopes' ? 'none' : '';
+    });
+    resetManageForm();
+    renderManageList();
+    finShow('manage-modal-overlay');
+  });
+
+  // ── Envelopes page: add envelope (show only envelopes tab) ──
+  document.getElementById('btn-envelopes-add')?.addEventListener('click', () => {
+    finManageTab = 'envelopes';
+    document.querySelectorAll('.fin-manage-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.kind === 'envelopes');
+      t.style.display = t.dataset.kind === 'banks' ? 'none' : '';
+    });
+    resetManageForm();
+    renderManageList();
+    finShow('manage-modal-overlay');
+  });
+  document.getElementById('btn-envelopes-rules')?.addEventListener('click', openRulesModal);
+
+  // ── Privacy toggles (all fin sub-view privacy btns) ──
+  document.querySelectorAll('.fin-priv-toggle').forEach(btn => btn.addEventListener('click', toggleFinPrivacy));
+
+  // ── Bank detail feed filter pills ──
+  document.getElementById('fin-bank-feed-filters')?.addEventListener('click', e => {
+    const pill = e.target.closest('.fin-filter-pill');
+    if (!pill) return;
+    state.finBankFilter.type = pill.dataset.filterType || 'all';
+    debounceRender(renderBankFeed);
+  });
+  document.getElementById('fin-bank-filter-from')?.addEventListener('change', e => {
+    state.finBankFilter.from = e.target.value ? new Date(e.target.value).getTime() : null;
+    debounceRender(renderBankFeed);
+  });
+  document.getElementById('fin-bank-filter-to')?.addEventListener('change', e => {
+    state.finBankFilter.to = e.target.value ? new Date(e.target.value).getTime() : null;
+    debounceRender(renderBankFeed);
+  });
+  document.getElementById('fin-bank-filter-clear')?.addEventListener('click', () => {
+    state.finBankFilter = { type: 'all', from: null, to: null };
+    const f = document.getElementById('fin-bank-filter-from');
+    const t = document.getElementById('fin-bank-filter-to');
+    if (f) f.value = '';
+    if (t) t.value = '';
+    debounceRender(renderBankFeed);
+  });
+
+  // ── Envelope detail: feed filter pills ──
+  document.getElementById('fin-env-filter-pills')?.addEventListener('click', e => {
+    const pill = e.target.closest('.fin-filter-pill');
+    if (!pill) return;
+    state.finEnvFilter.type = pill.dataset.filterType || 'all';
+    if (state.envelope) renderEnvFeed(state.envelope);
+  });
+
+  // ── Envelope detail: add item button → modal ──
+  document.getElementById('btn-add-env-item')?.addEventListener('click', () => openEnvItemModal(null));
+
+  // ── Add/Edit env item modal ──
+  const closeEnvItemModal = () => document.getElementById('env-item-modal-overlay').classList.add('hidden');
+  document.getElementById('close-env-item-modal-btn')?.addEventListener('click', closeEnvItemModal);
+  document.getElementById('cancel-env-item-modal-btn')?.addEventListener('click', closeEnvItemModal);
+  document.getElementById('env-item-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEnvItemModal(); });
+
+  document.getElementById('env-item-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!state.envelope) return;
+    const name   = document.getElementById('env-item-name-inp').value.trim();
+    const amount = Number(document.getElementById('env-item-amount-inp').value) || 0;
+    const editId = document.getElementById('env-item-edit-id').value;
+    if (!name) return;
+    const btn = document.getElementById('submit-env-item-btn');
+    btn.disabled = true;
+    try {
+      const existing = Array.isArray(state.envelope.items) ? [...state.envelope.items] : [];
+      if (editId) {
+        const idx = existing.findIndex(i => i.id === editId);
+        if (idx >= 0) existing[idx] = { ...existing[idx], name, amount };
+      } else {
+        existing.push({ id: Date.now().toString(36), name, amount });
+      }
+      await updateDoc(envelopeDoc(state.envelope.id), { items: existing });
+      closeEnvItemModal();
+      toast(editId ? 'تم تعديل البند' : 'تم إضافة البند', 'success');
+    } catch (err) { toast('فشلت العملية', 'error'); console.error(err); }
+    btn.disabled = false;
+  });
+
+  // ── Edit transaction modal ──
+  const closeEditTxModal = () => document.getElementById('edit-tx-modal-overlay').classList.add('hidden');
+  document.getElementById('close-edit-tx-modal-btn')?.addEventListener('click', closeEditTxModal);
+  document.getElementById('cancel-edit-tx-modal-btn')?.addEventListener('click', closeEditTxModal);
+  document.getElementById('edit-tx-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEditTxModal(); });
+  document.getElementById('edit-tx-form')?.addEventListener('submit', submitEditTx);
 })();
 
