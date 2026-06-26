@@ -479,6 +479,9 @@ const transactionDoc   = (id)    => doc(db, 'transactions', id);
 const allocRuleDoc     = (type)  => doc(db, 'allocation_rules', type);   // type: 'salary' | 'freelance'
 const goldPricesDoc    = ()      => doc(db, 'meta', 'goldPrices');
 
+// ── Food & Health Firestore helpers ────────────────────────────
+const foodDayDoc = (dateStr) => doc(db, 'users', auth.currentUser.uid, 'food', dateStr);
+
 // ── App State ──────────────────────────────────────────────────
 const state = {
   view:        'dashboard',  // 'dashboard' | 'clients' | 'projects' | 'tasks'
@@ -538,6 +541,11 @@ const state = {
   finFilter:      { type: 'all', from: null, to: null },
   finBankFilter:  { type: 'all', from: null, to: null },
   finEnvFilter:   { type: 'all' },
+  // Food & Health state
+  foodDate:   null,   // Date object for the viewed day
+  food:       null,   // current day's Firestore data
+  foodWeek:   [],     // array of { date, data } for the current week
+  foodUnsub:  [],     // onSnapshot unsubscribers
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -555,7 +563,8 @@ function cleanupListeners() {
   safeUnsub(state.dashUnsubStats);       state.dashUnsubStats = null;
   safeUnsub(state.projUnsub);            state.projUnsub = null;
   safeUnsub(state.taskUnsub);            state.taskUnsub = null;
-  (state.finUnsub || []).forEach(safeUnsub); state.finUnsub = [];
+  (state.finUnsub  || []).forEach(safeUnsub); state.finUnsub  = [];
+  (state.foodUnsub || []).forEach(safeUnsub); state.foodUnsub = [];
   cancelPendingRenders();
 }
 
@@ -795,11 +804,13 @@ function navigateTo(view, payload = {}) {
   const showClientsActive = (view === 'clients') || (view === 'projects' && state.client) || (view === 'tasks' && state.navigationSource === 'clients');
   const showFocusActive   = (view === 'focus');
   const showFinanceActive = view === 'finance' || view === 'finance-banks' || view === 'finance-bank' || view === 'finance-envelopes' || view === 'finance-envelope' || view === 'finance-gold';
+  const showFoodActive    = view === 'food';
 
   document.getElementById('nav-dashboard')?.classList.toggle('active', !!showDashActive);
   document.getElementById('nav-clients')?.classList.toggle('active', !!showClientsActive);
   document.getElementById('nav-focus')?.classList.toggle('active', !!showFocusActive);
   document.getElementById('nav-finance')?.classList.toggle('active', !!showFinanceActive);
+  document.getElementById('nav-food')?.classList.toggle('active', !!showFoodActive);
 
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -916,6 +927,13 @@ function navigateTo(view, payload = {}) {
     document.getElementById('view-daily').classList.add('active');
     subscribeCalendar();   // ← real-time listeners (same data as calendar/day)
     renderDailySummary();  // ← immediate render with current state
+
+  } else if (view === 'food') {
+    state.client  = null;
+    state.project = null;
+    if (!state.foodDate) state.foodDate = new Date();
+    document.getElementById('view-food').classList.add('active');
+    subscribeFood();
   }
 
   updateHeader();
@@ -2786,6 +2804,11 @@ function updateHeader() {
 
   } else if (['finance','finance-summary','finance-banks','finance-bank','finance-envelopes','finance-envelope','finance-gold'].includes(state.view)) {
     titleEl.textContent = '💰 المصروفات';
+    statsEl.innerHTML   = '';
+    actionsEl.innerHTML = '';
+
+  } else if (state.view === 'food') {
+    titleEl.textContent = '🥗 التغذية والصحة';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
   }
@@ -6094,5 +6117,357 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
   document.getElementById('cancel-edit-tx-modal-btn')?.addEventListener('click', closeEditTxModal);
   document.getElementById('edit-tx-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEditTxModal(); });
   document.getElementById('edit-tx-form')?.addEventListener('submit', submitEditTx);
+
+  // ── Food nav ──────────────────────────────────────────────────
+  document.getElementById('nav-food')?.addEventListener('click', () => navigateTo('food'));
+
+  // ── Food day navigation ───────────────────────────────────────
+  document.getElementById('food-prev-day')?.addEventListener('click', () => {
+    const d = new Date(state.foodDate || new Date());
+    d.setDate(d.getDate() - 1);
+    state.foodDate = d;
+    state.food = null;
+    subscribeFood();
+  });
+
+  document.getElementById('food-next-day')?.addEventListener('click', () => {
+    const today = toLocalISODate(new Date());
+    const d = new Date(state.foodDate || new Date());
+    d.setDate(d.getDate() + 1);
+    if (toLocalISODate(d) > today) return;
+    state.foodDate = d;
+    state.food = null;
+    subscribeFood();
+  });
+
+  // ── Fasting type pills ────────────────────────────────────────
+  document.getElementById('food-fast-pills')?.addEventListener('click', async (e) => {
+    const pill = e.target.closest('.food-fast-pill');
+    if (!pill) return;
+    const fastType = pill.dataset.fast;
+    const current = state.food?.fastType;
+    await foodSave({ fastType: current === fastType ? null : fastType });
+  });
+
+  // ── Habits icon grid ─────────────────────────────────────────
+  document.getElementById('food-habits-grid')?.addEventListener('click', async (e) => {
+    const opt = e.target.closest('.food-hi-opt');
+    if (opt) {
+      const key = opt.dataset.taskKey;
+      const val = opt.dataset.val;
+      await foodSave({ [key]: state.food?.[key] === val ? null : val });
+      return;
+    }
+    const btn = e.target.closest('.food-hi[data-task-key]');
+    if (btn) {
+      const key = btn.dataset.taskKey;
+      if (key === 'photoTaken') { document.getElementById('food-photo-input')?.click(); return; }
+      const was = state.food?.[key] || false;
+      await foodSave({ [key]: !was });
+      if (key === 'walkDone' || key === 'gymDone') setTimeout(loadFoodWeek, 600);
+    }
+  });
+
+  // ── Water drops ───────────────────────────────────────────────
+  document.getElementById('food-water-drops')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.food-drop');
+    if (!btn) return;
+    const n = parseInt(btn.dataset.drop);
+    const current = state.food?.water || 0;
+    await foodSave({ water: current === n ? n - 1 : n });
+  });
+
+  // ── Photo file input ──────────────────────────────────────────
+  document.getElementById('food-photo-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try { localStorage.setItem(`food-photo-${toLocalISODate(state.foodDate || new Date())}`, ev.target.result); } catch {}
+      await foodSave({ photoTaken: true });
+      toast('تم حفظ الصورة 📸 +3 نقط', 'success');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  });
+
+  // ── Weight modal ──────────────────────────────────────────────
+  document.getElementById('food-weight-edit-btn')?.addEventListener('click', () => {
+    const current = state.food?.weight || '';
+    document.getElementById('food-weight-input').value = current;
+    document.getElementById('food-weight-modal-overlay').classList.remove('hidden');
+    setTimeout(() => document.getElementById('food-weight-input')?.focus(), 100);
+  });
+
+  const closeFoodWeightModal = () => document.getElementById('food-weight-modal-overlay').classList.add('hidden');
+  document.getElementById('close-food-weight-modal-btn')?.addEventListener('click', closeFoodWeightModal);
+  document.getElementById('cancel-food-weight-modal-btn')?.addEventListener('click', closeFoodWeightModal);
+  document.getElementById('food-weight-modal-overlay')?.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeFoodWeightModal();
+  });
+  document.getElementById('food-weight-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const val = parseFloat(document.getElementById('food-weight-input').value);
+    if (isNaN(val) || val <= 0) { toast('ادخل وزن صحيح', 'error'); return; }
+    const btn = document.getElementById('food-weight-submit-btn');
+    btn.disabled = true;
+    await foodSave({ weight: val });
+    closeFoodWeightModal();
+    toast(`تم تسجيل الوزن: ${val} كجم ⚖️ +5 نقط`, 'success');
+    btn.disabled = false;
+  });
+
 })();
+
+// ════════════════════════════════════════════════════════════════
+//  FOOD & HEALTH SECTION
+// ════════════════════════════════════════════════════════════════
+
+function calcFoodPoints(data) {
+  if (!data) return 0;
+  let pts = 0;
+  if      (data.fastType === 'islamic')      pts += 15;
+  else if (data.fastType === 'intermittent') pts += 10;
+  if (data.medicine)   pts += 5;
+  const water = data.water || 0;
+  if      (water >= 14) pts += 10;
+  else if (water >= 7)  pts += 5;
+  if (data.noSugar) pts += 8;
+  if      (data.komagaStatus     === 'ok')       pts += 5;
+  else if (data.komagaStatus     === 'violated')  pts -= 5;
+  if      (data.outsideFoodStatus === 'none')     pts += 8;
+  else if (data.outsideFoodStatus === 'grilled')  pts += 3;
+  else if (data.outsideFoodStatus === 'violated') pts -= 8;
+  if (data.weight)     pts += 5;
+  if (data.photoTaken) pts += 3;
+  if (data.walkDone)   pts += 10;
+  if (data.gymDone)    pts += 12;
+  return pts;
+}
+
+async function foodSave(fields) {
+  if (!auth.currentUser) return;
+  const dateStr = toLocalISODate(state.foodDate || new Date());
+  const merged  = { ...(state.food || {}), ...fields };
+  const pts     = calcFoodPoints(merged);
+  try {
+    await setDoc(foodDayDoc(dateStr), { ...fields, points: pts, updatedAt: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    console.error('foodSave failed:', err);
+    toast('فشل الحفظ', 'error');
+  }
+}
+
+function getWeekDates(date) {
+  const d   = new Date(date);
+  const day = d.getDay();                      // 0=Sun
+  const diff = (day === 0) ? -6 : 1 - day;    // shift to Monday
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const wd = new Date(monday);
+    wd.setDate(monday.getDate() + i);
+    dates.push(toLocalISODate(wd));
+  }
+  return dates;
+}
+
+function subscribeFood() {
+  if (!auth.currentUser) return;
+  // Unsubscribe previous day listener
+  (state.foodUnsub || []).forEach(fn => { try { fn(); } catch (e) {} });
+  state.foodUnsub = [];
+
+  const dateStr = toLocalISODate(state.foodDate || new Date());
+  const unsub   = onSnapshot(foodDayDoc(dateStr), (snap) => {
+    state.food = snap.exists() ? snap.data() : null;
+    debounceRender(renderFood);
+  }, err => console.error('food snapshot:', err));
+
+  state.foodUnsub = [unsub];
+  loadFoodWeek();
+}
+
+async function loadFoodWeek() {
+  if (!auth.currentUser) return;
+  const dates = getWeekDates(state.foodDate || new Date());
+  try {
+    const snaps   = await Promise.all(dates.map(d => getDoc(foodDayDoc(d))));
+    state.foodWeek = snaps.map((s, i) => ({ date: dates[i], data: s.exists() ? s.data() : null }));
+    renderFoodWeekly();
+    renderFoodStats();
+  } catch (err) { console.error('loadFoodWeek:', err); }
+}
+
+function renderFood() {
+  const today   = toLocalISODate(new Date());
+  const dateStr = toLocalISODate(state.foodDate || new Date());
+  const pts     = calcFoodPoints(state.food);
+
+  // Toolbar points chip
+  const ptsEl = document.getElementById('food-points-val');
+  if (ptsEl) ptsEl.textContent = pts;
+
+  // Date label
+  const labelEl = document.getElementById('food-date-label');
+  const subEl   = document.getElementById('food-date-sub');
+  if (labelEl) {
+    labelEl.textContent = dateStr === today ? 'اليوم'
+      : (state.foodDate || new Date()).toLocaleDateString('ar-EG', { weekday: 'long' });
+  }
+  if (subEl) {
+    subEl.textContent = (state.foodDate || new Date()).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  const nextBtn = document.getElementById('food-next-day');
+  if (nextBtn) nextBtn.disabled = dateStr >= today;
+
+  renderFoodHero();
+  renderFoodFasting();
+  renderFoodHabits();
+  renderFoodWater();
+  renderFoodBottom();
+  renderFoodWeekly();
+}
+
+function renderFoodHero() {
+  const el = document.getElementById('food-hero');
+  if (!el) return;
+  const d   = state.food;
+  const pts = calcFoodPoints(d);
+  // Max possible: 15 (islamic) + 5 + 10 + 8 + 5 + 8 + 5 + 3 + 10 + 12 = 81 (all done, islamic)
+  const max = 81;
+  const pct = Math.min(100, Math.round((Math.max(0, pts) / max) * 100));
+  el.innerHTML = `
+    <div class="food-hero-pts">${pts}</div>
+    <div class="food-hero-label">نقطة من أصل ${max}</div>
+    <div class="food-hero-bar"><div class="food-hero-fill" style="width:${pct}%"></div></div>`;
+}
+
+function renderFoodFasting() {
+  const current = state.food?.fastType || null;
+  document.querySelectorAll('#food-fast-pills .food-fast-pill').forEach(pill => {
+    pill.classList.toggle('active', pill.dataset.fast === current);
+  });
+}
+
+function renderFoodHabits() {
+  const el = document.getElementById('food-habits-grid');
+  if (!el) return;
+  const d = state.food || {};
+
+  const toggles = [
+    { key: 'medicine',   icon: '💊', label: 'علاج',   pts: 5,  done: !!d.medicine },
+    { key: 'noSugar',    icon: '🚫', label: 'لا سكر', pts: 8,  done: !!d.noSugar },
+    { key: 'walkDone',   icon: '🚶', label: 'مشي',    pts: 10, done: !!d.walkDone },
+    { key: 'gymDone',    icon: '🏋️', label: 'رياضة', pts: 12, done: !!d.gymDone },
+    { key: 'photoTaken', icon: '📸', label: 'صورة',   pts: 3,  done: !!d.photoTaken },
+  ];
+
+  const togglesHtml = toggles.map(h => `
+    <button class="food-hi ${h.done ? 'done' : ''}" data-task-key="${h.key}" type="button">
+      <span class="food-hi-emoji">${h.icon}</span>
+      <span class="food-hi-label">${h.label}</span>
+      <span class="food-hi-pts">${h.done ? '✓' : '+' + h.pts}</span>
+    </button>`).join('');
+
+  const komagaDone = d.komagaStatus === 'ok';
+  const komagaBad  = d.komagaStatus === 'violated';
+  const komaga = `
+    <div class="food-hi-multi ${komagaDone ? 'done' : komagaBad ? 'neg' : ''}">
+      <span class="food-hi-emoji">🍞</span>
+      <span class="food-hi-label">كوماج</span>
+      <div class="food-hi-opts">
+        <button class="food-hi-opt ok ${d.komagaStatus === 'ok' ? 'active' : ''}" data-task-key="komagaStatus" data-val="ok" type="button">✓</button>
+        <button class="food-hi-opt bad ${d.komagaStatus === 'violated' ? 'active' : ''}" data-task-key="komagaStatus" data-val="violated" type="button">✗</button>
+      </div>
+    </div>`;
+
+  const outsideDone = d.outsideFoodStatus === 'none' || d.outsideFoodStatus === 'grilled';
+  const outsideBad  = d.outsideFoodStatus === 'violated';
+  const outside = `
+    <div class="food-hi-multi ${outsideDone ? 'done' : outsideBad ? 'neg' : ''}">
+      <span class="food-hi-emoji">🏪</span>
+      <span class="food-hi-label">برا</span>
+      <div class="food-hi-opts">
+        <button class="food-hi-opt ok ${d.outsideFoodStatus === 'none' ? 'active' : ''}" data-task-key="outsideFoodStatus" data-val="none" type="button">✓</button>
+        <button class="food-hi-opt mid ${d.outsideFoodStatus === 'grilled' ? 'active' : ''}" data-task-key="outsideFoodStatus" data-val="grilled" type="button">🔶</button>
+        <button class="food-hi-opt bad ${d.outsideFoodStatus === 'violated' ? 'active' : ''}" data-task-key="outsideFoodStatus" data-val="violated" type="button">✗</button>
+      </div>
+    </div>`;
+
+  el.innerHTML = togglesHtml + komaga + outside;
+}
+
+function renderFoodWater() {
+  const count = state.food?.water || 0;
+  const el    = document.getElementById('food-water-drops');
+  if (el) {
+    el.innerHTML = Array.from({ length: 14 }, (_, i) => {
+      const n      = i + 1;
+      const filled = n <= count;
+      return `<button class="food-drop ${filled ? 'filled' : ''}" data-drop="${n}" type="button" title="${n} كوباية">+</button>`;
+    }).join('');
+  }
+
+  const ptsEl = document.getElementById('food-water-pts-label');
+  if (ptsEl) {
+    if (count >= 14)     { ptsEl.textContent = '+10 ✓'; ptsEl.className = 'food-pts-badge pos'; }
+    else if (count >= 7) { ptsEl.textContent = `${count}/14 +5`; ptsEl.className = 'food-pts-badge mid'; }
+    else                 { ptsEl.textContent = `${count}/14`; ptsEl.className = 'food-pts-badge'; }
+  }
+}
+
+function renderFoodBottom() {
+  const d = state.food || {};
+  const wEl = document.getElementById('food-weight-val');
+  if (wEl) wEl.textContent = d.weight || '—';
+  const btn = document.getElementById('food-weight-edit-btn');
+  if (btn) btn.classList.toggle('done', !!d.weight);
+}
+
+function renderFoodWeekly() {
+  const week = state.foodWeek || [];
+
+  // Walk / gym counts
+  const weekWalk = week.filter(w => w.data?.walkDone).length;
+  const weekGym  = week.filter(w => w.data?.gymDone).length;
+  const wc = document.getElementById('food-walk-count');
+  const gc = document.getElementById('food-gym-count');
+  if (wc) wc.textContent = weekWalk;
+  if (gc) gc.textContent = weekGym;
+
+  // Weekly stats grid
+  const statsEl = document.getElementById('food-week-stats');
+  if (statsEl) {
+    const today = toLocalISODate(new Date());
+    const weightsLogged = week.filter(w => w.data?.weight);
+    const avgWeight = weightsLogged.length
+      ? (weightsLogged.reduce((s, w) => s + parseFloat(w.data.weight), 0) / weightsLogged.length).toFixed(1)
+      : null;
+
+    const dayNames = ['ن', 'ث', 'ر', 'خ', 'ج', 'س', 'ح']; // Mon-Sun
+    const avgHtml = avgWeight
+      ? `<div class="food-week-avg">متوسط الوزن: <strong>${avgWeight} كجم</strong> <span style="color:var(--text-muted);font-size:11px">(${weightsLogged.length} أيام)</span></div>`
+      : '';
+
+    const daysHtml = week.map((w, i) => {
+      const d = w.data || {};
+      const isToday = w.date === today;
+      const weight = d.weight ? d.weight : '—';
+      const photo  = d.photoTaken ? '📸' : '·';
+      return `<div class="food-week-day${isToday ? ' today' : ''}">
+        <div class="food-wd-name">${dayNames[i]}</div>
+        <div class="food-wd-weight">${weight}</div>
+        <div class="food-wd-photo">${photo}</div>
+      </div>`;
+    }).join('');
+
+    statsEl.innerHTML = avgHtml + `<div class="food-week-days">${daysHtml}</div>`;
+  }
+
+  renderFoodHero();
+}
+
+function renderFoodStats() { renderFoodWeekly(); }
 

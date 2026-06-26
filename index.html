@@ -106,15 +106,11 @@
         <span>المصروفات</span>
       </div>
 
-      <span class="nav-label">قريباً</span>
+      <span class="nav-label">الصحة</span>
 
-      <div class="nav-item disabled" title="قريباً">
+      <div class="nav-item" id="nav-food" title="التغذية والصحة">
         <span class="nav-icon">🥗</span>
         <span>التغذية</span>
-      </div>
-      <div class="nav-item disabled" title="قريباً">
-        <span class="nav-icon">🏋️</span>
-        <span>التمرين</span>
       </div>
 
       <!-- ── SIDEBAR FOOTER ── -->
@@ -744,6 +740,91 @@
           </div>
         </div><!-- /#view-finance-gold -->
 
+        <!-- ══ VIEW: FOOD (التغذية والصحة) ══ -->
+        <div class="view" id="view-food">
+
+          <!-- Toolbar -->
+          <div class="food-toolbar">
+            <button class="food-day-nav" id="food-prev-day" type="button" title="اليوم السابق">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="food-date-display">
+              <span id="food-date-label">اليوم</span>
+              <span id="food-date-sub"></span>
+            </div>
+            <button class="food-day-nav" id="food-next-day" type="button" title="اليوم التالي">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            <div class="food-toolbar-spacer"></div>
+            <div class="food-points-chip" id="food-points-chip">
+              <span>🏆</span>
+              <span id="food-points-val">0</span>
+              <span>نقطة</span>
+            </div>
+          </div>
+
+          <div class="food-page">
+
+            <!-- Points Hero -->
+            <div class="food-hero" id="food-hero"></div>
+
+            <!-- Fasting type -->
+            <div class="food-block">
+              <div class="food-block-label">🌙 نوع اليوم</div>
+              <div class="food-fast-pills" id="food-fast-pills">
+                <button class="food-fast-pill" data-fast="islamic" type="button">
+                  <span class="food-fast-pill-icon">🕌</span>
+                  <span class="food-fast-pill-label">إسلامي</span>
+                  <span class="food-fast-pill-pts">+15</span>
+                </button>
+                <button class="food-fast-pill" data-fast="intermittent" type="button">
+                  <span class="food-fast-pill-icon">⏱️</span>
+                  <span class="food-fast-pill-label">متقطع</span>
+                  <span class="food-fast-pill-pts">+10</span>
+                </button>
+                <button class="food-fast-pill" data-fast="normal" type="button">
+                  <span class="food-fast-pill-icon">🍽️</span>
+                  <span class="food-fast-pill-label">عادي</span>
+                  <span class="food-fast-pill-pts">+0</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Habits icon grid (JS-rendered) -->
+            <div class="food-block">
+              <div class="food-block-label">✅ العادات</div>
+              <div class="food-habits-grid" id="food-habits-grid"></div>
+            </div>
+
+            <!-- Water drops (JS-rendered) -->
+            <div class="food-block">
+              <div class="food-block-label">💧 الماء <span id="food-water-pts-label" class="food-pts-badge"></span></div>
+              <div class="food-water-drops" id="food-water-drops"></div>
+            </div>
+
+            <!-- Weekly stats (weight average + photo tracking) -->
+            <div class="food-block">
+              <div class="food-block-label">📅 هذا الأسبوع</div>
+              <div id="food-week-stats"></div>
+            </div>
+
+            <!-- Bottom row -->
+            <div class="food-bottom-row">
+              <button class="food-weight-chip" id="food-weight-edit-btn" type="button">
+                ⚖️ <span id="food-weight-val">—</span> <span class="food-wc-unit">كجم</span>
+              </button>
+              <div class="food-week-chips">
+                <div class="food-week-chip">🚶 <span id="food-walk-count">0</span> هذا الأسبوع</div>
+                <div class="food-week-chip">🏋️ <span id="food-gym-count">0</span> هذا الأسبوع</div>
+              </div>
+            </div>
+
+            <!-- Hidden file input for photo -->
+            <input type="file" id="food-photo-input" accept="image/*" capture="environment" class="hidden" />
+
+          </div><!-- /.food-page -->
+        </div><!-- /#view-food -->
+
       </div><!-- /#content -->
 
 
@@ -833,6 +914,30 @@
         <button type="button" class="btn-ghost" id="cancel-settings-modal-btn">إلغاء</button>
         <button type="button" class="btn-primary" id="save-settings-btn">💾 حفظ</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+     FOOD — WEIGHT LOG MODAL
+══════════════════════════════════ -->
+  <div id="food-weight-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>⚖️ تسجيل الوزن</h2>
+        <button class="modal-close" id="close-food-weight-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="food-weight-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">الوزن (كيلوجرام)</label>
+            <input type="number" id="food-weight-input" class="form-input" min="30" max="300" step="0.1" inputmode="decimal" placeholder="مثال: 82.5" required />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-food-weight-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-primary" id="food-weight-submit-btn">💾 حفظ</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -38,6 +38,11 @@ service cloud.firestore {
     match /gold_assets/{id}      { allow read, write: if isOwner(); }
     match /transactions/{id}     { allow read, write: if isOwner(); }
 
+    // ── Food & Health — owner-only ──
+    match /users/{userId}/food/{docId} {
+      allow read, write: if isOwner();
+    }
+
     // ── collectionGroup queries ──
     match /{path=**}/projects/{projectId} {
       allow read: if isOwner();
