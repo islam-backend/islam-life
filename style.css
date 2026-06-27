@@ -25,6 +25,7 @@
   --border: #3F424A;
   --border-light: #2F3136;
 
+  --status-backlog: #6B7280;
   --status-todo: #3574F0;
   --status-doing: #F0A835;
   --status-done: #3DB981;
@@ -579,9 +580,10 @@ body {
 #kanban {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(260px, 1fr));
   gap: 16px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   min-height: 40;
 }
 

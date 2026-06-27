@@ -1123,10 +1123,10 @@ function renderDashboard() {
   if (sub) {
     const today      = new Date();
     const todayTasks = tasksOnDate(today);
-    const pending    = todayTasks.filter(t => t.status !== 'done').length;
+    const pending    = todayTasks.filter(t => t.status !== 'done' && t.status !== 'backlog').length;
     const done       = todayTasks.filter(t => t.status === 'done').length;
     const overdue    = todayTasks.filter(t => {
-      if (t.status === 'done') return false;
+      if (t.status === 'done' || t.status === 'backlog') return false;
       const ed = parseDateField(t.endDate);
       return ed && startOfDay(ed).getTime() < startOfDay(today).getTime();
     }).length;
@@ -1167,7 +1167,7 @@ function renderDailySummary() {
   function getClient(t)  { return state.clients.find(c => c.id === t._clientId); }
 
   function isOverdue(t) {
-    if (t.status === 'done') return false;
+    if (t.status === 'done' || t.status === 'backlog') return false;
     const ed = parseDateField(t.endDate);
     if (!ed) return false;
     return startOfDay(ed).getTime() < startOfDay(today).getTime();
@@ -1698,6 +1698,7 @@ function sameYMD(a, b) {
 function tasksOnDate(date) {
   const target = startOfDay(date).getTime();
   return state.allTasks.filter(t => {
+    if (t.status === 'backlog') return false;
     const sd = parseDateField(t.startDate);
     if (!sd) return false;
     const start = startOfDay(sd).getTime();
@@ -2487,7 +2488,7 @@ function renderKanban() {
     ? state.tasks.filter(t => t.title?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))
     : state.tasks;
 
-  const groups = { todo: [], doing: [], done: [] };
+  const groups = { backlog: [], todo: [], doing: [], done: [] };
   filtered.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
 
   // Order tasks: unordered (new) tasks appear first (newest at top),
@@ -2501,14 +2502,17 @@ function renderKanban() {
     const bt = b.createdAt?.seconds || 0;
     return bt - at;
   };
+  groups.backlog.sort(sortInColumn);
   groups.todo.sort(sortInColumn);
   groups.doing.sort(sortInColumn);
   groups.done.sort(sortInColumn);
 
   // Counters
+  const cb = document.getElementById('count-backlog');
   const ct = document.getElementById('count-todo');
   const cd = document.getElementById('count-doing');
   const cn = document.getElementById('count-done');
+  if (cb) cb.textContent = groups.backlog.length;
   if (ct) ct.textContent = groups.todo.length;
   if (cd) cd.textContent = groups.doing.length;
   if (cn) cn.textContent = groups.done.length;
@@ -2521,6 +2525,7 @@ function renderKanban() {
   if (sn) sn.textContent  = groups.done.length;
 
   [
+    { el: document.getElementById('col-backlog'), tasks: groups.backlog, emptyIcon: '🗂️', emptyText: 'حط هنا المهام\nاللي مش عاوز تشوفها دلوقتي', isTodo: false },
     { el: document.getElementById('col-todo'),  tasks: groups.todo,  emptyIcon: '📋', emptyText: 'لا توجد مهام\nاضغط + لإضافة مهمة', isTodo: true },
     { el: document.getElementById('col-doing'), tasks: groups.doing, emptyIcon: '⏳', emptyText: 'اسحب مهمة هنا\nلبدء العمل عليها', isTodo: false },
     { el: document.getElementById('col-done'),  tasks: groups.done,  emptyIcon: '✅', emptyText: 'المهام المنجزة\nستظهر هنا', isTodo: false },
@@ -2674,7 +2679,7 @@ function setupColumnDnD() {
       const task = state.tasks.find(t => t.id === state.draggedId);
       if (!task) return;
 
-      const labels = { todo: 'المطلوب', doing: 'جاري التنفيذ', done: 'تم الإنتهاء' };
+      const labels = { backlog: 'Backlog', todo: 'المطلوب', doing: 'جاري التنفيذ', done: 'تم الإنتهاء' };
       const isStatusChange = task.status !== status;
 
       // 1. Build the desired post-drop order of task IDs in THIS column.
