@@ -6230,8 +6230,7 @@ function calcFoodPoints(data) {
   else if (data.fastType === 'intermittent') pts += 10;
   if (data.medicine)   pts += 5;
   const water = data.water || 0;
-  if      (water >= 14) pts += 10;
-  else if (water >= 7)  pts += 5;
+  pts += water; // 1 نقطة لكل كوباية (max 14)
   if (data.noSugar) pts += 8;
   if      (data.komagaStatus     === 'ok')       pts += 5;
   else if (data.komagaStatus     === 'violated')  pts -= 5;
@@ -6307,7 +6306,7 @@ function renderFood() {
 
   // Toolbar points chip
   const ptsEl = document.getElementById('food-points-val');
-  if (ptsEl) ptsEl.textContent = pts;
+  if (ptsEl) ptsEl.textContent = `${pts} من 85`;
 
   // Date label
   const labelEl = document.getElementById('food-date-label');
@@ -6335,8 +6334,8 @@ function renderFoodHero() {
   if (!el) return;
   const d   = state.food;
   const pts = calcFoodPoints(d);
-  // Max possible: 15 (islamic) + 5 + 10 + 8 + 5 + 8 + 5 + 3 + 10 + 12 = 81 (all done, islamic)
-  const max = 81;
+  // Max possible: 15 (islamic) + 5 + 14 (water) + 8 + 5 + 8 + 5 + 3 + 10 + 12 = 85
+  const max = 85;
   const pct = Math.min(100, Math.round((Math.max(0, pts) / max) * 100));
   el.innerHTML = `
     <div class="food-hero-pts">${pts}</div>
@@ -6406,7 +6405,7 @@ function renderFoodWater() {
     el.innerHTML = Array.from({ length: 14 }, (_, i) => {
       const n      = i + 1;
       const filled = n <= count;
-      return `<button class="food-drop ${filled ? 'filled' : ''}" data-drop="${n}" type="button" title="${n} كوباية">+</button>`;
+      return `<button class="food-drop ${filled ? 'filled' : ''}" data-drop="${n}" type="button" title="${n} كوباية">${filled ? '💧' : '+'}</button>`;
     }).join('');
   }
 
