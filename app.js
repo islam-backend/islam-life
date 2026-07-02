@@ -281,6 +281,14 @@ const btnAddClient = document.getElementById('btn-add-client');
 if (btnAddClient) {
   btnAddClient.addEventListener('click', () => openModal('client'));
 }
+const btnBackClients = document.getElementById('btn-back-clients');
+if (btnBackClients) {
+  btnBackClients.addEventListener('click', () => navigateTo('dashboard'));
+}
+const btnClientsCalendar = document.getElementById('btn-clients-calendar');
+if (btnClientsCalendar) {
+  btnClientsCalendar.addEventListener('click', () => navigateTo('calendar'));
+}
 const btnAddProject = document.getElementById('btn-add-project');
 if (btnAddProject) {
   btnAddProject.addEventListener('click', () => openModal('project'));
@@ -683,9 +691,7 @@ function setOffline() {
 // Add a new section = add one entry here + create its view + wire it.
 // The hub grid renders itself from this array, so it never overflows.
 const MODULES = [
-  { id: 'clients',  title: 'العملاء',       icon: '👥', view: 'clients'  },
-  { id: 'calendar', title: 'تقويم المهام',  icon: '📅', view: 'calendar' },
-  { id: 'daily',    title: 'ملخص النهارده', icon: '🎯', view: 'daily'    },
+  { id: 'clients',  title: 'العملاء', icon: '👥', view: 'clients' },
 ];
 
 function renderHub() {
@@ -709,7 +715,12 @@ function renderHub() {
 //  NAVIGATION
 // ════════════════════════════════════════════════════════════════
 
-function navigateTo(view, payload = {}) {
+// In-memory nav history so the browser Back gesture (mouse back button,
+// touchpad two-finger swipe) can restore a previous view with its live
+// payload objects (which can't be serialized into history state).
+const navStack = [];
+
+function navigateTo(view, payload = {}, fromPop = false) {
   // Cleanup old listeners
   cleanupListeners();
 
@@ -769,6 +780,7 @@ function navigateTo(view, payload = {}) {
     state.project = null;
     document.getElementById('view-dashboard').classList.add('active');
     renderHub();
+    loadPrayerTimes();
     subscribeDashboard();
 
   } else if (view === 'clients') {
@@ -812,7 +824,26 @@ function navigateTo(view, payload = {}) {
 
   updateHeader();
   updateBreadcrumb();
+
+  // Record this step in the browser history so Back (mouse button /
+  // two-finger swipe) can return here. Skip when we ARE the Back handler.
+  if (!fromPop) {
+    navStack.push({ view, payload });
+    history.pushState({ navIdx: navStack.length - 1 }, '');
+  }
 }
+
+// Back gesture → restore the previous view from our in-memory stack.
+window.addEventListener('popstate', (e) => {
+  const idx = e.state && typeof e.state.navIdx === 'number' ? e.state.navIdx : null;
+  if (idx !== null && navStack[idx]) {
+    const snap = navStack[idx];
+    navigateTo(snap.view, snap.payload, true);
+  } else {
+    // Went back past the app's first screen → stay on the hub.
+    navigateTo('dashboard', {}, true);
+  }
+});
 
 // ════════════════════════════════════════════════════════════════
 //  FIRESTORE SUBSCRIPTIONS
@@ -995,6 +1026,161 @@ function renderDashboard() {
       sub.textContent = parts.join(' • ');
     }
   }
+
+  // ── Today's client status rings (same visual as the monthly calendar) ──
+  renderTodayRings();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  HUB SIDE PANEL — today's client rings + prayer times
+// ════════════════════════════════════════════════════════════════
+
+// Today's clients as avatars framed by a status ring (green=all done,
+// red=none done, orange=mixed) — pulled live from today's tasks.
+function renderTodayRings() {
+  const wrap = document.getElementById('today-rings');
+  const sub  = document.getElementById('today-rings-sub');
+  if (!wrap) return;
+
+  const today      = new Date();
+  const tasksToday = tasksOnDate(today);
+
+  const seen = new Set();
+  const list = [];
+  for (const t of tasksToday) {
+    const cid = t._clientId;
+    if (!cid || seen.has(cid)) continue;
+    seen.add(cid);
+    const c = state.clients.find(x => x.id === cid);
+    if (c) list.push(c);
+  }
+
+  if (sub) sub.textContent = list.length ? `${list.length} عملاء` : '';
+
+  if (list.length === 0) {
+    wrap.innerHTML = `<div class="today-rings-empty">مفيش مهام النهاردة 🎉</div>`;
+    return;
+  }
+
+  wrap.innerHTML = list.map(c => {
+    const ct   = tasksToday.filter(t => t._clientId === c.id);
+    const done = ct.filter(t => t.status === 'done').length;
+    let cls = '';
+    if (ct.length > 0) {
+      if      (done === ct.length) cls = 'cal-avatar-done';
+      else if (done === 0)         cls = 'cal-avatar-pending';
+      else                         cls = 'cal-avatar-mixed';
+    }
+    const inner = c.avatarUrl
+      ? `<img src="${c.avatarUrl}" alt="${escapeHtml(c.name || '')}" />`
+      : escapeHtml(getInitials(c.name || '—'));
+    const bg = c.avatarUrl ? 'transparent' : escapeHtml(c.color || '#3574F0');
+    return `
+      <div class="today-ring-item" data-client-id="${c.id}" role="button" tabindex="0">
+        <span class="cal-client-avatar ${cls}" style="background:${bg}">${inner}</span>
+        <span class="today-ring-name">${escapeHtml(c.name || '')}</span>
+        <span class="today-ring-count">${done}/${ct.length}</span>
+      </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('.today-ring-item').forEach(el => {
+    const go = () => {
+      const c = state.clients.find(x => x.id === el.dataset.clientId);
+      if (c) navigateTo('projects', { client: c });
+    };
+    el.addEventListener('click', go);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  });
+}
+
+// ── Prayer times (Aladhan API, Mansoura, Egyptian Authority method) ──
+const PRAYER_CITY    = 'Mansoura';
+const PRAYER_COUNTRY = 'Egypt';
+const PRAYER_METHOD  = 5;   // Egyptian General Authority of Survey
+const PRAYERS = [
+  { key: 'Fajr',    name: 'الفجر' },
+  { key: 'Dhuhr',   name: 'الظهر' },
+  { key: 'Asr',     name: 'العصر' },
+  { key: 'Maghrib', name: 'المغرب' },
+  { key: 'Isha',    name: 'العشاء' },
+];
+let prayerTick = null;
+
+// "HH:MM" (24h) → "H:MM ص/م"
+function fmtPrayerTime(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  const suffix = h < 12 ? 'ص' : 'م';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+async function loadPrayerTimes() {
+  const listEl = document.getElementById('prayer-list');
+  if (!listEl) return;
+
+  const now  = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const cacheKey = `prayerTimes:${PRAYER_CITY}:${yyyy}-${mm}-${dd}`;
+
+  let timings = null;
+  try { timings = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch {}
+
+  if (!timings) {
+    try {
+      const url = `https://api.aladhan.com/v1/timingsByCity/${dd}-${mm}-${yyyy}`
+        + `?city=${PRAYER_CITY}&country=${PRAYER_COUNTRY}&method=${PRAYER_METHOD}`;
+      const res  = await fetch(url);
+      const json = await res.json();
+      timings = json?.data?.timings;
+      if (timings) localStorage.setItem(cacheKey, JSON.stringify(timings));
+    } catch (e) {
+      console.error('prayer times fetch failed:', e);
+    }
+  }
+
+  if (!timings) {
+    listEl.innerHTML = `<div class="prayer-error">تعذّر تحميل المواقيت — تأكد من النت</div>`;
+    return;
+  }
+  renderPrayerTimes(timings);
+}
+
+function renderPrayerTimes(timings) {
+  const listEl = document.getElementById('prayer-list');
+  const nextEl = document.getElementById('prayer-next');
+  if (!listEl) return;
+
+  const now = new Date();
+  const parsed = PRAYERS.map(p => {
+    const [h, m] = String(timings[p.key] || '00:00').split(':').map(Number);
+    return { ...p, hhmm: timings[p.key], time: new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0) };
+  });
+
+  let nextIdx = parsed.findIndex(p => p.time > now);
+  const isTomorrow = nextIdx === -1;   // all of today's prayers passed → next is Fajr tomorrow
+  if (isTomorrow) nextIdx = 0;
+
+  listEl.innerHTML = parsed.map((p, i) => `
+    <div class="prayer-row ${i === nextIdx ? 'next' : ''}">
+      <span class="prayer-name">${p.name}</span>
+      <span class="prayer-time">${fmtPrayerTime(p.hhmm)}</span>
+    </div>`).join('');
+
+  if (prayerTick) clearInterval(prayerTick);
+  const tick = () => {
+    const nEl = document.getElementById('prayer-next');
+    if (!nEl) { clearInterval(prayerTick); prayerTick = null; return; }
+    const target = isTomorrow ? new Date(parsed[0].time.getTime() + 86400000) : parsed[nextIdx].time;
+    const diff = target - new Date();
+    if (diff <= 0) { loadPrayerTimes(); return; }   // prayer entered → refresh
+    const hh = Math.floor(diff / 3600000);
+    const mn = Math.floor((diff % 3600000) / 60000);
+    nEl.innerHTML = `الصلاة الجاية: <b>${parsed[nextIdx].name}</b> — باقي ${hh > 0 ? hh + ' س ' : ''}${mn} د`;
+  };
+  tick();
+  prayerTick = setInterval(tick, 30000);
 }
 // ════════════════════════════════════════════════════════════════
 //  RENDER — DAILY SUMMARY WIDGET (v23.0)
@@ -1921,7 +2107,7 @@ function wireDayBlocksDnD(containerId, rerenderFn) {
     state.calendarCursor = new Date();
     renderCalendar();
   });
-  if (backCal) backCal.addEventListener('click', () => navigateTo('dashboard'));
+  if (backCal) backCal.addEventListener('click', () => navigateTo('clients'));
   if (backDay) backDay.addEventListener('click', () => navigateTo('calendar'));
 })();
 

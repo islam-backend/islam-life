@@ -7956,7 +7956,118 @@ svg {
   border-color: var(--danger);
 }
 
+/* ── Hub 2-column layout: tiles + big side panel ── */
+.hub-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 22px;
+  align-items: start;
+  width: 100%;
+}
+.hub-main .hub-grid { max-width: none; }
+.hub-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.hub-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.hub-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.hub-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hub-card-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Prayer times ── */
+.prayer-next {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--accent-dim);
+  border-radius: 9px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  min-height: 18px;
+}
+.prayer-next b { color: var(--accent); font-weight: 700; }
+.prayer-list { display: flex; flex-direction: column; gap: 2px; }
+.prayer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.prayer-row .prayer-name { color: var(--text-secondary); font-weight: 500; }
+.prayer-row .prayer-time { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.prayer-row.next {
+  background: var(--accent-dim);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.prayer-row.next .prayer-name,
+.prayer-row.next .prayer-time { color: var(--accent); font-weight: 700; }
+.prayer-loading, .prayer-error {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 8px 4px;
+}
+.prayer-error { color: var(--danger); }
+
+/* ── Today's client rings ── */
+.today-rings { display: flex; flex-direction: column; gap: 4px; }
+.today-ring-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.today-ring-item:hover { background: var(--bg-card-hover); }
+.today-ring-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.today-ring-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.today-rings-empty {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 10px 4px;
+}
+
+@media (max-width: 900px) {
+  .hub-layout { grid-template-columns: 1fr; }
+  .hub-side { flex-direction: row; flex-wrap: wrap; }
+  .hub-side .hub-card { flex: 1 1 260px; }
+}
 @media (max-width: 640px) {
   .db-status span:not(.db-dot) { display: none; }
   .hub-grid { grid-template-columns: 1fr; }
+  .hub-side { flex-direction: column; }
 }
