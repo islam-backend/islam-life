@@ -678,6 +678,34 @@ function setOffline() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  HUB (Home launcher) — scalable module registry
+// ════════════════════════════════════════════════════════════════
+// Add a new section = add one entry here + create its view + wire it.
+// The hub grid renders itself from this array, so it never overflows.
+const MODULES = [
+  { id: 'clients',  title: 'العملاء',       icon: '👥', view: 'clients'  },
+  { id: 'calendar', title: 'تقويم المهام',  icon: '📅', view: 'calendar' },
+  { id: 'daily',    title: 'ملخص النهارده', icon: '🎯', view: 'daily'    },
+];
+
+function renderHub() {
+  const grid = document.getElementById('hub-grid');
+  if (!grid) return;
+  grid.innerHTML = MODULES.map(m => `
+    <button class="hub-tile" type="button" data-view="${m.view}" aria-label="${escapeHtml(m.title)}">
+      <span class="hub-tile-icon" aria-hidden="true">${m.icon}</span>
+      <span class="hub-tile-title">${escapeHtml(m.title)}</span>
+      <svg class="hub-tile-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>`).join('');
+  grid.querySelectorAll('.hub-tile').forEach(el => {
+    el.addEventListener('click', () => navigateTo(el.dataset.view));
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
 //  NAVIGATION
 // ════════════════════════════════════════════════════════════════
 
@@ -740,18 +768,7 @@ function navigateTo(view, payload = {}) {
     state.client  = null;
     state.project = null;
     document.getElementById('view-dashboard').classList.add('active');
-
-    // Restore projects section collapse state from localStorage
-    const sec = document.getElementById('dash-projects-sec');
-    const isCollapsed = localStorage.getItem('dashboard-projects-collapsed') === 'true';
-    if (sec) {
-      sec.classList.toggle('collapsed', isCollapsed);
-    }
-    const toggleBtn = document.getElementById('dash-projects-toggle');
-    if (toggleBtn) {
-      toggleBtn.setAttribute('aria-expanded', !isCollapsed);
-    }
-
+    renderHub();
     subscribeDashboard();
 
   } else if (view === 'clients') {

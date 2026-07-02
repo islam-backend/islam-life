@@ -7836,3 +7836,127 @@ svg {
   .food-weight-photo-row { grid-template-columns: 1fr 1fr; }
   .food-weekly-row { grid-template-columns: 1fr; }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   HUB (Home launcher) — big tiles, no sidebar
+   ════════════════════════════════════════════════════════════════ */
+.dash-welcome-row {
+  margin-bottom: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dash-welcome-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+.hub-daily-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  max-width: 920px;
+}
+
+.hub-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 22px;
+  min-height: 92px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: right;
+  font-family: inherit;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.hub-tile:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.hub-tile:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.hub-tile-icon {
+  flex-shrink: 0;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  background: var(--accent-dim);
+  border-radius: 12px;
+}
+.hub-tile-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hub-tile-arrow {
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  margin-inline-start: auto;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.hub-tile:hover .hub-tile-arrow {
+  color: var(--accent);
+  transform: translateX(-4px);
+}
+
+/* ── Header tools (relocated from the old sidebar footer) ── */
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.db-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.header-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.header-tool-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.header-tool-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .db-status span:not(.db-dot) { display: none; }
+  .hub-grid { grid-template-columns: 1fr; }
+}

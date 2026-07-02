@@ -56,79 +56,12 @@
 ══════════════════════════════════ -->
   <div id="app">
 
-    <!-- ── MOBILE SIDEBAR BACKDROP ── -->
-    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
-
-    <!-- ── SIDEBAR ── -->
-    <aside id="sidebar">
-      <div class="sidebar-logo">
-        <div class="logo-icon">🚀</div>
-        <div class="logo-text">
-          <div class="user-row">
-            <span>islam.walied</span>
-          </div>
-          <small>Work Dashboard</small>
-        </div>
-        <button class="sidebar-toggle" id="sidebar-toggle-btn" title="طي القائمة" aria-label="طي القائمة">
-          <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-      </div>
-
-      <span class="nav-label">لوحة التحكم</span>
-
-      <div class="nav-item active" id="nav-dashboard" title="الرئيسية">
-        <span class="nav-icon">📊</span>
-        <span>الرئيسية</span>
-      </div>
-
-      <span class="nav-label">العمل</span>
-
-      <div class="nav-item" id="nav-clients" title="العملاء">
-        <span class="nav-icon">👥</span>
-        <span>العملاء</span>
-        <span class="nav-badge" id="total-badge">0</span>
-      </div>
-
-      <!-- ── SIDEBAR FOOTER ── -->
-      <div class="sidebar-footer">
-        <div class="sidebar-status-row">
-          <div class="status-left" style="display: flex; align-items: center; gap: 6px;">
-            <span class="db-dot offline" id="db-dot" title="حالة الاتصال"></span>
-            <span id="db-status-text" style="font-size: 11px; color: var(--text-muted);">غير متصل</span>
-          </div>
-          <span class="version-tag">v21.0</span>
-        </div>
-        <button class="btn-settings" id="btn-open-settings" title="الإعدادات" aria-label="الإعدادات">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>الإعدادات</span>
-        </button>
-        <button class="btn-signout" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-            stroke-linejoin="round" class="signout-icon">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-          <span class="signout-text">تسجيل الخروج</span>
-        </button>
-      </div>
-    </aside>
 
     <!-- ── MAIN ── -->
     <main id="main">
 
       <!-- Header (dynamic) -->
       <header id="header">
-        <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="فتح القائمة" aria-controls="sidebar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="3" y1="6" x2="21" y2="6"/>
-            <line x1="3" y1="12" x2="21" y2="12"/>
-            <line x1="3" y1="18" x2="21" y2="18"/>
-          </svg>
-        </button>
         <div class="header-left">
           <nav class="breadcrumb" id="breadcrumb"></nav>
           <div class="header-title-row">
@@ -139,49 +72,39 @@
         <div class="header-right-side">
           <p id="header-date"></p>
           <div id="header-actions"></div>
+          <div class="header-tools">
+            <span class="db-status" title="حالة الاتصال">
+              <span class="db-dot offline" id="db-dot"></span>
+              <span id="db-status-text">غير متصل</span>
+            </span>
+            <button class="header-tool-btn" id="btn-open-settings" title="الإعدادات" aria-label="الإعدادات">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <button class="header-tool-btn danger" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
       <!-- Views Container -->
       <div id="content">
 
-        <!-- ── VIEW: DASHBOARD (v9.2 Ultra-Minimal) ── -->
+        <!-- ── VIEW: HUB (Home launcher — tiles from MODULES registry) ── -->
         <div class="view active" id="view-dashboard">
 
           <!-- Welcome Row -->
-          <div class="dash-welcome-row" style="margin-bottom: 20px;">
-            <h2 id="dash-greeting" class="dash-welcome-title"
-              style="font-size: 16px; font-weight: 700; color: var(--text-primary);"></h2>
+          <div class="dash-welcome-row">
+            <h2 id="dash-greeting" class="dash-welcome-title"></h2>
+            <span class="hub-daily-subtitle" id="dash-daily-subtitle"></span>
           </div>
 
-          <!-- v22.0 — Old work/rest donut removed; project-hours gauge in the
-               kanban toolbar is now the single source of truth for time. -->
-
-          <!-- C. Calendar Portal Card -->
-          <div class="dash-portal-card" id="dash-portal-calendar" role="button" tabindex="0">
-            <div class="portal-icon">📅</div>
-            <div class="portal-body">
-              <span class="portal-title">تقويم المهام</span>
-              <span class="portal-sub">شاهد كل مهامك مرتبة في عرض شهري شجري</span>
-            </div>
-            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </div>
-
-          <!-- D. Daily Summary Portal -->
-          <div class="dash-portal-card" id="dash-portal-daily" role="button" tabindex="0">
-            <div class="portal-icon">🎯</div>
-            <div class="portal-body">
-              <span class="portal-title">ملخص النهارده</span>
-              <span class="portal-sub" id="dash-daily-subtitle">شوف أهم تاسكاتك وإنتاجيتك اليومية</span>
-            </div>
-            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </div>
+          <!-- Hub tiles — rendered by renderHub() from the MODULES registry -->
+          <div class="hub-grid" id="hub-grid"></div>
 
 
         </div>
