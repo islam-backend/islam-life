@@ -2734,6 +2734,10 @@ function updateHeader() {
   const statsEl   = document.getElementById('header-stats');
   if (!titleEl || !actionsEl || !statsEl) return;
 
+  // Centered header greeting: only on the hub, cleared elsewhere.
+  const greetEl = document.getElementById('dash-greeting');
+  if (greetEl) greetEl.textContent = state.view === 'dashboard' ? greetingText() : '';
+
   if (state.view === 'dashboard') {
     titleEl.textContent  = '📊 الرئيسية';
     statsEl.innerHTML    = '';
