@@ -4086,9 +4086,9 @@ select.form-input {
 #view-dashboard {
   display: none;
   flex-direction: column;
-  align-items: center;
-  gap: 28px;
-  padding: 24px 32px 48px;
+  align-items: stretch;
+  gap: 20px;
+  padding: 16px 32px 48px;
   overflow-y: auto;
 }
 
@@ -4098,8 +4098,8 @@ select.form-input {
 
 .dash-welcome-row {
   width: 100%;
-  max-width: 720px;
-  text-align: center;
+  max-width: none;
+  text-align: right;
 }
 
 /* v22.0 — Dashboard donut chart fully removed. Project hours live solely
@@ -7860,16 +7860,17 @@ svg {
 }
 
 .hub-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 16px;
-  max-width: 920px;
 }
 
 .hub-tile {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex: 0 1 300px;
   padding: 20px 22px;
   min-height: 92px;
   background: var(--bg-card);
@@ -8040,14 +8041,31 @@ svg {
   transition: background 0.15s ease;
 }
 .today-ring-item:hover { background: var(--bg-card-hover); }
-.today-ring-name {
+.today-ring-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.today-ring-name {
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.today-ring-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.today-ring-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--status-done);
+  transition: width 0.3s ease;
 }
 .today-ring-count {
   font-size: 12px;

@@ -1000,33 +1000,6 @@ function renderDashboard() {
     greetEl.textContent = text;
   }
 
-  // v22.0 — Old donut deleted. Hours tracking now lives entirely on the
-  // per-project linear gauge inside the kanban toolbar.
-
-  // ── Daily portal subtitle: quick preview ──
-  const sub = document.getElementById('dash-daily-subtitle');
-  if (sub) {
-    const today      = new Date();
-    const todayTasks = tasksOnDate(today);
-    const pending    = todayTasks.filter(t => t.status !== 'done' && t.status !== 'backlog').length;
-    const done       = todayTasks.filter(t => t.status === 'done').length;
-    const overdue    = todayTasks.filter(t => {
-      if (t.status === 'done' || t.status === 'backlog') return false;
-      const ed = parseDateField(t.endDate);
-      return ed && startOfDay(ed).getTime() < startOfDay(today).getTime();
-    }).length;
-
-    if (todayTasks.length === 0) {
-      sub.textContent = 'مفيش تاسكات النهارده';
-    } else {
-      const parts = [];
-      if (pending)  parts.push(`${pending} متبقية`);
-      if (done)     parts.push(`${done} خلصت`);
-      if (overdue)  parts.push(`${overdue} متأخرة ⚠️`);
-      sub.textContent = parts.join(' • ');
-    }
-  }
-
   // ── Today's client status rings (same visual as the monthly calendar) ──
   renderTodayRings();
 }
@@ -1065,6 +1038,7 @@ function renderTodayRings() {
   wrap.innerHTML = list.map(c => {
     const ct   = tasksToday.filter(t => t._clientId === c.id);
     const done = ct.filter(t => t.status === 'done').length;
+    const pct  = ct.length ? Math.round((done / ct.length) * 100) : 0;
     let cls = '';
     if (ct.length > 0) {
       if      (done === ct.length) cls = 'cal-avatar-done';
@@ -1078,7 +1052,12 @@ function renderTodayRings() {
     return `
       <div class="today-ring-item" data-client-id="${c.id}" role="button" tabindex="0">
         <span class="cal-client-avatar ${cls}" style="background:${bg}">${inner}</span>
-        <span class="today-ring-name">${escapeHtml(c.name || '')}</span>
+        <div class="today-ring-body">
+          <span class="today-ring-name">${escapeHtml(c.name || '')}</span>
+          <div class="today-ring-bar" title="${done} من ${ct.length} خلصت">
+            <div class="today-ring-bar-fill" style="width:${pct}%"></div>
+          </div>
+        </div>
         <span class="today-ring-count">${done}/${ct.length}</span>
       </div>`;
   }).join('');
@@ -1086,7 +1065,11 @@ function renderTodayRings() {
   wrap.querySelectorAll('.today-ring-item').forEach(el => {
     const go = () => {
       const c = state.clients.find(x => x.id === el.dataset.clientId);
-      if (c) navigateTo('projects', { client: c });
+      if (!c) return;
+      // Enter via the clients list so Back (gesture/button) lands there,
+      // not on the hub.
+      navigateTo('clients');
+      navigateTo('projects', { client: c });
     };
     el.addEventListener('click', go);
     el.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
