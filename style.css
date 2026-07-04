@@ -7983,7 +7983,7 @@ svg {
   width: 100%;
   /* Preserve the vertical offset the removed welcome row used to give, so
      the tiles + prayer card stay at their original lower position. */
-  margin-top: 76px;
+  margin-top: 20px;
 }
 .hub-main .hub-grid { max-width: none; }
 .hub-side {
