@@ -697,8 +697,8 @@ const MODULES = [
 function renderHub() {
   const grid = document.getElementById('hub-grid');
   if (!grid) return;
-  grid.innerHTML = MODULES.map(m => `
-    <button class="hub-tile" type="button" data-view="${m.view}" aria-label="${escapeHtml(m.title)}">
+  grid.innerHTML = MODULES.map((m, i) => `
+    <button class="hub-tile" type="button" data-view="${m.view}" aria-label="${escapeHtml(m.title)}" style="--i:${i}">
       <span class="hub-tile-icon" aria-hidden="true">${m.icon}</span>
       <span class="hub-tile-title">${escapeHtml(m.title)}</span>
       <svg class="hub-tile-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -720,7 +720,44 @@ function renderHub() {
 // payload objects (which can't be serialized into history state).
 const navStack = [];
 
+// Each view's "depth" from the hub. Comparing the old vs new depth lets us
+// pick the slide direction automatically, so every navigateTo() call site
+// gets a spatial in/out transition for free (deeper = forward, shallower =
+// back). Same-depth hops default to a forward slide.
+const VIEW_DEPTH = {
+  dashboard: 0,
+  clients: 1, daily: 1, calendar: 1,
+  projects: 2, day: 2,
+  tasks: 3,
+};
+
+// Turn the plain view swap into a layered slide: the outgoing view stays
+// visible one beat as an overlay while the incoming view slides in over it,
+// so navigation feels like sheets stacking instead of a hard cut.
+function playViewTransition(targetEl, prevEl, direction) {
+  const NAV = 'nav-' + direction;
+  // Clear anything left behind by an interrupted (rapid) transition.
+  document.querySelectorAll('.view-leaving').forEach(v =>
+    v.classList.remove('view-leaving', 'nav-forward', 'nav-back'));
+
+  if (prevEl && prevEl !== targetEl) {
+    prevEl.classList.add('view-leaving', NAV);
+    const leaving = prevEl;
+    setTimeout(() => leaving.classList.remove('view-leaving', 'nav-forward', 'nav-back'), 360);
+  }
+  if (targetEl) {
+    targetEl.classList.remove('nav-forward', 'nav-back');
+    void targetEl.offsetWidth;   // restart the entrance animation from scratch
+    targetEl.classList.add(NAV);
+    const entering = targetEl;
+    setTimeout(() => entering.classList.remove('nav-forward', 'nav-back'), 360);
+  }
+}
+
 function navigateTo(view, payload = {}, fromPop = false) {
+  // Remember where we came from so the transition can slide the right way.
+  const prevView     = state.view;
+  const prevActiveEl = document.querySelector('.view.active');
   // Cleanup old listeners
   cleanupListeners();
 
@@ -821,6 +858,13 @@ function navigateTo(view, payload = {}, fromPop = false) {
     subscribeCalendar();   // ← real-time listeners (same data as calendar/day)
     renderDailySummary();  // ← immediate render with current state
   }
+
+  // Slide the incoming view over the outgoing one. Back gestures (fromPop)
+  // always read as "back"; otherwise depth decides: deeper = forward.
+  const nd = VIEW_DEPTH[view] ?? 1;
+  const pd = VIEW_DEPTH[prevView] ?? 1;
+  const direction = fromPop ? 'back' : (nd < pd ? 'back' : 'forward');
+  playViewTransition(document.getElementById('view-' + view), prevActiveEl, direction);
 
   updateHeader();
   updateBreadcrumb();
@@ -1037,7 +1081,7 @@ function renderTodayRings() {
     return;
   }
 
-  wrap.innerHTML = list.map(g => {
+  wrap.innerHTML = list.map((g, i) => {
     const c    = state.clients.find(x => x.id === g.cid);
     const p    = state.allProjects.find(x => x.id === g.pid);
     const ct   = g.tasks;
@@ -1052,13 +1096,13 @@ function renderTodayRings() {
       : escapeHtml(getInitials(c?.name || '—'));
     const bg = c?.avatarUrl ? 'transparent' : escapeHtml(c?.color || '#3574F0');
     return `
-      <div class="today-ring-item" data-client-id="${g.cid}" data-project-id="${g.pid}" role="button" tabindex="0">
+      <div class="today-ring-item" data-client-id="${g.cid}" data-project-id="${g.pid}" role="button" tabindex="0" style="--i:${i}">
         <span class="cal-client-avatar ${cls}" style="background:${bg}">${inner}</span>
         <div class="today-ring-body">
           <span class="today-ring-name">${escapeHtml(p?.name || '— مشروع —')}</span>
           <span class="today-ring-client">${escapeHtml(c?.name || '')}</span>
           <div class="today-ring-bar" title="${done} من ${ct.length} خلصت">
-            <div class="today-ring-bar-fill" style="width:${pct}%"></div>
+            <div class="today-ring-bar-fill" style="--w:${pct}%; width:${pct}%"></div>
           </div>
         </div>
         <span class="today-ring-count">${done}/${ct.length}</span>
@@ -1164,15 +1208,26 @@ function renderPrayerTimes(timings) {
   const tick = () => {
     const nEl = document.getElementById('prayer-next');
     if (!nEl) { clearInterval(prayerTick); prayerTick = null; return; }
+    // The countdown only matters while the hub is on screen; skip the DOM
+    // work (but keep ticking) when the user is deeper in the app.
+    if (state.view !== 'dashboard') return;
     const target = isTomorrow ? new Date(parsed[0].time.getTime() + 86400000) : parsed[nextIdx].time;
     const diff = target - new Date();
     if (diff <= 0) { loadPrayerTimes(); return; }   // prayer entered → refresh
     const hh = Math.floor(diff / 3600000);
     const mn = Math.floor((diff % 3600000) / 60000);
-    nEl.innerHTML = `الصلاة الجاية: <b>${parsed[nextIdx].name}</b> — باقي ${hh > 0 ? hh + ' س ' : ''}${mn} د`;
+    const ss = Math.floor((diff % 60000) / 1000);
+    // Under an hour, count down to the second so it visibly ticks; add a
+    // gentle pulse when the prayer is within 15 minutes.
+    let left;
+    if (hh > 0)       left = `${hh} س ${mn} د`;
+    else if (mn > 0)  left = `${mn} د ${String(ss).padStart(2, '0')} ث`;
+    else              left = `${ss} ث`;
+    nEl.classList.toggle('soon', diff <= 15 * 60000);
+    nEl.innerHTML = `الصلاة الجاية: <b>${parsed[nextIdx].name}</b> — باقي ${left}`;
   };
   tick();
-  prayerTick = setInterval(tick, 30000);
+  prayerTick = setInterval(tick, 1000);
 }
 // ════════════════════════════════════════════════════════════════
 //  RENDER — DAILY SUMMARY WIDGET (v23.0)

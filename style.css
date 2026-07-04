@@ -1363,6 +1363,8 @@ select.form-input {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Anchor the outgoing view's absolute overlay during a page transition. */
+  position: relative;
 }
 
 .view {
@@ -1370,24 +1372,62 @@ select.form-input {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-  animation: viewIn 0.2s ease;
   min-height: 0;
 }
 
 .view.active {
   display: flex;
+  position: relative;
+  z-index: 2;      /* incoming sheet rides above the outgoing one */
 }
 
-@keyframes viewIn {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
+/* The outgoing view is kept painted one beat as an overlay so the new view
+   can slide in over it (layered navigation instead of a hard swap). */
+.view.view-leaving {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
 
-  to {
-    opacity: 1;
-    transform: translateX(0);
+/* ── Directional page transitions ──
+   forward = going deeper (in), back = returning toward the hub (out). */
+.view.active.nav-forward      { animation: viewInFwd  0.34s cubic-bezier(0.32, 0.72, 0, 1); }
+.view.active.nav-back         { animation: viewInBack 0.34s cubic-bezier(0.32, 0.72, 0, 1); }
+.view.view-leaving.nav-forward { animation: viewOutFwd 0.34s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
+.view.view-leaving.nav-back    { animation: viewOutBack 0.34s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
+
+/* New sheet slides in from the leading (left, RTL) edge, casting a shadow. */
+@keyframes viewInFwd {
+  from { opacity: 0.5; transform: translateX(-100%); box-shadow: -22px 0 44px rgba(0, 0, 0, 0.38); }
+  to   { opacity: 1;   transform: translateX(0);     box-shadow: -22px 0 44px rgba(0, 0, 0, 0); }
+}
+/* Old sheet sinks underneath — drifts aside and dims. */
+@keyframes viewOutFwd {
+  from { opacity: 1;   transform: translateX(0)   scale(1); }
+  to   { opacity: 0.5; transform: translateX(20%) scale(0.98); }
+}
+/* Back: the sheet underneath rises back into place. */
+@keyframes viewInBack {
+  from { opacity: 0.5; transform: translateX(20%) scale(0.98); }
+  to   { opacity: 1;   transform: translateX(0)   scale(1); }
+}
+/* Back: the current sheet slides back out toward the edge. */
+@keyframes viewOutBack {
+  from { opacity: 1;   transform: translateX(0);      box-shadow: -22px 0 44px rgba(0, 0, 0, 0); }
+  to   { opacity: 0.5; transform: translateX(-100%);  box-shadow: -22px 0 44px rgba(0, 0, 0, 0.38); }
+}
+
+/* Respect users who ask the OS to minimize motion: no slides, no overlay. */
+@media (prefers-reduced-motion: reduce) {
+  .view.active.nav-forward,
+  .view.active.nav-back,
+  .view.view-leaving.nav-forward,
+  .view.view-leaving.nav-back {
+    animation-duration: 0.001ms !important;
   }
+  .view.view-leaving { display: none !important; }
 }
 
 /* â”€â”€ Breadcrumb â”€â”€ */
@@ -8012,6 +8052,80 @@ svg {
 .hub-card-sub {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* ════════════════════════════════════════════════════════════
+   HUB MOTION — the home screen settles in and stays alive
+   ════════════════════════════════════════════════════════════ */
+
+/* Tiles and side cards rise into place with a short stagger every time
+   the hub is shown (--i is the item index, set in JS). */
+.hub-tile {
+  animation: hubRise 0.42s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 70ms + 60ms);
+}
+.hub-side .hub-card {
+  animation: hubRise 0.5s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+.hub-side .hub-card:nth-child(1) { animation-delay: 120ms; }
+.hub-side .hub-card:nth-child(2) { animation-delay: 210ms; }
+
+@keyframes hubRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Today's projects drop in one after another; each progress bar sweeps
+   from empty to its real value so the numbers feel earned. */
+.today-ring-item {
+  animation: hubRise 0.4s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms + 90ms);
+}
+.today-ring-bar-fill {
+  animation: barFill 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.15s backwards;
+}
+@keyframes barFill {
+  from { width: 0; }
+  to   { width: var(--w, 0%); }
+}
+
+/* The next-prayer countdown quietly pulses once it's within 15 minutes. */
+.prayer-next.soon {
+  animation: prayerSoon 1.7s ease-in-out infinite;
+}
+@keyframes prayerSoon {
+  0%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+  50%      { box-shadow: inset 0 0 0 1px var(--accent); }
+}
+
+/* ── Press / hover feedback (Axis 4 micro-interactions) ── */
+.hub-tile:active {
+  transform: scale(0.98);
+}
+.today-ring-item {
+  transition: background 0.15s ease, transform 0.12s ease;
+  border-radius: 10px;
+}
+.today-ring-item:hover {
+  background: var(--bg-card-hover);
+}
+.today-ring-item:active {
+  transform: scale(0.98);
+}
+.toolbar-back-btn:active,
+.toolbar-add-btn:active,
+.header-tool-btn:active {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-tile,
+  .hub-side .hub-card,
+  .today-ring-item,
+  .today-ring-bar-fill,
+  .prayer-next.soon {
+    animation: none !important;
+  }
 }
 
 /* ── Prayer times ── */
