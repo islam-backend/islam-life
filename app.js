@@ -985,20 +985,17 @@ function subscribeTasks() {
 //  RENDER — DASHBOARD
 // ════════════════════════════════════════════════════════════════
 
+// Time-based greeting — shown as the hub's header title.
+function greetingText() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12)       return 'صباح الخير ☀️';
+  else if (h >= 12 && h < 17) return 'مساء النور 🌤️';
+  else if (h >= 17 && h < 22) return 'مساء الخير 🌙';
+  else                        return 'ليلة هادئة ✨';
+}
+
 function renderDashboard() {
   if (state.view !== 'dashboard') return;
-
-  // ── Time-based greeting ──
-  const greetEl = document.getElementById('dash-greeting');
-  if (greetEl) {
-    const h = new Date().getHours();
-    let text;
-    if (h >= 5 && h < 12)       text = 'صباح الخير ☀️';
-    else if (h >= 12 && h < 17) text = 'مساء النور 🌤️';
-    else if (h >= 17 && h < 22) text = 'مساء الخير 🌙';
-    else                        text = 'ليلة هادئة ✨';
-    greetEl.textContent = text;
-  }
 
   // ── Today's client status rings (same visual as the monthly calendar) ──
   renderTodayRings();
@@ -1018,42 +1015,44 @@ function renderTodayRings() {
   const today      = new Date();
   const tasksToday = tasksOnDate(today);
 
-  const seen = new Set();
-  const list = [];
+  // Group today's tasks by (client, project) so each row is one project.
+  const groups = new Map();   // key = `${cid}::${pid}`
   for (const t of tasksToday) {
-    const cid = t._clientId;
-    if (!cid || seen.has(cid)) continue;
-    seen.add(cid);
-    const c = state.clients.find(x => x.id === cid);
-    if (c) list.push(c);
+    const cid = t._clientId, pid = t._projectId;
+    if (!cid || !pid) continue;
+    const key = `${cid}::${pid}`;
+    if (!groups.has(key)) groups.set(key, { cid, pid, tasks: [] });
+    groups.get(key).tasks.push(t);
   }
+  const list = [...groups.values()];
 
-  if (sub) sub.textContent = list.length ? `${list.length} عملاء` : '';
+  if (sub) sub.textContent = list.length ? `${list.length} مشاريع` : '';
 
   if (list.length === 0) {
     wrap.innerHTML = `<div class="today-rings-empty">مفيش مهام النهاردة 🎉</div>`;
     return;
   }
 
-  wrap.innerHTML = list.map(c => {
-    const ct   = tasksToday.filter(t => t._clientId === c.id);
+  wrap.innerHTML = list.map(g => {
+    const c    = state.clients.find(x => x.id === g.cid);
+    const p    = state.allProjects.find(x => x.id === g.pid);
+    const ct   = g.tasks;
     const done = ct.filter(t => t.status === 'done').length;
     const pct  = ct.length ? Math.round((done / ct.length) * 100) : 0;
     let cls = '';
-    if (ct.length > 0) {
-      if      (done === ct.length) cls = 'cal-avatar-done';
-      else if (done === 0)         cls = 'cal-avatar-pending';
-      else                         cls = 'cal-avatar-mixed';
-    }
-    const inner = c.avatarUrl
+    if      (done === ct.length) cls = 'cal-avatar-done';
+    else if (done === 0)         cls = 'cal-avatar-pending';
+    else                         cls = 'cal-avatar-mixed';
+    const inner = c?.avatarUrl
       ? `<img src="${c.avatarUrl}" alt="${escapeHtml(c.name || '')}" />`
-      : escapeHtml(getInitials(c.name || '—'));
-    const bg = c.avatarUrl ? 'transparent' : escapeHtml(c.color || '#3574F0');
+      : escapeHtml(getInitials(c?.name || '—'));
+    const bg = c?.avatarUrl ? 'transparent' : escapeHtml(c?.color || '#3574F0');
     return `
-      <div class="today-ring-item" data-client-id="${c.id}" role="button" tabindex="0">
+      <div class="today-ring-item" data-client-id="${g.cid}" data-project-id="${g.pid}" role="button" tabindex="0">
         <span class="cal-client-avatar ${cls}" style="background:${bg}">${inner}</span>
         <div class="today-ring-body">
-          <span class="today-ring-name">${escapeHtml(c.name || '')}</span>
+          <span class="today-ring-name">${escapeHtml(p?.name || '— مشروع —')}</span>
+          <span class="today-ring-client">${escapeHtml(c?.name || '')}</span>
           <div class="today-ring-bar" title="${done} من ${ct.length} خلصت">
             <div class="today-ring-bar-fill" style="width:${pct}%"></div>
           </div>
@@ -1065,11 +1064,12 @@ function renderTodayRings() {
   wrap.querySelectorAll('.today-ring-item').forEach(el => {
     const go = () => {
       const c = state.clients.find(x => x.id === el.dataset.clientId);
-      if (!c) return;
-      // Enter via the clients list so Back (gesture/button) lands there,
-      // not on the hub.
+      const p = state.allProjects.find(x => x.id === el.dataset.projectId);
+      if (!c || !p) return;
+      // Enter via the clients list so Back lands there, then open the
+      // project's kanban directly.
       navigateTo('clients');
-      navigateTo('projects', { client: c });
+      navigateTo('tasks', { client: c, project: p });
     };
     el.addEventListener('click', go);
     el.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -1145,11 +1145,18 @@ function renderPrayerTimes(timings) {
   const isTomorrow = nextIdx === -1;   // all of today's prayers passed → next is Fajr tomorrow
   if (isTomorrow) nextIdx = 0;
 
-  listEl.innerHTML = parsed.map((p, i) => `
-    <div class="prayer-row ${i === nextIdx ? 'next' : ''}">
-      <span class="prayer-name">${p.name}</span>
+  listEl.innerHTML = parsed.map((p, i) => {
+    const passed = p.time <= now;                 // already prayed today
+    const isNext = i === nextIdx && !isTomorrow;
+    const cls = passed ? 'passed' : (isNext ? 'next' : '');
+    return `
+    <div class="prayer-row ${cls}">
+      <span class="prayer-name">
+        ${passed ? '<span class="prayer-check" aria-label="خلصت">✓</span>' : ''}${p.name}
+      </span>
       <span class="prayer-time">${fmtPrayerTime(p.hhmm)}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   if (prayerTick) clearInterval(prayerTick);
   const tick = () => {
@@ -2726,7 +2733,7 @@ function updateHeader() {
   if (!titleEl || !actionsEl || !statsEl) return;
 
   if (state.view === 'dashboard') {
-    titleEl.textContent  = '📊 الرئيسية';
+    titleEl.textContent  = greetingText();
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 

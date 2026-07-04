@@ -7860,17 +7860,16 @@ svg {
 }
 
 .hub-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
+  max-width: 920px;
 }
 
 .hub-tile {
   display: flex;
   align-items: center;
   gap: 16px;
-  flex: 0 1 300px;
   padding: 20px 22px;
   min-height: 92px;
   background: var(--bg-card);
@@ -8022,6 +8021,21 @@ svg {
 }
 .prayer-row.next .prayer-name,
 .prayer-row.next .prayer-time { color: var(--accent); font-weight: 700; }
+.prayer-row.passed .prayer-name { color: var(--status-done); }
+.prayer-row.passed .prayer-time { color: var(--text-muted); }
+.prayer-row .prayer-name { display: inline-flex; align-items: center; gap: 6px; }
+.prayer-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--status-done);
+  color: #0f2419;
+  font-size: 10px;
+  font-weight: 700;
+}
 .prayer-loading, .prayer-error {
   font-size: 12.5px;
   color: var(--text-muted);
@@ -8050,7 +8064,15 @@ svg {
 }
 .today-ring-name {
   font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.today-ring-client {
+  font-size: 11px;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
