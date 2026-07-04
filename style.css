@@ -4099,7 +4099,7 @@ select.form-input {
 .dash-welcome-row {
   width: 100%;
   max-width: none;
-  text-align: right;
+  text-align: center;
 }
 
 /* v22.0 — Dashboard donut chart fully removed. Project hours live solely

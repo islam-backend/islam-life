@@ -997,6 +997,10 @@ function greetingText() {
 function renderDashboard() {
   if (state.view !== 'dashboard') return;
 
+  // ── Welcome greeting ──
+  const greetEl = document.getElementById('dash-greeting');
+  if (greetEl) greetEl.textContent = greetingText();
+
   // ── Today's client status rings (same visual as the monthly calendar) ──
   renderTodayRings();
 }
@@ -1066,10 +1070,8 @@ function renderTodayRings() {
       const c = state.clients.find(x => x.id === el.dataset.clientId);
       const p = state.allProjects.find(x => x.id === el.dataset.projectId);
       if (!c || !p) return;
-      // Enter via the clients list so Back lands there, then open the
-      // project's kanban directly.
-      navigateTo('clients');
-      navigateTo('tasks', { client: c, project: p });
+      // Opened from the hub → Back (button + gesture) returns to the hub.
+      navigateTo('tasks', { client: c, project: p, fromDashboard: true });
     };
     el.addEventListener('click', go);
     el.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -2733,7 +2735,7 @@ function updateHeader() {
   if (!titleEl || !actionsEl || !statsEl) return;
 
   if (state.view === 'dashboard') {
-    titleEl.textContent  = greetingText();
+    titleEl.textContent  = '📊 الرئيسية';
     statsEl.innerHTML    = '';
     actionsEl.innerHTML  = '';
 
