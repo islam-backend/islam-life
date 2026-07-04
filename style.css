@@ -8132,3 +8132,98 @@ svg {
   .hub-grid { grid-template-columns: 1fr; }
   .hub-side { flex-direction: column; }
 }
+/* ════════════════════════════════════════════════════════════════
+   FINANCE — Monthly strip · Unallocated catcher · Liabilities
+════════════════════════════════════════════════════════════════ */
+
+/* ── Monthly segregation strip (الفصل الشهري) ── */
+.fin-month-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.fin-month-nav { display: flex; align-items: center; gap: 8px; }
+.fin-month-btn {
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  font-size: 18px; font-weight: 700; line-height: 1;
+  cursor: pointer; transition: var(--transition);
+}
+.fin-month-btn:hover:not(:disabled) { background: var(--accent-dim); border-color: var(--accent); }
+.fin-month-btn:disabled { opacity: .35; cursor: default; }
+.fin-month-label { font-size: 14px; font-weight: 700; color: var(--text-primary); min-width: 130px; text-align: center; }
+.fin-month-today {
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  border-radius: var(--radius-md); padding: 5px 10px; font-size: 12px; font-weight: 600;
+  font-family: inherit; cursor: pointer; transition: var(--transition);
+}
+.fin-month-today:hover { color: var(--accent); border-color: var(--accent); }
+.fin-month-figures { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.fin-month-fig { display: flex; flex-direction: column; gap: 2px; }
+.fin-month-fig-lbl { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.fin-month-fig-val { font-size: 15px; font-weight: 700; }
+.fin-month-fig.income  .fin-month-fig-val { color: var(--status-done); }
+.fin-month-fig.expense .fin-month-fig-val { color: var(--danger); }
+.fin-month-fig-val.is-pos { color: var(--status-done); }
+.fin-month-fig-val.is-neg { color: var(--danger); }
+.fin-month-fig-val .fin-cur { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+
+/* ── Unallocated funds catcher box (صائد الكسور) in Rules modal ── */
+.fin-catcher-box {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Liabilities (الالتزامات) ── */
+.fin-snowball-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--accent-dim);
+  border: 1px solid rgba(53,116,240,.25);
+  border-radius: var(--radius-md);
+  padding: 9px 13px;
+  margin-bottom: 14px;
+}
+.fin-snowball-hint:empty { display: none; }
+.fin-liab-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.fin-liab-card.is-next { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.fin-liab-card.is-cleared { opacity: .62; }
+.fin-liab-head { display: flex; align-items: center; gap: 12px; }
+.fin-card-sub { font-size: 12px; color: var(--text-muted); display: block; margin-top: 2px; }
+.fin-liab-actions { display: flex; gap: 4px; margin-inline-start: auto; opacity: 0; transition: opacity .15s ease; }
+.fin-liab-card:hover .fin-liab-actions { opacity: 1; }
+.fin-liab-tag {
+  font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
+  margin-inline-start: 8px; vertical-align: middle;
+}
+.fin-liab-tag.next { background: var(--accent-dim); color: var(--accent-hover); border: 1px solid rgba(53,116,240,.4); }
+.fin-liab-tag.done { background: rgba(61,185,129,.14); color: var(--status-done); border: 1px solid rgba(61,185,129,.4); }
+.fin-liab-figs { display: flex; align-items: baseline; gap: 8px; }
+.fin-liab-remaining { font-size: 20px; font-weight: 700; }
+.fin-liab-remaining.is-neg { color: var(--danger); }
+.fin-liab-remaining.is-pos { color: var(--status-done); }
+.fin-liab-remaining .fin-cur { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.fin-liab-of { font-size: 12px; color: var(--text-muted); }
+.fin-liab-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fin-liab-pct { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+.fin-liab-pay { padding: 5px 12px; font-size: 12px; }
+.fin-card-prog-fill.accent { background: var(--accent); }

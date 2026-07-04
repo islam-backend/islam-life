@@ -404,6 +404,7 @@
             </button>
           </div>
           <div class="fin-page fin-home-page">
+            <div class="fin-month-strip" id="fin-month-strip"></div>
             <div class="cards-grid fin-hub-cards" id="fin-hub-cards"></div>
           </div>
         </div><!-- /#view-finance -->
@@ -582,6 +583,23 @@
             </div>
           </div>
         </div><!-- /#view-finance-gold -->
+
+        <!-- ══ VIEW: LIABILITIES (الالتزامات / الديون) ══ -->
+        <div class="view" id="view-finance-liabilities">
+          <div class="fin-toolbar">
+            <button class="toolbar-back-btn" id="btn-back-finance-liabilities" type="button" title="رجوع">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span class="fin-detail-title">💳 الالتزامات والديون</span>
+            <div class="fin-toolbar-spacer"></div>
+            <span class="fin-section-total privacy-sensitive" id="fin-liabilities-total" style="margin:0"></span>
+            <button class="fin-btn fin-btn-income" id="btn-liability-add" type="button"><span class="fin-btn-icon">＋</span><span>التزام جديد</span></button>
+          </div>
+          <div class="fin-page">
+            <div class="fin-snowball-hint" id="fin-snowball-hint"></div>
+            <div class="fin-cards-grid" id="fin-liabilities-grid"></div>
+          </div>
+        </div><!-- /#view-finance-liabilities -->
 
       </div><!-- /#content -->
 
@@ -815,6 +833,7 @@
         </div>
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn-ghost" id="alloc-fill-catcher">الباقي → 🪤 الطوارئ</button>
         <button type="button" class="btn-primary" id="submit-alloc-btn" disabled>تأكيد التوزيع</button>
       </div>
     </div>
@@ -836,6 +855,11 @@
         <div class="fin-alloc-summary">
           <span>مجموع النسب:</span>
           <strong id="rules-sum">0%</strong>
+        </div>
+        <div class="fin-catcher-box">
+          <label class="form-label" for="rules-catcher-env">🪤 صائد الكسور — وجهة أي مبلغ زائد أو كسور</label>
+          <select id="rules-catcher-env" class="form-input"></select>
+          <small class="form-hint">أي فرق ناتج عن تقريب النِسَب هيتوجّه تلقائياً للظرف ده (يُفضّل: الطوارئ).</small>
         </div>
       </div>
       <div class="modal-footer">
@@ -988,6 +1012,74 @@
         <div class="modal-footer">
           <button type="button" class="btn-ghost" id="cancel-edit-tx-modal-btn">إلغاء</button>
           <button type="submit" class="btn-primary" id="submit-edit-tx-btn">حفظ التعديل</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add / Edit Liability Modal -->
+  <div id="liability-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="liability-modal-title">＋ التزام جديد</h2>
+        <button class="modal-close" id="close-liability-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="liability-form">
+        <input type="hidden" id="liability-edit-id" value="" />
+        <div class="modal-body">
+          <div class="fin-manage-form-row">
+            <input type="text" id="liability-icon" class="form-input fin-icon-input" maxlength="2" placeholder="💳" />
+            <input type="text" id="liability-name" class="form-input" maxlength="50" placeholder="اسم الالتزام (مثلاً: قسط الموبايل)" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">إجمالي المبلغ</label>
+            <input type="number" id="liability-total" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
+          </div>
+          <div class="form-group" id="liability-remaining-group" style="display:none">
+            <label class="form-label">المتبقّي حالياً</label>
+            <input type="number" id="liability-remaining" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">يُسدَّد من ظرف</label>
+            <select id="liability-envelope" class="form-input" required></select>
+            <small class="form-hint">كل قسط بيتخصم من رصيد الظرف ده.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-liability-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-primary" id="submit-liability-btn">حفظ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Pay Liability Installment Modal -->
+  <div id="liability-pay-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>💳 سداد قسط</h2>
+        <button class="modal-close" id="close-liability-pay-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="liability-pay-form">
+        <input type="hidden" id="liability-pay-id" value="" />
+        <div class="modal-body">
+          <p class="fin-alloc-intro" id="liability-pay-info"></p>
+          <div class="form-group">
+            <label class="form-label">مبلغ القسط</label>
+            <input type="number" id="liability-pay-amount" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">من بنك (المصدر)</label>
+            <select id="liability-pay-bank" class="form-input" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ملاحظة (اختياري)</label>
+            <input type="text" id="liability-pay-note" class="form-input" maxlength="120" placeholder="ملاحظة على السداد" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-liability-pay-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-danger" id="submit-liability-pay-btn">تأكيد السداد</button>
         </div>
       </form>
     </div>

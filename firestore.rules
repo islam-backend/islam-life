@@ -37,6 +37,7 @@ service cloud.firestore {
     match /allocation_rules/{id} { allow read, write: if isOwner(); }
     match /gold_assets/{id}      { allow read, write: if isOwner(); }
     match /transactions/{id}     { allow read, write: if isOwner(); }
+    match /liabilities/{id}      { allow read, write: if isOwner(); }
 
     // ── Food & Health — owner-only ──
     match /users/{userId}/food/{docId} {

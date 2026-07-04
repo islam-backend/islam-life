@@ -469,6 +469,9 @@ const goldAssetDoc     = (id)    => doc(db, 'gold_assets', id);
 const transactionDoc   = (id)    => doc(db, 'transactions', id);
 const allocRuleDoc     = (type)  => doc(db, 'allocation_rules', type);   // type: 'salary' | 'freelance'
 const goldPricesDoc    = ()      => doc(db, 'meta', 'goldPrices');
+const liabilitiesRef   = ()      => collection(db, 'liabilities');
+const liabilityDoc     = (id)    => doc(db, 'liabilities', id);
+const finSettingsDoc   = ()      => doc(db, 'meta', 'finSettings');       // { unallocatedEnvelopeId }
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -518,6 +521,9 @@ const state = {
   finFilter:      { type: 'all', from: null, to: null },
   finBankFilter:  { type: 'all', from: null, to: null },
   finEnvFilter:   { type: 'all' },
+  liabilities:    [],            // debts / installments (وحدة الالتزامات)
+  finSettings:    { unallocatedEnvelopeId: null },  // صائد الكسور destination
+  finPeriod:      finThisPeriod(),  // selected month key 'YYYY-MM' (الفصل الشهري)
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -873,6 +879,12 @@ function navigateTo(view, payload = {}, fromPop = false) {
     state.client  = null;
     state.project = null;
     document.getElementById('view-finance-gold').classList.add('active');
+    subscribeFinance();
+
+  } else if (view === 'finance-liabilities') {
+    state.client  = null;
+    state.project = null;
+    document.getElementById('view-finance-liabilities').classList.add('active');
     subscribeFinance();
 
   } else if (view === 'finance-summary') {
@@ -2852,7 +2864,7 @@ function updateHeader() {
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
 
-  } else if (['finance','finance-summary','finance-banks','finance-bank','finance-envelopes','finance-envelope','finance-gold'].includes(state.view)) {
+  } else if (['finance','finance-summary','finance-banks','finance-bank','finance-envelopes','finance-envelope','finance-gold','finance-liabilities'].includes(state.view)) {
     titleEl.textContent = '💰 المركز المالي';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
@@ -2911,6 +2923,11 @@ function updateBreadcrumb() {
              <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
              <span class="breadcrumb-sep">›</span>
              <span class="breadcrumb-current">🥇 الذهب</span>`;
+  } else if (state.view === 'finance-liabilities') {
+    html += `<span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
+             <span class="breadcrumb-sep">›</span>
+             <span class="breadcrumb-current">💳 الالتزامات</span>`;
   }
 
   if (state.view === 'tasks') {
@@ -3933,6 +3950,35 @@ function finTsMillis(ts) {
 const finShow = (id) => document.getElementById(id)?.classList.remove('hidden');
 const finHide = (id) => document.getElementById(id)?.classList.add('hidden');
 
+// ── Monthly segregation helpers (الفصل الشهري MM-YYYY) ──────────
+// Period key is 'YYYY-MM'. Derived from a JS Date or a Firestore ts.
+function finThisPeriod() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function finPeriodOf(ts) {
+  const ms = finTsMillis(ts);
+  if (!ms) return '';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+// A tx belongs to a period via its stored `period` (new txs) or its createdAt (legacy).
+function finTxPeriod(t) {
+  return t.period || finPeriodOf(t.createdAt);
+}
+// Human label for a 'YYYY-MM' key, e.g. 'يوليو 2026'.
+function finPeriodLabel(key) {
+  const [y, m] = String(key || '').split('-').map(Number);
+  if (!y || !m) return '—';
+  return new Date(y, m - 1, 1).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+}
+// Shift a 'YYYY-MM' key by n months.
+function finShiftPeriod(key, n) {
+  const [y, m] = String(key).split('-').map(Number);
+  const d = new Date(y, (m - 1) + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 // ── renderFinHub — router that picks the right render fn ───────
 function renderFinHub() {
   updateDashFinancePortal();
@@ -3943,6 +3989,7 @@ function renderFinHub() {
   else if (v === 'finance-envelopes') renderEnvelopesBox();
   else if (v === 'finance-envelope')  renderEnvelopeDetail();
   else if (v === 'finance-gold')      renderGoldBox();
+  else if (v === 'finance-liabilities') renderLiabilities();
   else if (v === 'finance-summary')   renderFinanceSummary();
 }
 
@@ -3989,6 +4036,16 @@ function subscribeFinance() {
     debounceRender(renderFinHub);
   }, onErr('goldPrices')));
 
+  push(onSnapshot(liabilitiesRef(), snap => {
+    state.liabilities = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    debounceRender(renderFinHub);
+  }, onErr('liabilities')));
+
+  push(onSnapshot(finSettingsDoc(), d => {
+    state.finSettings = d.exists() ? { unallocatedEnvelopeId: null, ...d.data() } : { unallocatedEnvelopeId: null };
+    debounceRender(renderFinHub);
+  }, onErr('finSettings')));
+
   // Immediate paint with whatever data is already in state
   renderFinHub();
 }
@@ -4020,8 +4077,46 @@ function updateDashFinancePortal() {
   dashFinSub.innerHTML = `${finFmt(totalAssets)} ${FIN_CUR} &nbsp;·&nbsp; ${parts.join(' · ')}`;
 }
 
+// ── Monthly strip (الفصل الشهري) — month nav + income/expense/net ──
+function renderFinMonthStrip() {
+  const strip = document.getElementById('fin-month-strip');
+  if (!strip) return;
+  const period = state.finPeriod || finThisPeriod();
+  const monthTxs = state.transactions.filter(t => finTxPeriod(t) === period);
+  const income  = monthTxs.filter(t => t.type === 'income').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const expense = monthTxs.filter(t => t.type === 'expense').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const net     = income - expense;
+  const isCurrent = period === finThisPeriod();
+  strip.innerHTML = `
+    <div class="fin-month-nav">
+      <button class="fin-month-btn" id="fin-month-prev" type="button" title="الشهر السابق">‹</button>
+      <span class="fin-month-label">📅 ${escapeHtml(finPeriodLabel(period))}</span>
+      <button class="fin-month-btn" id="fin-month-next" type="button" title="الشهر التالي" ${isCurrent ? 'disabled' : ''}>›</button>
+      ${isCurrent ? '' : '<button class="fin-month-today" id="fin-month-today" type="button">الشهر الحالي</button>'}
+    </div>
+    <div class="fin-month-figures">
+      <div class="fin-month-fig income">
+        <span class="fin-month-fig-lbl">دخل الشهر</span>
+        <span class="fin-month-fig-val privacy-sensitive">+${finFmt(income)} <span class="fin-cur">${FIN_CUR}</span></span>
+      </div>
+      <div class="fin-month-fig expense">
+        <span class="fin-month-fig-lbl">مصروف الشهر</span>
+        <span class="fin-month-fig-val privacy-sensitive">−${finFmt(expense)} <span class="fin-cur">${FIN_CUR}</span></span>
+      </div>
+      <div class="fin-month-fig net">
+        <span class="fin-month-fig-lbl">صافي الشهر</span>
+        <span class="fin-month-fig-val privacy-sensitive ${net < 0 ? 'is-neg' : 'is-pos'}">${net < 0 ? '−' : '+'}${finFmt(Math.abs(net))} <span class="fin-cur">${FIN_CUR}</span></span>
+      </div>
+    </div>`;
+  document.getElementById('fin-month-prev')?.addEventListener('click', () => { state.finPeriod = finShiftPeriod(period, -1); renderFinanceHome(); });
+  document.getElementById('fin-month-next')?.addEventListener('click', () => { if (!isCurrent) { state.finPeriod = finShiftPeriod(period, 1); renderFinanceHome(); } });
+  document.getElementById('fin-month-today')?.addEventListener('click', () => { state.finPeriod = finThisPeriod(); renderFinanceHome(); });
+}
+
 function renderFinanceHome() {
   if (state.view !== 'finance') return;
+
+  renderFinMonthStrip();
 
   // Compute numbers
   const banksTotal = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
@@ -4080,6 +4175,7 @@ function renderFinanceHome() {
   if (!grid) return;
 
   const envTotal = state.envelopes.reduce((s, e) => s + (Number(e.current_balance) || 0), 0);
+  const liabTotal = state.liabilities.reduce((s, l) => s + (Number(l.remaining_amount) || 0), 0);
 
   grid.innerHTML = `
     <div class="entity-card" id="fin-hub-banks" role="button" tabindex="0">
@@ -4117,15 +4213,29 @@ function renderFinanceHome() {
         <span>${finFmt(goldGrams)} جم</span>
         <span>${hasPrices ? 'السعر محدّث' : 'حدّد الأسعار لعرض القيمة'}</span>
       </div>
+    </div>
+    <div class="entity-card" id="fin-hub-liabilities" role="button" tabindex="0">
+      <div class="card-header-row">
+        <div class="card-avatar" style="background:rgba(224,92,92,.18);font-size:20px">💳</div>
+        <span class="card-arrow">←</span>
+      </div>
+      <div class="card-name">الالتزامات والديون</div>
+      <div class="card-desc privacy-sensitive" style="color:var(--danger)">${finFmt(liabTotal)} ${FIN_CUR}</div>
+      <div class="card-meta">
+        <span>${state.liabilities.length} التزام</span>
+        <span>${state.liabilities.length ? 'المتبقّي إجمالاً' : 'أضف أول دين/قسط'}</span>
+      </div>
     </div>`;
 
   // Wire clicks
   document.getElementById('fin-hub-banks')?.addEventListener('click', () => navigateTo('finance-banks'));
   document.getElementById('fin-hub-envelopes')?.addEventListener('click', () => navigateTo('finance-envelopes'));
   document.getElementById('fin-hub-gold')?.addEventListener('click', () => navigateTo('finance-gold'));
+  document.getElementById('fin-hub-liabilities')?.addEventListener('click', () => navigateTo('finance-liabilities'));
   document.getElementById('fin-hub-banks')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-banks'); });
   document.getElementById('fin-hub-envelopes')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-envelopes'); });
   document.getElementById('fin-hub-gold')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-gold'); });
+  document.getElementById('fin-hub-liabilities')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-liabilities'); });
 
   if (!document.getElementById('manage-modal-overlay')?.classList.contains('hidden')) {
     renderManageList();
@@ -4734,20 +4844,30 @@ async function submitIncome(e) {
         toast('قاعدة التوزيع لازم تكون 100% على أظرف موجودة — عدّلها من «القواعد»', 'error');
         btn.disabled = false; return;
       }
-      const allocations = [];
+      // Cut each envelope by its percentage (rounded to piaster), then route
+      // any rounding remainder to the "unallocated funds catcher" (صائد الكسور)
+      // — falls back to the last rule envelope when no catcher is configured.
+      const allocMap = new Map();
       let allocated = 0;
-      rule.forEach((r, i) => {
-        const amt = (i === rule.length - 1)
-          ? +(amount - allocated).toFixed(2)
-          : +(amount * r.percent / 100).toFixed(2);
-        if (i !== rule.length - 1) allocated += amt;
-        allocations.push({ envelopeId: r.envelopeId, amount: amt });
+      rule.forEach(r => {
+        const amt = +(amount * r.percent / 100).toFixed(2);
+        allocMap.set(r.envelopeId, +((allocMap.get(r.envelopeId) || 0) + amt).toFixed(2));
+        allocated = +(allocated + amt).toFixed(2);
       });
+      const remainder = +(amount - allocated).toFixed(2);
+      if (Math.abs(remainder) >= 0.005) {
+        const catcherId = state.finSettings?.unallocatedEnvelopeId;
+        const target = (catcherId && state.envelopes.find(e => e.id === catcherId))
+          ? catcherId
+          : rule[rule.length - 1].envelopeId;
+        allocMap.set(target, +((allocMap.get(target) || 0) + remainder).toFixed(2));
+      }
+      const allocations = [...allocMap.entries()].map(([envelopeId, amt]) => ({ envelopeId, amount: amt }));
       const batch = writeBatch(db);
       batch.update(bankDoc(bankId), { current_balance: increment(amount) });
       allocations.forEach(a => batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(a.amount) }));
       const txRef = doc(transactionsRef());
-      batch.set(txRef, { type: 'income', amount, bankId, incomeType: type, allocated: true, allocations, createdAt: serverTimestamp() });
+      batch.set(txRef, { type: 'income', amount, bankId, incomeType: type, allocated: true, allocations, period: finThisPeriod(), createdAt: serverTimestamp() });
       await batch.commit();
       toast('تم تسجيل الدخل وتوزيعه ✅', 'success');
       finHide('income-modal-overlay');
@@ -4756,7 +4876,7 @@ async function submitIncome(e) {
       const batch = writeBatch(db);
       batch.update(bankDoc(bankId), { current_balance: increment(amount) });
       const txRef = doc(transactionsRef());
-      batch.set(txRef, { type: 'income', amount, bankId, incomeType: 'normal', allocated: false, allocations: [], createdAt: serverTimestamp() });
+      batch.set(txRef, { type: 'income', amount, bankId, incomeType: 'normal', allocated: false, allocations: [], period: finThisPeriod(), createdAt: serverTimestamp() });
       await batch.commit();
       finHide('income-modal-overlay');
       openManualAlloc(txRef.id, amount);
@@ -4790,6 +4910,20 @@ function updateAllocRemaining() {
   el.textContent = finFmt(remaining) + ' ' + FIN_CUR;
   el.className = Math.abs(remaining) < 0.005 ? 'ok' : 'bad';
   document.getElementById('submit-alloc-btn').disabled = Math.abs(remaining) >= 0.005;
+}
+// Dump whatever is still unallocated into the catcher envelope's input
+// (صائد الكسور) — falls back to the first envelope when none is configured.
+function fillAllocCatcher() {
+  const inputs = [...document.querySelectorAll('#alloc-rows .fin-alloc-input')];
+  if (!inputs.length) return;
+  let sum = 0;
+  inputs.forEach(i => sum += Number(i.value) || 0);
+  const remaining = +(state.pendingIncomeAmount - sum).toFixed(2);
+  if (remaining <= 0.005) { toast('مفيش باقي للتوزيع', 'info'); return; }
+  const catcherId = state.finSettings?.unallocatedEnvelopeId;
+  let target = inputs.find(i => i.dataset.env === catcherId) || inputs[0];
+  target.value = +((Number(target.value) || 0) + remaining).toFixed(2);
+  updateAllocRemaining();
 }
 async function submitManualAlloc() {
   const inputs = [...document.querySelectorAll('#alloc-rows .fin-alloc-input')];
@@ -5000,7 +5134,7 @@ async function submitExpense(e) {
     batch.update(envelopeDoc(envelopeId), envUpdate);
     batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
     const txRef = doc(transactionsRef());
-    const txData = { type: 'expense', amount, bankId, envelopeId, note, createdAt: serverTimestamp() };
+    const txData = { type: 'expense', amount, bankId, envelopeId, note, period: finThisPeriod(), createdAt: serverTimestamp() };
     if (itemId) txData.itemId = itemId;
     batch.set(txRef, txData);
     await batch.commit();
@@ -5020,6 +5154,13 @@ function openRulesModal(type) {
   finRulesTab = (type === 'freelance') ? 'freelance' : 'salary';
   document.querySelectorAll('.fin-rules-tab').forEach(t => t.classList.toggle('active', t.dataset.rule === finRulesTab));
   renderRulesRows();
+  // Populate the "unallocated funds catcher" (صائد الكسور) selector
+  const catcherSel = document.getElementById('rules-catcher-env');
+  if (catcherSel) {
+    catcherSel.innerHTML = `<option value="">— بدون (يروح لآخر ظرف) —</option>` +
+      state.envelopes.map(e => `<option value="${e.id}">${escapeHtml((e.icon || '✉️') + ' ' + e.name)}</option>`).join('');
+    catcherSel.value = state.finSettings?.unallocatedEnvelopeId || '';
+  }
   finShow('rules-modal-overlay');
 }
 function renderRulesRows() {
@@ -5052,6 +5193,9 @@ async function saveRules() {
   btn.disabled = true;
   try {
     await setDoc(allocRuleDoc(finRulesTab), { allocations, updatedAt: serverTimestamp() });
+    // Persist the unallocated-funds catcher choice (صائد الكسور)
+    const catcherId = document.getElementById('rules-catcher-env')?.value || null;
+    await setDoc(finSettingsDoc(), { unallocatedEnvelopeId: catcherId }, { merge: true });
     toast('تم حفظ القاعدة ✅', 'success');
     finHide('rules-modal-overlay');
   } catch (err) {
@@ -5290,6 +5434,199 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
   });
 }
 
+// ════════════════════════════════════════════════════════════════
+//  LIABILITIES (الالتزامات / الديون) — snowball debt tracking
+// ════════════════════════════════════════════════════════════════
+function renderLiabilities() {
+  if (state.view !== 'finance-liabilities') return;
+  const grid    = document.getElementById('fin-liabilities-grid');
+  const totalEl = document.getElementById('fin-liabilities-total');
+  const hintEl  = document.getElementById('fin-snowball-hint');
+  if (!grid) return;
+
+  // Snowball: sort by remaining ascending — smallest active debt first.
+  const liabs = [...state.liabilities]
+    .sort((a, b) => (Number(a.remaining_amount) || 0) - (Number(b.remaining_amount) || 0));
+  const totalRemaining = liabs.reduce((s, l) => s + (Number(l.remaining_amount) || 0), 0);
+  if (totalEl) totalEl.innerHTML = liabs.length ? `المتبقّي: ${finPriv(finFmt(totalRemaining) + ' ' + FIN_CUR)}` : '';
+
+  const nextTarget = liabs.find(l => (Number(l.remaining_amount) || 0) > 0.005);
+  if (hintEl) hintEl.innerHTML = nextTarget
+    ? `❄️ طريقة كرة الثلج: ركّز على «${escapeHtml(nextTarget.name)}» — أصغر دين متبقّي، خلّصه الأول.`
+    : (liabs.length ? '🎉 مفيش ديون متبقّية — كله متسدّد!' : '');
+
+  if (!liabs.length) {
+    grid.innerHTML = `<div class="fin-empty">مفيش التزامات لسه — أضف أول دين أو قسط من «التزام جديد»</div>`;
+    return;
+  }
+
+  grid.innerHTML = liabs.map(l => {
+    const total     = Number(l.total_amount) || 0;
+    const remaining = Number(l.remaining_amount) || 0;
+    const paid      = Math.max(0, total - remaining);
+    const pct       = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+    const cleared   = remaining <= 0.005;
+    const isNext    = nextTarget && l.id === nextTarget.id;
+    const env       = state.envelopes.find(e => e.id === l.envelopeId);
+    return `<div class="fin-card fin-liab-card${cleared ? ' is-cleared' : ''}${isNext ? ' is-next' : ''}" data-liab-id="${l.id}">
+      <div class="fin-liab-head">
+        ${finBadge(l.icon || '💳', finColorFor(l))}
+        <div class="fin-card-info">
+          <span class="fin-card-name">${escapeHtml(l.name || '')}${isNext ? '<span class="fin-liab-tag next">التالي ❄️</span>' : ''}${cleared ? '<span class="fin-liab-tag done">مسدَّد ✅</span>' : ''}</span>
+          <span class="fin-card-sub">${env ? escapeHtml((env.icon || '✉️') + ' ' + env.name) : '⚠️ ظرف محذوف'}</span>
+        </div>
+        <div class="fin-liab-actions">
+          <button class="fin-feed-act-btn fin-liab-edit" type="button" data-liab-id="${l.id}" title="تعديل">✏️</button>
+          <button class="fin-feed-act-btn del fin-liab-del" type="button" data-liab-id="${l.id}" title="حذف">🗑</button>
+        </div>
+      </div>
+      <div class="fin-liab-figs">
+        <span class="fin-liab-remaining privacy-sensitive ${remaining > 0 ? 'is-neg' : 'is-pos'}">${finFmt(remaining)}<span class="fin-cur"> ${FIN_CUR}</span></span>
+        <span class="fin-liab-of privacy-sensitive">من ${finFmt(total)}</span>
+      </div>
+      <div class="fin-card-prog"><div class="fin-card-prog-fill ${cleared ? 'ok' : 'accent'}" style="width:${pct}%"></div></div>
+      <div class="fin-liab-foot">
+        <span class="fin-liab-pct">${pct}% مسدَّد</span>
+        ${cleared ? '' : `<button class="fin-btn fin-btn-expense fin-liab-pay" type="button" data-liab-id="${l.id}">💳 سداد قسط</button>`}
+      </div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.fin-liab-pay').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openLiabilityPayModal(b.dataset.liabId); }));
+  grid.querySelectorAll('.fin-liab-edit').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openLiabilityModal(b.dataset.liabId); }));
+  grid.querySelectorAll('.fin-liab-del').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); deleteLiability(b.dataset.liabId); }));
+}
+
+function openLiabilityModal(id) {
+  if (!state.envelopes.length) { toast('أضف ظرف الأول عشان تربط بيه الالتزام', 'error'); return; }
+  const title   = document.getElementById('liability-modal-title');
+  const submit  = document.getElementById('submit-liability-btn');
+  const remGroup = document.getElementById('liability-remaining-group');
+  const envSel  = document.getElementById('liability-envelope');
+  envSel.innerHTML = state.envelopes.map(e => `<option value="${e.id}">${escapeHtml((e.icon || '✉️') + ' ' + e.name)}</option>`).join('');
+  const l = id ? state.liabilities.find(x => x.id === id) : null;
+  document.getElementById('liability-edit-id').value = l ? l.id : '';
+  document.getElementById('liability-icon').value    = l?.icon || '';
+  document.getElementById('liability-name').value    = l?.name || '';
+  document.getElementById('liability-total').value   = l ? (Number(l.total_amount) || 0) : '';
+  document.getElementById('liability-remaining').value = l ? (Number(l.remaining_amount) || 0) : '';
+  if (l) envSel.value = l.envelopeId || state.envelopes[0].id;
+  // Remaining is editable only when editing an existing liability
+  remGroup.style.display = l ? '' : 'none';
+  if (title)  title.textContent  = l ? '✏️ تعديل التزام' : '＋ التزام جديد';
+  if (submit) submit.textContent = l ? 'حفظ التعديل' : 'حفظ';
+  finShow('liability-modal-overlay');
+  setTimeout(() => document.getElementById('liability-name').focus(), 60);
+}
+
+async function submitLiability(e) {
+  e.preventDefault();
+  const id    = document.getElementById('liability-edit-id').value;
+  const name  = document.getElementById('liability-name').value.trim();
+  const icon  = document.getElementById('liability-icon').value.trim() || '💳';
+  const total = Number(document.getElementById('liability-total').value);
+  const envelopeId = document.getElementById('liability-envelope').value;
+  if (!name) { toast('اكتب اسم الالتزام', 'error'); return; }
+  if (!(total > 0)) { toast('حط إجمالي مبلغ صحيح', 'error'); return; }
+  if (!envelopeId) { toast('اختار الظرف المرتبط', 'error'); return; }
+  const btn = document.getElementById('submit-liability-btn');
+  btn.disabled = true;
+  try {
+    if (id) {
+      const remaining = Math.max(0, Number(document.getElementById('liability-remaining').value) || 0);
+      await updateDoc(liabilityDoc(id), { name, icon, total_amount: total, remaining_amount: remaining, envelopeId });
+      toast('تم تعديل الالتزام ✅', 'success');
+    } else {
+      await addDoc(liabilitiesRef(), {
+        name, icon, total_amount: total, remaining_amount: total, envelopeId,
+        color: finColorFor({ name }), sortOrder: state.liabilities.length, createdAt: serverTimestamp(),
+      });
+      toast('تم إضافة الالتزام ✅', 'success');
+    }
+    finHide('liability-modal-overlay');
+  } catch (err) {
+    console.error('submitLiability', err);
+    toast('فشل حفظ الالتزام', 'error');
+  }
+  btn.disabled = false;
+}
+
+async function deleteLiability(id) {
+  const l = state.liabilities.find(x => x.id === id);
+  if (!l) return;
+  const confirmed = await confirmDialog({
+    title: 'حذف التزام',
+    message: `هتحذف «${l.name}». ده مش هيرجّع أي أرصدة — بس بيشيل الالتزام من القائمة.`,
+    icon: '🗑️', confirmText: 'نعم، احذف',
+  });
+  if (!confirmed) return;
+  try {
+    await deleteDoc(liabilityDoc(id));
+    toast('تم حذف الالتزام', 'success');
+  } catch (err) {
+    console.error('deleteLiability', err);
+    toast('فشل الحذف', 'error');
+  }
+}
+
+function openLiabilityPayModal(id) {
+  const l = state.liabilities.find(x => x.id === id);
+  if (!l) return;
+  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
+  const env = state.envelopes.find(e => e.id === l.envelopeId);
+  const remaining = Number(l.remaining_amount) || 0;
+  document.getElementById('liability-pay-id').value = id;
+  document.getElementById('liability-pay-info').innerHTML =
+    `«${escapeHtml(l.name)}» — المتبقّي <strong class="privacy-sensitive">${finFmt(remaining)} ${FIN_CUR}</strong>`
+    + `<br>هيتخصم من ظرف ${env ? escapeHtml((env.icon || '✉️') + ' ' + env.name) : '—'} (المتاح: <span class="privacy-sensitive">${finFmt(Number(env?.current_balance) || 0)}</span>)`;
+  document.getElementById('liability-pay-amount').value = '';
+  document.getElementById('liability-pay-note').value = '';
+  document.getElementById('liability-pay-bank').innerHTML = state.banks
+    .map(b => `<option value="${b.id}">${escapeHtml((b.icon || '🏦') + ' ' + b.name)}</option>`).join('');
+  finShow('liability-pay-modal-overlay');
+  setTimeout(() => document.getElementById('liability-pay-amount').focus(), 60);
+}
+
+async function submitLiabilityPay(e) {
+  e.preventDefault();
+  const id     = document.getElementById('liability-pay-id').value;
+  const amount = Number(document.getElementById('liability-pay-amount').value);
+  const bankId = document.getElementById('liability-pay-bank').value;
+  const note   = document.getElementById('liability-pay-note').value.trim();
+  const l = state.liabilities.find(x => x.id === id);
+  if (!l) return;
+  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
+  const remaining = Number(l.remaining_amount) || 0;
+  if (amount > remaining + 0.005) { toast(`المبلغ أكبر من المتبقّي (${finFmt(remaining)})`, 'error'); return; }
+  const env = state.envelopes.find(x => x.id === l.envelopeId);
+  if (!env) { toast('الظرف المرتبط اتحذف — عدّل الالتزام الأول', 'error'); return; }
+  // ⛔ Behavioral block — can't pay more than the linked envelope holds
+  if (amount > (Number(env.current_balance) || 0) + 0.005) {
+    toast(`🚫 رصيد ظرف «${env.name}» مايكفيش للسداد`, 'error');
+    return;
+  }
+  const btn = document.getElementById('submit-liability-pay-btn');
+  btn.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    batch.update(envelopeDoc(env.id), { current_balance: increment(-amount) });
+    batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
+    batch.update(liabilityDoc(id), { remaining_amount: Math.max(0, +(remaining - amount).toFixed(2)) });
+    const txRef = doc(transactionsRef());
+    batch.set(txRef, {
+      type: 'expense', amount, bankId, envelopeId: env.id, liabilityId: id,
+      note: note || `سداد قسط: ${l.name}`, period: finThisPeriod(), createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+    toast('تم تسجيل السداد 💳', 'success');
+    finHide('liability-pay-modal-overlay');
+  } catch (err) {
+    console.error('submitLiabilityPay', err);
+    toast('فشل تسجيل السداد', 'error');
+  }
+  btn.disabled = false;
+}
+
 // ── Event bindings (static elements exist from page load) ─────
 (function bindFinanceUI() {
   // Toolbar
@@ -5320,6 +5657,7 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
   document.getElementById('gold-grams-form')?.addEventListener('submit', submitGoldGrams);
   document.getElementById('manage-form')?.addEventListener('submit', submitManage);
   document.getElementById('submit-alloc-btn')?.addEventListener('click', submitManualAlloc);
+  document.getElementById('alloc-fill-catcher')?.addEventListener('click', fillAllocCatcher);
   document.getElementById('save-rules-btn')?.addEventListener('click', saveRules);
   document.getElementById('fin-gold-refresh-btn')?.addEventListener('click', fetchGoldPricesAuto);
   document.getElementById('expense-envelope')?.addEventListener('change', updateExpenseHint);
@@ -5336,9 +5674,15 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
     'close-manage-modal-btn': 'manage-modal-overlay',
     'close-gold-prices-modal-btn': 'gold-prices-modal-overlay',
     'close-gold-grams-modal-btn': 'gold-grams-modal-overlay', 'cancel-gold-grams-modal-btn': 'gold-grams-modal-overlay',
+    'close-liability-modal-btn': 'liability-modal-overlay', 'cancel-liability-modal-btn': 'liability-modal-overlay',
+    'close-liability-pay-modal-btn': 'liability-pay-modal-overlay', 'cancel-liability-pay-modal-btn': 'liability-pay-modal-overlay',
   };
   Object.entries(closeMap).forEach(([btnId, ovId]) => {
     document.getElementById(btnId)?.addEventListener('click', () => finHide(ovId));
+  });
+  // Backdrop click closes the liability overlays
+  ['liability-modal-overlay', 'liability-pay-modal-overlay'].forEach(ovId => {
+    document.getElementById(ovId)?.addEventListener('click', e => { if (e.target === e.currentTarget) finHide(ovId); });
   });
 
   // Backdrop click closes (NOT the forced allocation modal)
@@ -5408,6 +5752,8 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
   document.getElementById('btn-back-finance-env')?.addEventListener('click',   () => navigateTo(state.financeEnvBackTo || 'finance-envelopes'));
   document.getElementById('btn-back-finance-gold')?.addEventListener('click',  () => navigateTo(state.financeBackTo || 'finance'));
   document.getElementById('btn-back-finance-summary')?.addEventListener('click', () => navigateTo('dashboard'));
+  document.getElementById('btn-back-finance-liabilities')?.addEventListener('click', () => navigateTo('finance'));
+  document.getElementById('btn-liability-add')?.addEventListener('click', () => openLiabilityModal());
 
   // ── Manage modal: restore all tabs on close ──
   const restoreManageTabs = () => {
@@ -5514,5 +5860,7 @@ function bindFinPills(containerId, hiddenId, attr, onChange) {
   document.getElementById('cancel-edit-tx-modal-btn')?.addEventListener('click', closeEditTxModal);
   document.getElementById('edit-tx-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEditTxModal(); });
   document.getElementById('edit-tx-form')?.addEventListener('submit', submitEditTx);
+  document.getElementById('liability-form')?.addEventListener('submit', submitLiability);
+  document.getElementById('liability-pay-form')?.addEventListener('submit', submitLiabilityPay);
 
 })();
