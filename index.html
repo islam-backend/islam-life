@@ -404,8 +404,8 @@
             </button>
           </div>
           <div class="fin-page fin-home-page">
-            <div class="fin-month-strip" id="fin-month-strip"></div>
             <div class="cards-grid fin-hub-cards" id="fin-hub-cards"></div>
+            <div class="fin-month-strip" id="fin-month-strip"></div>
           </div>
         </div><!-- /#view-finance -->
 
@@ -975,16 +975,49 @@
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label">اسم البند</label>
-            <input type="text" id="env-item-name-inp" class="form-input" maxlength="60" placeholder="مثلاً: فاتورة كهرباء" required />
+            <input type="text" id="env-item-name-inp" class="form-input" maxlength="60" placeholder="مثلاً: دين العفش" required />
           </div>
           <div class="form-group">
-            <label class="form-label">المبلغ</label>
+            <label class="form-label">إجمالي الدين / الهدف</label>
             <input type="number" id="env-item-amount-inp" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
+            <small class="form-hint">الرقم الكلي — والمتبقّي بيقلّ مع كل سداد</small>
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn-ghost" id="cancel-env-item-modal-btn">إلغاء</button>
           <button type="submit" class="btn-primary" id="submit-env-item-btn">حفظ البند</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Envelope item: record a payment (سداد) -->
+  <div id="env-pay-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>💳 سداد جزء من البند</h2>
+        <button class="modal-close" id="close-env-pay-modal-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="env-pay-form">
+        <input type="hidden" id="env-pay-item-id" value="" />
+        <div class="modal-body">
+          <p class="fin-pay-info" id="env-pay-info"></p>
+          <div class="form-group">
+            <label class="form-label">المبلغ</label>
+            <input type="number" id="env-pay-amount" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">راح لمين؟</label>
+            <input type="text" id="env-pay-to" class="form-input" maxlength="80" placeholder="مثلاً: محل العفش / فلان" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">من بنك (المصدر)</label>
+            <select id="env-pay-bank" class="form-input" required></select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancel-env-pay-modal-btn">إلغاء</button>
+          <button type="submit" class="btn-primary" id="submit-env-pay-btn">تأكيد السداد</button>
         </div>
       </form>
     </div>

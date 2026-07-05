@@ -810,6 +810,7 @@ function navigateTo(view, payload = {}, fromPop = false) {
   // Hide all views, show target
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
 
+  try {
   if (view === 'dashboard') {
     state.client  = null;
     state.project = null;
@@ -913,9 +914,13 @@ function navigateTo(view, payload = {}, fromPop = false) {
     subscribeCalendar();   // ← real-time listeners (same data as calendar/day)
     renderDailySummary();  // ← immediate render with current state
   }
-
-  updateHeader();
-  updateBreadcrumb();
+  } finally {
+    // Always sync the header + breadcrumb to the target view, even if a
+    // subscribe/render above threw — otherwise the view switches but the
+    // trail/title stay stale (e.g. the old envelope breadcrumb lingers).
+    updateHeader();
+    updateBreadcrumb();
+  }
 
   // Record this step in the browser history so Back (mouse button /
   // two-finger swipe) can return here. Skip when we ARE the Back handler.
@@ -4125,117 +4130,54 @@ function renderFinanceHome() {
   const goldGrams  = byK[24] + byK[21] + byK[18];
   const goldValue  = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
   const hasPrices  = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
-  const totalAssets = banksTotal + goldValue;
-
-  // ── Summary bar — Option B (Net Worth Hero, no graph) ──
-  const summaryBar = document.getElementById('fin-summary-bar');
-  if (summaryBar) {
-    // Envelope tags with remaining balance + mini progress
-    const envTags = state.envelopes.map(e => {
-      const remaining = Number(e.current_balance) || 0;
-      const budget    = Number(e.budget) || 0;
-      const pct  = budget > 0 ? Math.min(100, Math.round((remaining / budget) * 100)) : -1;
-      const cls  = pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'ok';
-      return `<div class="fin-hero-env-tag">
-        <span class="fin-hero-env-name">${escapeHtml(e.icon || '✉️')} ${escapeHtml(e.name || '')}</span>
-        <span class="fin-hero-env-val privacy-sensitive">${finFmt(remaining)}</span>
-        ${pct >= 0 ? `<div class="fin-card-prog" style="width:36px;margin:0"><div class="fin-card-prog-fill ${cls}" style="width:${pct}%"></div></div>` : ''}
-      </div>`;
-    }).join('');
-
-    summaryBar.innerHTML = `
-      <div class="fin-hero-card">
-        <div class="fin-hero-main">
-          <div class="fin-hero-lbl">صافي الأصول</div>
-          <div class="fin-hero-num privacy-sensitive">${finFmt(totalAssets)}<span class="fin-hero-cur"> ${FIN_CUR}</span></div>
-        </div>
-        <div class="fin-hero-divider"></div>
-        <div class="fin-hero-sub-row">
-          <div class="fin-hero-sub">
-            <span class="fin-hero-sub-icon">🏦</span>
-            <div class="fin-hero-sub-txt">
-              <span class="fin-hero-sub-lbl">البنوك</span>
-              <span class="fin-hero-sub-val privacy-sensitive">${finFmt(banksTotal)} <span class="fin-hero-sub-cur">${FIN_CUR}</span></span>
-            </div>
-          </div>
-          <div class="fin-hero-sub">
-            <span class="fin-hero-sub-icon">🥇</span>
-            <div class="fin-hero-sub-txt">
-              <span class="fin-hero-sub-lbl">الذهب</span>
-              <span class="fin-hero-sub-val privacy-sensitive" style="color:#F0A835">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جم'}</span>
-            </div>
-          </div>
-        </div>
-        ${envTags.length ? `<div class="fin-hero-env-row">${envTags}</div>` : ''}
-      </div>`;
-  }
 
   // ── Hub cards (entity-card style, rendered into #fin-hub-cards) ──
   const grid = document.getElementById('fin-hub-cards');
   if (!grid) return;
 
   const envTotal = state.envelopes.reduce((s, e) => s + (Number(e.current_balance) || 0), 0);
-  const liabTotal = state.liabilities.reduce((s, l) => s + (Number(l.remaining_amount) || 0), 0);
 
-  grid.innerHTML = `
-    <div class="entity-card" id="fin-hub-banks" role="button" tabindex="0">
+  const hubCard = ({ id, icon, name, count, val, sub }) => `
+    <div class="entity-card fin-hub-card" id="${id}" role="button" tabindex="0">
       <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(53,116,240,.18);font-size:20px">🏦</div>
-        <span class="card-arrow">←</span>
+        <div class="card-avatar fin-hub-icon">${icon}</div>
+        <span class="fin-hub-count">${count}</span>
       </div>
-      <div class="card-name">البنوك والسيولة</div>
-      <div class="card-desc privacy-sensitive">${finFmt(banksTotal)} ${FIN_CUR}</div>
+      <div class="card-name">${name}</div>
+      <div class="fin-hub-card-val privacy-sensitive">${val}</div>
       <div class="card-meta">
-        <span>${state.banks.length} بنك</span>
-        <span>${state.banks.length ? state.banks.map(b => escapeHtml(b.name)).join(' · ') : 'أضف بنكك الأول'}</span>
-      </div>
-    </div>
-    <div class="entity-card" id="fin-hub-envelopes" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(240,168,53,.18);font-size:20px">✉️</div>
+        <span class="fin-hub-sub">${sub}</span>
         <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">الأظرف</div>
-      <div class="card-desc privacy-sensitive">${finFmt(envTotal)} ${FIN_CUR}</div>
-      <div class="card-meta">
-        <span>${state.envelopes.length} ظرف</span>
-        <span>${state.envelopes.length ? state.envelopes.map(e => escapeHtml(e.name)).join(' · ') : 'أضف ظرفك الأول'}</span>
-      </div>
-    </div>
-    <div class="entity-card" id="fin-hub-gold" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(240,168,53,.25);font-size:20px">🥇</div>
-        <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">خزنة الذهب</div>
-      <div class="card-desc privacy-sensitive">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جرام'}</div>
-      <div class="card-meta">
-        <span>${finFmt(goldGrams)} جم</span>
-        <span>${hasPrices ? 'السعر محدّث' : 'حدّد الأسعار لعرض القيمة'}</span>
-      </div>
-    </div>
-    <div class="entity-card" id="fin-hub-liabilities" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(224,92,92,.18);font-size:20px">💳</div>
-        <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">الالتزامات والديون</div>
-      <div class="card-desc privacy-sensitive" style="color:var(--danger)">${finFmt(liabTotal)} ${FIN_CUR}</div>
-      <div class="card-meta">
-        <span>${state.liabilities.length} التزام</span>
-        <span>${state.liabilities.length ? 'المتبقّي إجمالاً' : 'أضف أول دين/قسط'}</span>
       </div>
     </div>`;
+
+  grid.innerHTML =
+    hubCard({
+      id: 'fin-hub-banks', icon: '🏦',
+      name: 'البنوك والسيولة', count: `${state.banks.length} بنك`,
+      val: `${finFmt(banksTotal)} <span class="fin-cur">${FIN_CUR}</span>`,
+      sub: state.banks.length ? state.banks.map(b => escapeHtml(b.name)).join(' · ') : 'أضف بنكك الأول',
+    }) +
+    hubCard({
+      id: 'fin-hub-envelopes', icon: '✉️',
+      name: 'الأظرف', count: `${state.envelopes.length} ظرف`,
+      val: `${finFmt(envTotal)} <span class="fin-cur">${FIN_CUR}</span>`,
+      sub: state.envelopes.length ? state.envelopes.map(e => escapeHtml(e.name)).join(' · ') : 'أضف ظرفك الأول',
+    }) +
+    hubCard({
+      id: 'fin-hub-gold', icon: '🥇',
+      name: 'خزنة الذهب', count: `${finFmt(goldGrams)} جم`,
+      val: hasPrices ? `${finFmt(goldValue)} <span class="fin-cur">${FIN_CUR}</span>` : `${finFmt(goldGrams)} <span class="fin-cur">جرام</span>`,
+      sub: hasPrices ? 'السعر محدّث' : 'حدّد الأسعار لعرض القيمة',
+    });
 
   // Wire clicks
   document.getElementById('fin-hub-banks')?.addEventListener('click', () => navigateTo('finance-banks'));
   document.getElementById('fin-hub-envelopes')?.addEventListener('click', () => navigateTo('finance-envelopes'));
   document.getElementById('fin-hub-gold')?.addEventListener('click', () => navigateTo('finance-gold'));
-  document.getElementById('fin-hub-liabilities')?.addEventListener('click', () => navigateTo('finance-liabilities'));
   document.getElementById('fin-hub-banks')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-banks'); });
   document.getElementById('fin-hub-envelopes')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-envelopes'); });
   document.getElementById('fin-hub-gold')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-gold'); });
-  document.getElementById('fin-hub-liabilities')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-liabilities'); });
 
   if (!document.getElementById('manage-modal-overlay')?.classList.contains('hidden')) {
     renderManageList();
@@ -4699,48 +4641,142 @@ function renderEnvelopeDetail() {
   renderEnvFeed(env);
 }
 
+// ── Envelope item (debt / goal) helpers ──
+// Legacy items stored a decrementing `amount`; new items store the original
+// `total` plus a `payments[]` log. These read either shape safely.
+const itemTotal     = it => Number(it.total ?? it.amount) || 0;
+const itemPayments  = it => (Array.isArray(it.payments) ? it.payments : []);
+const itemPaid      = it => itemPayments(it).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+const itemRemaining = it => Math.max(0, +(itemTotal(it) - itemPaid(it)).toFixed(2));
+
 function renderEnvItems(env) {
   const listEl  = document.getElementById('fin-env-items-list');
   const totalEl = document.getElementById('fin-env-items-total');
   if (!listEl) return;
   const items = Array.isArray(env.items) ? env.items : [];
-  const total = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
-  if (totalEl) totalEl.textContent = items.length ? `إجمالي: ${finFmt(total)} ${FIN_CUR}` : '';
+  const totalRemaining = items.reduce((s, it) => s + itemRemaining(it), 0);
+  if (totalEl) totalEl.textContent = items.length ? `متبقّي: ${finFmt(totalRemaining)} ${FIN_CUR}` : '';
   if (!items.length) {
-    listEl.innerHTML = `<div class="fin-empty">لا توجد بنود — أضف بنداً أدناه</div>`;
+    listEl.innerHTML = `<div class="fin-empty">مفيش بنود لسه — أضف بند (زي دين أو هدف) وسجّل سداداته</div>`;
     return;
   }
-  listEl.innerHTML = items.map((it, idx) => `
-    <div class="fin-item-row" data-item-idx="${idx}">
-      <span class="fin-item-name">${escapeHtml(it.name || '')}</span>
-      <span class="fin-item-amount">${finFmt(it.amount || 0)}<span class="fin-cur"> ${FIN_CUR}</span></span>
-      <div class="fin-feed-actions" style="opacity:0">
-        <button class="fin-feed-act-btn fin-item-edit" type="button" data-item-id="${it.id}" title="تعديل">✏️</button>
-        <button class="fin-feed-act-btn del fin-item-del" type="button" data-item-idx="${idx}" title="حذف البند">🗑</button>
+  listEl.innerHTML = items.map((it) => {
+    const total = itemTotal(it), paid = itemPaid(it), remaining = itemRemaining(it);
+    const pct  = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+    const done = total > 0 && remaining <= 0.005;
+    const pays = itemPayments(it).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    return `
+    <div class="fin-item-card ${done ? 'is-done' : ''}" data-item-id="${it.id}">
+      <div class="fin-item-head">
+        <span class="fin-item-name">${escapeHtml(it.name || '')}${done ? ' <span class="fin-item-done-badge">مسدَّد ✓</span>' : ''}</span>
+        <span class="fin-item-remain privacy-sensitive">${finFmt(remaining)}<span class="fin-item-of"> / ${finFmt(total)} ${FIN_CUR}</span></span>
       </div>
-    </div>
-  `).join('');
+      <div class="fin-item-prog"><div class="fin-item-prog-fill ${done ? 'done' : ''}" style="width:${pct}%"></div></div>
+      <div class="fin-item-foot">
+        ${done ? '' : `<button class="fin-item-pay" type="button" data-item-id="${it.id}">＋ سداد</button>`}
+        <span class="fin-item-meta">${pays.length ? `${pays.length} دفعة · اتسدّد <span class="privacy-sensitive">${finFmt(paid)} ${FIN_CUR}</span>` : 'مفيش سداد لسه'}</span>
+        ${pays.length ? `<button class="fin-item-toggle" type="button" data-item-id="${it.id}" aria-expanded="false">السجل ▾</button>` : ''}
+        <button class="fin-feed-act-btn fin-item-edit" type="button" data-item-id="${it.id}" title="تعديل">✏️</button>
+        <button class="fin-feed-act-btn del fin-item-del" type="button" data-item-id="${it.id}" title="حذف">🗑</button>
+      </div>
+      ${pays.length ? `<div class="fin-item-pays hidden" data-pays-for="${it.id}">
+        ${pays.map(p => `<div class="fin-item-pay-row">
+          <span class="fin-item-pay-to">↳ ${escapeHtml(p.to || '—')}</span>
+          <span class="fin-item-pay-amt privacy-sensitive">${finFmt(p.amount)} ${FIN_CUR}</span>
+          <span class="fin-item-pay-date">${escapeHtml(formatDate(p.ts))}</span>
+        </div>`).join('')}
+      </div>` : ''}
+    </div>`;
+  }).join('');
 
-  listEl.querySelectorAll('.fin-item-row').forEach(row => {
-    row.addEventListener('mouseenter', () => row.querySelector('.fin-feed-actions').style.opacity = '1');
-    row.addEventListener('mouseleave', () => row.querySelector('.fin-feed-actions').style.opacity = '0');
-  });
-  listEl.querySelectorAll('.fin-item-edit').forEach(btn => {
-    btn.addEventListener('click', () => openEnvItemModal(btn.dataset.itemId));
-  });
+  listEl.querySelectorAll('.fin-item-pay').forEach(b => b.addEventListener('click', () => openEnvItemPayModal(b.dataset.itemId)));
+  listEl.querySelectorAll('.fin-item-edit').forEach(b => b.addEventListener('click', () => openEnvItemModal(b.dataset.itemId)));
+  listEl.querySelectorAll('.fin-item-toggle').forEach(b => b.addEventListener('click', () => {
+    const box = listEl.querySelector(`.fin-item-pays[data-pays-for="${b.dataset.itemId}"]`);
+    if (!box) return;
+    const nowHidden = box.classList.toggle('hidden');
+    b.setAttribute('aria-expanded', String(!nowHidden));
+    b.textContent = nowHidden ? 'السجل ▾' : 'السجل ▴';
+  }));
   listEl.querySelectorAll('.fin-item-del').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const idx = Number(btn.dataset.itemIdx);
-      const confirmed = await confirmDialog({ title: 'حذف البند', message: `هتحذف "${items[idx]?.name}"؟`, icon: '🗑️', confirmText: 'احذف' });
+      const it = items.find(x => x.id === btn.dataset.itemId);
+      const confirmed = await confirmDialog({ title: 'حذف البند', message: `هتحذف "${it?.name}" وكل سجل سداده؟`, icon: '🗑️', confirmText: 'احذف' });
       if (!confirmed) return;
-      const newItems = [...items];
-      newItems.splice(idx, 1);
+      const newItems = items.filter(x => x.id !== btn.dataset.itemId);
       try {
         await updateDoc(envelopeDoc(env.id), { items: newItems });
         toast('تم حذف البند', 'success');
       } catch (err) { toast('فشل الحذف', 'error'); console.error(err); }
     });
   });
+}
+
+function openEnvItemPayModal(itemId) {
+  const env = state.envelope;
+  if (!env) return;
+  const it = (Array.isArray(env.items) ? env.items : []).find(i => i.id === itemId);
+  if (!it) return;
+  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
+  const remaining = itemRemaining(it);
+  document.getElementById('env-pay-item-id').value = itemId;
+  document.getElementById('env-pay-info').innerHTML =
+    `<strong>${escapeHtml(it.name || '')}</strong> — المتبقّي <b>${finFmt(remaining)} ${FIN_CUR}</b> · رصيد الظرف ${finFmt(env.current_balance || 0)} ${FIN_CUR}`;
+  document.getElementById('env-pay-amount').value = '';
+  document.getElementById('env-pay-to').value = '';
+  document.getElementById('env-pay-bank').innerHTML = state.banks
+    .map(b => `<option value="${b.id}">${escapeHtml((b.icon || '') + ' ' + b.name)}</option>`).join('');
+  finShow('env-pay-modal-overlay');
+  setTimeout(() => document.getElementById('env-pay-amount').focus(), 60);
+}
+
+async function submitEnvItemPay(e) {
+  e.preventDefault();
+  const env = state.envelope;
+  if (!env) return;
+  const itemId = document.getElementById('env-pay-item-id').value;
+  const amount = Number(document.getElementById('env-pay-amount').value);
+  const to     = document.getElementById('env-pay-to').value.trim();
+  const bankId = document.getElementById('env-pay-bank').value;
+  const items  = Array.isArray(env.items) ? env.items : [];
+  const it     = items.find(i => i.id === itemId);
+  if (!it) { toast('البند اتحذف', 'error'); return; }
+  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
+  if (!to) { toast('اكتب السداد راح لمين', 'error'); return; }
+  const remaining = itemRemaining(it);
+  if (amount > remaining + 0.005) { toast(`المبلغ أكبر من متبقّي البند (${finFmt(remaining)})`, 'error'); return; }
+  // ⛔ Behavioral block — can't pay more than the envelope holds
+  if (amount > (Number(env.current_balance) || 0) + 0.005) {
+    toast(`🚫 رصيد ظرف «${env.name}» مايكفيش للسداد`, 'error');
+    return;
+  }
+  const bank = state.banks.find(b => b.id === bankId);
+  if (bank && amount > (Number(bank.current_balance) || 0) + 0.005) {
+    toast(`⚠️ تنبيه: رصيد بنك «${bank.name}» أقل من المبلغ`, 'info');
+  }
+  const btn = document.getElementById('submit-env-pay-btn');
+  btn.disabled = true;
+  try {
+    const payment = { id: Date.now().toString(36), amount: +amount.toFixed(2), to, bankId, ts: Date.now() };
+    const newItems = items.map(i => i.id === itemId
+      ? { ...i, total: itemTotal(i), payments: [...itemPayments(i), payment] }
+      : i);
+    const batch = writeBatch(db);
+    batch.update(envelopeDoc(env.id), { current_balance: increment(-amount), items: newItems });
+    batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
+    const txRef = doc(transactionsRef());
+    batch.set(txRef, {
+      type: 'expense', amount, bankId, envelopeId: env.id, itemId, paymentId: payment.id,
+      note: `سداد ${it.name} — ${to}`, period: finThisPeriod(), createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+    toast('تم تسجيل السداد 💳', 'success');
+    finHide('env-pay-modal-overlay');
+  } catch (err) {
+    console.error('submitEnvItemPay', err);
+    toast('فشل تسجيل السداد', 'error');
+  }
+  btn.disabled = false;
 }
 
 function renderEnvFeed(env) {
@@ -4961,9 +4997,10 @@ function updateExpenseHint() {
   const itemSel   = document.getElementById('expense-item');
   const items = Array.isArray(env?.items) ? env.items : [];
   if (items.length && itemGroup && itemSel) {
-    itemSel.innerHTML = items.map(it =>
-      `<option value="${it.id}">${escapeHtml(it.name || '')}${it.amount ? ' — ' + finFmt(it.amount) + ' ' + FIN_CUR : ''}</option>`
-    ).join('');
+    itemSel.innerHTML = items.map(it => {
+      const rem = itemRemaining(it);
+      return `<option value="${it.id}">${escapeHtml(it.name || '')}${itemTotal(it) ? ' — متبقّي ' + finFmt(rem) + ' ' + FIN_CUR : ''}</option>`;
+    }).join('');
     itemGroup.style.display = '';
   } else if (itemGroup) {
     itemGroup.style.display = 'none';
@@ -5001,10 +5038,15 @@ async function deleteTx(txId) {
         const env = state.envelopes.find(e => e.id === tx.envelopeId);
         const envRestore = { current_balance: increment(tx.amount) };
         if (tx.itemId && env) {
-          const restoredItems = (Array.isArray(env.items) ? env.items : []).map(it =>
-            it.id === tx.itemId ? { ...it, amount: (Number(it.amount) || 0) + tx.amount } : it
-          );
-          envRestore.items = restoredItems;
+          envRestore.items = (Array.isArray(env.items) ? env.items : []).map(it => {
+            if (it.id !== tx.itemId) return it;
+            if (tx.paymentId) {
+              // new model: drop the matching payment from the log
+              return { ...it, total: itemTotal(it), payments: itemPayments(it).filter(p => p.id !== tx.paymentId) };
+            }
+            // legacy model: give the amount back
+            return { ...it, amount: (Number(it.amount) || 0) + tx.amount };
+          });
         }
         batch.update(envelopeDoc(tx.envelopeId), envRestore);
       }
@@ -5084,8 +5126,8 @@ function openEnvItemModal(itemId) {
   if (itemId) {
     const item = (state.envelope?.items || []).find(i => i.id === itemId);
     editId.value    = itemId;
-    nameInp.value   = item?.name   || '';
-    amtInp.value    = item?.amount || '';
+    nameInp.value   = item?.name || '';
+    amtInp.value    = item ? itemTotal(item) : '';
     if (title)     title.textContent  = '✏️ تعديل بند';
     if (submitBtn) submitBtn.textContent = 'حفظ التعديل';
   } else {
@@ -5111,6 +5153,10 @@ async function submitExpense(e) {
   if (!env) { toast('اختار ظرف', 'error'); return; }
   const envItems = Array.isArray(env.items) ? env.items : [];
   if (envItems.length && !itemId) { toast('اختار البند المناسب', 'error'); return; }
+  if (itemId) {
+    const it = envItems.find(i => i.id === itemId);
+    if (it && amount > itemRemaining(it) + 0.005) { toast(`المبلغ أكبر من متبقّي البند (${finFmt(itemRemaining(it))})`, 'error'); return; }
+  }
   // ⛔ Behavioral block — overspending a single envelope is forbidden outright
   if (amount > (Number(env.current_balance) || 0) + 0.005) {
     toast(`🚫 الصرف اتمنع — رصيد ظرف «${env.name}» مايكفيش`, 'error');
@@ -5125,17 +5171,19 @@ async function submitExpense(e) {
   try {
     const batch = writeBatch(db);
     const envUpdate = { current_balance: increment(-amount) };
+    let paymentId = null;
     if (itemId) {
-      const updatedItems = envItems.map(it =>
-        it.id === itemId ? { ...it, amount: Math.max(0, (Number(it.amount) || 0) - amount) } : it
+      paymentId = Date.now().toString(36);
+      const payment = { id: paymentId, amount: +amount.toFixed(2), to: note || '—', bankId, ts: Date.now() };
+      envUpdate.items = envItems.map(it =>
+        it.id === itemId ? { ...it, total: itemTotal(it), payments: [...itemPayments(it), payment] } : it
       );
-      envUpdate.items = updatedItems;
     }
     batch.update(envelopeDoc(envelopeId), envUpdate);
     batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
     const txRef = doc(transactionsRef());
     const txData = { type: 'expense', amount, bankId, envelopeId, note, period: finThisPeriod(), createdAt: serverTimestamp() };
-    if (itemId) txData.itemId = itemId;
+    if (itemId) { txData.itemId = itemId; txData.paymentId = paymentId; }
     batch.set(txRef, txData);
     await batch.commit();
     toast('تم تسجيل المصروف', 'success');
@@ -5834,7 +5882,7 @@ async function submitLiabilityPay(e) {
     e.preventDefault();
     if (!state.envelope) return;
     const name   = document.getElementById('env-item-name-inp').value.trim();
-    const amount = Number(document.getElementById('env-item-amount-inp').value) || 0;
+    const total  = Number(document.getElementById('env-item-amount-inp').value) || 0;
     const editId = document.getElementById('env-item-edit-id').value;
     if (!name) return;
     const btn = document.getElementById('submit-env-item-btn');
@@ -5843,9 +5891,10 @@ async function submitLiabilityPay(e) {
       const existing = Array.isArray(state.envelope.items) ? [...state.envelope.items] : [];
       if (editId) {
         const idx = existing.findIndex(i => i.id === editId);
-        if (idx >= 0) existing[idx] = { ...existing[idx], name, amount };
+        // keep the payment log; drop the legacy `amount` in favour of `total`
+        if (idx >= 0) { const { amount, ...rest } = existing[idx]; existing[idx] = { ...rest, name, total, payments: itemPayments(existing[idx]) }; }
       } else {
-        existing.push({ id: Date.now().toString(36), name, amount });
+        existing.push({ id: Date.now().toString(36), name, total, payments: [] });
       }
       await updateDoc(envelopeDoc(state.envelope.id), { items: existing });
       closeEnvItemModal();
@@ -5853,6 +5902,13 @@ async function submitLiabilityPay(e) {
     } catch (err) { toast('فشلت العملية', 'error'); console.error(err); }
     btn.disabled = false;
   });
+
+  // ── Envelope item: pay (سداد) modal ──
+  const closeEnvPayModal = () => document.getElementById('env-pay-modal-overlay').classList.add('hidden');
+  document.getElementById('close-env-pay-modal-btn')?.addEventListener('click', closeEnvPayModal);
+  document.getElementById('cancel-env-pay-modal-btn')?.addEventListener('click', closeEnvPayModal);
+  document.getElementById('env-pay-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEnvPayModal(); });
+  document.getElementById('env-pay-form')?.addEventListener('submit', submitEnvItemPay);
 
   // ── Edit transaction modal ──
   const closeEditTxModal = () => document.getElementById('edit-tx-modal-overlay').classList.add('hidden');

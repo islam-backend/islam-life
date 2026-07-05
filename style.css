@@ -6924,33 +6924,117 @@ svg {
   white-space: nowrap;
 }
 
-/* ── Sub-item rows ── */
-.fin-item-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 4px;
-  border-bottom: 1px solid var(--border-light);
+/* ── Sub-item cards (debt / goal with payment log) ── */
+.fin-item-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 10px;
   animation: cardIn .18s ease;
 }
-.fin-item-row:last-child { border-bottom: none; }
+.fin-item-card:last-child { margin-bottom: 0; }
+.fin-item-card.is-done { opacity: .78; }
+.fin-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
 .fin-item-name {
   flex: 1;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 700;
   color: var(--text-primary);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fin-item-amount {
-  font-size: 13px;
+.fin-item-done-badge {
+  font-size: 10px;
   font-weight: 700;
-  color: var(--text-secondary);
-  white-space: nowrap;
+  color: var(--status-done);
+  background: rgba(61, 185, 129, .14);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-inline-start: 4px;
 }
-.fin-item-amount .fin-cur { font-size: 11px; color: var(--text-muted); }
+.fin-item-remain {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  letter-spacing: -.3px;
+}
+.fin-item-of { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0; }
+
+/* progress */
+.fin-item-prog {
+  height: 6px;
+  background: var(--bg-card-hover);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.fin-item-prog-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width .3s ease;
+}
+.fin-item-prog-fill.done { background: var(--status-done); }
+
+/* footer row */
+.fin-item-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fin-item-pay {
+  border: 1px solid var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: var(--radius-md);
+  padding: 4px 12px;
+  font-size: 12px; font-weight: 700;
+  font-family: inherit; cursor: pointer;
+  transition: var(--transition);
+}
+.fin-item-pay:hover { background: var(--accent); color: #fff; }
+.fin-item-meta { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-muted); }
+.fin-item-toggle {
+  border: none; background: transparent; color: var(--accent);
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; padding: 2px 4px;
+}
+
+/* payment log */
+.fin-item-pays {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.fin-item-pay-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.fin-item-pay-to { flex: 1; min-width: 0; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-item-pay-amt { font-weight: 700; color: var(--danger); white-space: nowrap; }
+.fin-item-pay-date { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* pay modal info line */
+.fin-pay-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+}
+.fin-pay-info b { color: var(--text-primary); }
 
 /* ── Add item inline button ── */
 .fin-add-item-btn {
@@ -6995,33 +7079,74 @@ svg {
 
 /* ── Hub home page ── */
 .fin-home-page {
-  padding: 0;
+  padding: 22px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
-.fin-home-page .fin-summary-bar {
-  padding: 14px 24px 4px;
+/* Keep the whole dashboard as one centred column so nothing stretches
+   into empty full-width bars on wide screens. */
+.fin-home-page > * {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 !important;
 }
 .fin-home-page .cards-grid {
   overflow-y: visible;
 }
-.fin-home-page {
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 56px);
-  padding-top: 8vh;
-}
 .fin-hub-cards {
-  padding: 8px 24px 32px !important;
-  display: flex !important;
-  flex-wrap: wrap;
-  justify-content: center;
+  padding: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr);
   align-content: start;
   gap: 14px;
 }
-.fin-hub-cards .entity-card {
-  flex: 0 0 260px;
-  max-width: 300px;
+
+/* ── Hub card — themed (accent + neutral, emojis carry the colour) ── */
+.fin-hub-card {
+  width: auto;
+  max-width: none;
+  padding: 18px 18px 14px;
+  gap: 11px;
 }
-.fin-summary-bar { animation: cardIn .22s ease; width: 100%; }
+.fin-hub-icon {
+  width: 46px;
+  height: 46px;
+  font-size: 22px !important;
+  background: var(--accent-dim) !important;
+  border: 1px solid var(--border-light);
+  box-shadow: none;
+}
+.fin-hub-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.fin-hub-card .card-name { font-size: 14px; }
+.fin-hub-card-val {
+  font-size: 23px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -.4px;
+  line-height: 1.15;
+  position: relative;
+  z-index: 1;
+}
+.fin-hub-card-val .fin-cur { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-inline-start: 3px; }
+.fin-hub-card .card-arrow { flex-shrink: 0; }
+.fin-hub-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Net Worth Hero card ── */
 .fin-hero-card {
@@ -7258,8 +7383,8 @@ svg {
 
 /* ── Responsive tweaks ── */
 @media (max-width: 640px) {
-  .fin-hub-cards { padding: 8px 14px 24px !important; }
-  .fin-home-page .fin-summary-bar { padding: 12px 14px 4px; }
+  .fin-home-page { padding: 14px 14px 32px; }
+  .fin-hub-cards { grid-template-columns: 1fr; }
   .fin-page { padding: 8px 14px 24px; }
   .fin-detail-stats-row { gap: 8px; }
   .fin-detail-stat { padding: 12px 14px; flex: 1 1 100px; }
@@ -8139,17 +8264,14 @@ svg {
 /* ── Monthly segregation strip (الفصل الشهري) ── */
 .fin-month-strip {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-direction: column;
+  gap: 14px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 12px 16px;
-  margin-bottom: 14px;
+  padding: 16px;
 }
-.fin-month-nav { display: flex; align-items: center; gap: 8px; }
+.fin-month-nav { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .fin-month-btn {
   width: 30px; height: 30px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -8169,10 +8291,17 @@ svg {
   font-family: inherit; cursor: pointer; transition: var(--transition);
 }
 .fin-month-today:hover { color: var(--accent); border-color: var(--accent); }
-.fin-month-figures { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-.fin-month-fig { display: flex; flex-direction: column; gap: 2px; }
+.fin-month-figures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.fin-month-fig {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 12px 10px;
+  text-align: center;
+}
 .fin-month-fig-lbl { font-size: 11px; color: var(--text-muted); font-weight: 600; }
-.fin-month-fig-val { font-size: 15px; font-weight: 700; }
+.fin-month-fig-val { font-size: 16px; font-weight: 800; letter-spacing: -.3px; }
 .fin-month-fig.income  .fin-month-fig-val { color: var(--status-done); }
 .fin-month-fig.expense .fin-month-fig-val { color: var(--danger); }
 .fin-month-fig-val.is-pos { color: var(--status-done); }
