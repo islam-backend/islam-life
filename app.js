@@ -4143,7 +4143,7 @@ function updateDashFinancePortal() {
 function finToolbar(title, actionsHtml, backView) {
   const back = backView
     ? `<button class="fin-back" data-fin-nav="${backView}" type="button" title="رجوع">
-         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
        </button>`
     : '';
   return `<div class="fin-toolbar">${back}<span class="fin-title">${title}</span><div class="fin-spacer"></div>${actionsHtml || ''}</div>`;
@@ -4182,9 +4182,7 @@ function renderFinanceHome() {
 
   const net = finNetWorth();
   const score = finHealthScore();
-  const income = finIncome();
   const period = state.finPeriod || finThisPeriod();
-  const tot = finPeriodTotals(period);
 
   const actions = finBtn('income', '＋ دخل', 'fin-btn-success')
                 + finBtn('expense', '－ مصروف', 'fin-btn-danger')
@@ -4206,20 +4204,6 @@ function renderFinanceHome() {
     ${finHealthRing(score)}
   </div>`;
 
-  // Month strip
-  const strip = `<div class="fin-month-strip">
-    <button class="fin-month-nav" data-fin-period="prev" type="button">‹</button>
-    <div class="fin-month-info">
-      <span class="fin-month-label">${finPeriodLabel(period)}</span>
-      <div class="fin-month-nums">
-        <span class="fin-pos">دخل ${finPriv(finFmt(tot.income))}</span>
-        <span class="fin-neg">مصروف ${finPriv(finFmt(tot.expense))}</span>
-        <span class="${tot.net < 0 ? 'fin-neg' : 'fin-pos'}">صافي ${finPriv(finFmt(tot.net))}</span>
-      </div>
-    </div>
-    <button class="fin-month-nav" data-fin-period="next" type="button">›</button>
-  </div>`;
-
   // Plan breakdown bar
   const plan = renderPlanBreakdown();
 
@@ -4233,8 +4217,8 @@ function renderFinanceHome() {
     ${finHomeZakatCard()}
   </div>`;
 
-  root.innerHTML = finToolbar('💰 المركز المالي', actions, 'dashboard') +
-    `<div class="fin-page">${hero}${strip}${plan}${cards}</div>`;
+  root.innerHTML = finToolbar('', actions, 'dashboard') +
+    `<div class="fin-page">${hero}${plan}${cards}</div>`;
 }
 
 function renderPlanBreakdown() {
@@ -4252,7 +4236,7 @@ function renderPlanBreakdown() {
       <span class="fin-dot" style="background:${b.color}"></span>
       <span class="fin-plan-leg-name">${b.icon} ${b.label}</span>
       <span class="fin-plan-leg-pct">${pct}%</span>
-      <span class="fin-plan-leg-amt">${income > 0 ? finPriv(finFmt(amt)) + ' ' + FIN_CUR : '—'}</span>
+      <span class="fin-plan-leg-amt">${income > 0 ? finPriv(finFmt(amt)) + ' ' + FIN_CUR : ''}</span>
     </div>`;
   }).join('');
   const warn = sum !== 100 ? `<span class="fin-plan-warn">⚠️ مجموع النِّسب ${sum}% (المفروض 100%)</span>` : '';

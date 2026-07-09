@@ -6128,21 +6128,26 @@ svg {
 /* ════════════════════════════════════════════════════════════════
    FINANCE CENTER (المركز المالي) — v4.0
 ════════════════════════════════════════════════════════════════ */
-.fin-root { height: 100%; display: flex; flex-direction: column; padding: 0 24px; }
+/* Scroll happens on the full-width root, so the scrollbar sits at the window
+   edge (not floating in the middle of the centered content). */
+.fin-root { height: 100%; display: flex; flex-direction: column; padding: 0 24px; overflow-y: auto; }
 /* Centered container so the finance content doesn't stretch edge-to-edge */
 .fin-page {
-  flex: 1 1 auto; overflow-y: auto; padding: 4px 0 40px;
-  display: flex; flex-direction: column; gap: 16px;
+  padding: 18px 0 56px;
+  display: flex; flex-direction: column; gap: 18px;
   width: 100%; max-width: 1080px; margin: 0 auto;
 }
 
-/* ── Toolbar ── */
+/* ── Toolbar (sticky on top of the scrolling content) ── */
 .fin-toolbar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 0; border-bottom: 1px solid var(--border-light);
-  margin: 0 auto 4px; flex-wrap: wrap;
-  width: 100%; max-width: 1080px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 0 12px; flex-wrap: wrap;
+  margin: 0 auto; width: 100%; max-width: 1080px;
+  position: sticky; top: 0; z-index: 6;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-light);
 }
+.fin-title:empty { display: none; }
 .fin-spacer { flex: 1 1 auto; }
 .fin-title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
 .fin-back {
