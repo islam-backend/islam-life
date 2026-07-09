@@ -31,13 +31,15 @@ service cloud.firestore {
     match /meta/{docId}       { allow read, write: if isOwner(); }
     match /focusSessions/{sessionId} { allow read, write: if isOwner(); }
 
-    // ── Finance Hub (المصروفات) — owner-only ──
-    match /banks/{id}            { allow read, write: if isOwner(); }
-    match /envelopes/{id}        { allow read, write: if isOwner(); }
-    match /allocation_rules/{id} { allow read, write: if isOwner(); }
+    // ── Finance Center (المركز المالي) — owner-only ──
+    // meta/{plan,goldPrices,finSettings} are covered by the /meta rule above.
+    match /accounts/{id}         { allow read, write: if isOwner(); }
+    match /budgetCategories/{id} { allow read, write: if isOwner(); }
+    match /goals/{id}            { allow read, write: if isOwner(); }
+    match /debts/{id}            { allow read, write: if isOwner(); }
+    match /assets/{id}           { allow read, write: if isOwner(); }
     match /gold_assets/{id}      { allow read, write: if isOwner(); }
     match /transactions/{id}     { allow read, write: if isOwner(); }
-    match /liabilities/{id}      { allow read, write: if isOwner(); }
 
     // ── Food & Health — owner-only ──
     match /users/{userId}/food/{docId} {

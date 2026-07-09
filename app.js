@@ -458,20 +458,24 @@ const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'proje
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
 const userStatsDoc = ()                        => doc(db, 'meta', 'userStats');
 
-// ── Finance Hub Refs (المركز المالي) ──────────────────────────
-const banksRef         = ()      => collection(db, 'banks');
-const envelopesRef     = ()      => collection(db, 'envelopes');
-const transactionsRef  = ()      => collection(db, 'transactions');
+// ── Finance Center Refs (المركز المالي) ───────────────────────
+const accountsRef      = ()      => collection(db, 'accounts');
+const categoriesRef    = ()      => collection(db, 'budgetCategories');
+const goalsRef         = ()      => collection(db, 'goals');
+const debtsRef         = ()      => collection(db, 'debts');
+const assetsRef        = ()      => collection(db, 'assets');
 const goldAssetsRef    = ()      => collection(db, 'gold_assets');
-const bankDoc          = (id)    => doc(db, 'banks', id);
-const envelopeDoc      = (id)    => doc(db, 'envelopes', id);
+const transactionsRef  = ()      => collection(db, 'transactions');
+const accountDoc       = (id)    => doc(db, 'accounts', id);
+const categoryDoc      = (id)    => doc(db, 'budgetCategories', id);
+const goalDoc          = (id)    => doc(db, 'goals', id);
+const debtDoc          = (id)    => doc(db, 'debts', id);
+const assetDoc         = (id)    => doc(db, 'assets', id);
 const goldAssetDoc     = (id)    => doc(db, 'gold_assets', id);
 const transactionDoc   = (id)    => doc(db, 'transactions', id);
-const allocRuleDoc     = (type)  => doc(db, 'allocation_rules', type);   // type: 'salary' | 'freelance'
+const planDoc          = ()      => doc(db, 'meta', 'plan');             // { income, percents{...} }
 const goldPricesDoc    = ()      => doc(db, 'meta', 'goldPrices');
-const liabilitiesRef   = ()      => collection(db, 'liabilities');
-const liabilityDoc     = (id)    => doc(db, 'liabilities', id);
-const finSettingsDoc   = ()      => doc(db, 'meta', 'finSettings');       // { unallocatedEnvelopeId }
+const finSettingsDoc   = ()      => doc(db, 'meta', 'finSettings');       // { targetMonths, nisabGrams, usdEgp, zakatDueDate }
 
 // ── App State ──────────────────────────────────────────────────
 const state = {
@@ -506,24 +510,19 @@ const state = {
   // Calendar state (v9.2)
   calendarCursor:       null,     // Date pointing at the displayed month
   dayDate:              null,     // Date selected for day-details view
-  // Finance Hub state (المركز المالي)
-  banks:        [],
-  envelopes:    [],
+  // Finance Center state (المركز المالي) — rebuilt v4.0
+  accounts:     [],
+  categories:   [],              // monthly budget buckets
+  goals:        [],
+  debts:        [],
+  assets:       [],              // investments (thndr / real-estate / funds)
+  goldAssets:   [],              // physical gold (by karat/grams)
   transactions: [],
-  goldAssets:   [],
-  allocRules:   { salary: [], freelance: [] },
+  plan:         null,            // { income, percents:{needs,debts,personal,emergency,sadaqah,invest} }
   goldPrices:   null,            // { p24, p21, p18, source, updatedAt }
+  finSettings:  { targetMonths: 3, nisabGrams: 85, usdEgp: 50, zakatDueDate: null },
   finUnsub:     [],              // array of onSnapshot unsubscribers
-  pendingIncomeTxId: null,       // normal-income tx awaiting forced allocation
-  pendingIncomeAmount: 0,
-  envelope:       null,          // currently open envelope detail
-  bank:           null,          // currently open bank detail
-  finFilter:      { type: 'all', from: null, to: null },
-  finBankFilter:  { type: 'all', from: null, to: null },
-  finEnvFilter:   { type: 'all' },
-  liabilities:    [],            // debts / installments (وحدة الالتزامات)
-  finSettings:    { unallocatedEnvelopeId: null },  // صائد الكسور destination
-  finPeriod:      finThisPeriod(),  // selected month key 'YYYY-MM' (الفصل الشهري)
+  finPeriod:    finThisPeriod(), // selected month key 'YYYY-MM' (الفصل الشهري)
 };
 
 // ── Cleanup Listeners ──────────────────────────────────────────
@@ -837,60 +836,33 @@ function navigateTo(view, payload = {}, fromPop = false) {
     subscribeTasks();
 
   } else if (view === 'finance') {
-    state.client   = null;
-    state.project  = null;
-    state.envelope = null;
+    state.client = null; state.project = null;
     document.getElementById('view-finance').classList.add('active');
     subscribeFinance();
 
-  } else if (view === 'finance-banks') {
-    state.client  = null;
-    state.project = null;
-    state.bank    = null;
-    document.getElementById('view-finance-banks').classList.add('active');
+  } else if (view === 'finance-budget') {
+    state.client = null; state.project = null;
+    document.getElementById('view-finance-budget').classList.add('active');
     subscribeFinance();
 
-  } else if (view === 'finance-bank') {
-    state.client  = null;
-    state.project = null;
-    state.bank    = payload.bank || null;
-    state.finBankFilter = { type: 'all', from: null, to: null };
-    document.getElementById('view-finance-bank').classList.add('active');
-    subscribeFinance();
-    renderBankDetail();
-
-  } else if (view === 'finance-envelopes') {
-    state.client  = null;
-    state.project = null;
-    state.envelope = null;
-    document.getElementById('view-finance-envelopes').classList.add('active');
+  } else if (view === 'finance-debts') {
+    state.client = null; state.project = null;
+    document.getElementById('view-finance-debts').classList.add('active');
     subscribeFinance();
 
-  } else if (view === 'finance-envelope') {
-    state.client  = null;
-    state.project = null;
-    state.envelope = payload.envelope || null;
-    state.finEnvFilter = { type: 'all' };
-    document.getElementById('view-finance-envelope').classList.add('active');
-    subscribeFinance();
-    renderEnvelopeDetail();
-
-  } else if (view === 'finance-gold') {
-    state.client  = null;
-    state.project = null;
-    document.getElementById('view-finance-gold').classList.add('active');
+  } else if (view === 'finance-goals') {
+    state.client = null; state.project = null;
+    document.getElementById('view-finance-goals').classList.add('active');
     subscribeFinance();
 
-  } else if (view === 'finance-liabilities') {
-    state.client  = null;
-    state.project = null;
-    document.getElementById('view-finance-liabilities').classList.add('active');
+  } else if (view === 'finance-assets') {
+    state.client = null; state.project = null;
+    document.getElementById('view-finance-assets').classList.add('active');
     subscribeFinance();
 
-  } else if (view === 'finance-summary') {
-    state.client  = null;
-    state.project = null;
-    document.getElementById('view-finance-summary').classList.add('active');
+  } else if (view === 'finance-zakat') {
+    state.client = null; state.project = null;
+    document.getElementById('view-finance-zakat').classList.add('active');
     subscribeFinance();
 
   } else if (view === 'calendar') {
@@ -2864,7 +2836,7 @@ function updateHeader() {
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
 
-  } else if (['finance','finance-summary','finance-banks','finance-bank','finance-envelopes','finance-envelope','finance-gold','finance-liabilities'].includes(state.view)) {
+  } else if (['finance','finance-budget','finance-debts','finance-goals','finance-assets','finance-zakat'].includes(state.view)) {
     titleEl.textContent = '💰 المركز المالي';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
@@ -2889,45 +2861,18 @@ function updateBreadcrumb() {
   }
 
   // ── Finance breadcrumbs ──
-  if (state.view === 'finance-summary') {
+  const finCrumbs = {
+    'finance-budget': '🗂️ الميزانية الشهرية',
+    'finance-debts':  '💳 الديون والالتزامات',
+    'finance-goals':  '🎯 الأهداف',
+    'finance-assets': '🥇 الأصول والذهب',
+    'finance-zakat':  '🕌 الزكاة',
+  };
+  if (finCrumbs[state.view]) {
     html += `<span class="breadcrumb-sep">›</span>
              <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
              <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">ملخص المصروفات</span>`;
-  } else if (state.view === 'finance-banks') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">🏦 البنوك</span>`;
-  } else if (state.view === 'finance-bank') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance-banks">🏦 البنوك</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">${escapeHtml(state.bank?.name || '')}</span>`;
-  } else if (state.view === 'finance-envelopes') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">✉️ الأظرف</span>`;
-  } else if (state.view === 'finance-envelope') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance-envelopes">✉️ الأظرف</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">${escapeHtml(state.envelope?.name || '')}</span>`;
-  } else if (state.view === 'finance-gold') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">🥇 الذهب</span>`;
-  } else if (state.view === 'finance-liabilities') {
-    html += `<span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-link" data-to="finance">💰 المركز المالي</span>
-             <span class="breadcrumb-sep">›</span>
-             <span class="breadcrumb-current">💳 الالتزامات</span>`;
+             <span class="breadcrumb-current">${finCrumbs[state.view]}</span>`;
   }
 
   if (state.view === 'tasks') {
@@ -3909,22 +3854,33 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-
 // ════════════════════════════════════════════════════════════════
-//  FINANCE HUB (المركز المالي) — Envelopes · Banks · Gold · Rules
-// ════════════════════════════════════════════════════════════════
-//  FINANCE HUB (المصروفات) — Envelopes · Banks · Gold · Rules
+//  FINANCE CENTER (المركز المالي) — v4.0 rebuild
+//  Plan-first money OS: Accounts · Budget · Debts · Goals · Assets ·
+//  Gold · Emergency · Zakat · Net-worth & Health report.
+//  Dynamic: everything scales from the user's live income & percents.
 // ════════════════════════════════════════════════════════════════
 
 const FIN_CUR = 'ج.م';
 
-// ── Small helpers ──────────────────────────────────────────────
+// Plan buckets (order = priority) — labels + colors + icons
+const FIN_BUCKETS = [
+  { key: 'needs',     label: 'احتياجات ومعيشة', icon: '🏠', color: '#3574F0' },
+  { key: 'debts',     label: 'ديون والتزامات',  icon: '💳', color: '#E05C5C' },
+  { key: 'emergency', label: 'صندوق الطوارئ',    icon: '🛟', color: '#1ABC9C' },
+  { key: 'personal',  label: 'مصاريف شخصية',     icon: '🧍', color: '#F0A835' },
+  { key: 'sadaqah',   label: 'صدقة وزكاة',       icon: '🕌', color: '#3DB981' },
+  { key: 'invest',    label: 'استثمار وأهداف',   icon: '📈', color: '#9B59B6' },
+];
+const FIN_DEFAULT_PERCENTS = { needs: 55, debts: 12, emergency: 10, personal: 5, sadaqah: 3, invest: 15 };
+
+// ── Small helpers (hoisted declarations — safe to call before block) ──
 function finFmt(n) {
   const v = Number(n) || 0;
   return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
+function finRound2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function finPriv(inner) { return `<span class="privacy-sensitive">${inner}</span>`; }
-// Category color for an envelope/bank — stored color, else deterministic from the name
 function finColorFor(item) {
   if (item && item.color) return item.color;
   const s = (item && item.name) || '';
@@ -3937,9 +3893,6 @@ function finHexA(hex, a) {
   const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
 }
-function finBadge(icon, color) {
-  return `<span class="fin-card-icon" style="background:${finHexA(color, .16)};border-color:${finHexA(color, .42)}">${escapeHtml(icon)}</span>`;
-}
 function finTsMillis(ts) {
   if (!ts) return 0;
   if (typeof ts.toMillis === 'function') return ts.toMillis();
@@ -3950,8 +3903,7 @@ function finTsMillis(ts) {
 const finShow = (id) => document.getElementById(id)?.classList.remove('hidden');
 const finHide = (id) => document.getElementById(id)?.classList.add('hidden');
 
-// ── Monthly segregation helpers (الفصل الشهري MM-YYYY) ──────────
-// Period key is 'YYYY-MM'. Derived from a JS Date or a Firestore ts.
+// Monthly segregation helpers (period key 'YYYY-MM')
 function finThisPeriod() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -3962,1386 +3914,1117 @@ function finPeriodOf(ts) {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
-// A tx belongs to a period via its stored `period` (new txs) or its createdAt (legacy).
-function finTxPeriod(t) {
-  return t.period || finPeriodOf(t.createdAt);
-}
-// Human label for a 'YYYY-MM' key, e.g. 'يوليو 2026'.
+function finTxPeriod(t) { return t.period || finPeriodOf(t.createdAt); }
 function finPeriodLabel(key) {
   const [y, m] = String(key || '').split('-').map(Number);
   if (!y || !m) return '—';
   return new Date(y, m - 1, 1).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
 }
-// Shift a 'YYYY-MM' key by n months.
 function finShiftPeriod(key, n) {
   const [y, m] = String(key).split('-').map(Number);
   const d = new Date(y, (m - 1) + n, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-// ── renderFinHub — router that picks the right render fn ───────
-function renderFinHub() {
-  updateDashFinancePortal();
-  const v = state.view;
-  if      (v === 'finance')           renderFinanceHome();
-  else if (v === 'finance-banks')     renderBanksList();
-  else if (v === 'finance-bank')      renderBankDetail();
-  else if (v === 'finance-envelopes') renderEnvelopesBox();
-  else if (v === 'finance-envelope')  renderEnvelopeDetail();
-  else if (v === 'finance-gold')      renderGoldBox();
-  else if (v === 'finance-liabilities') renderLiabilities();
-  else if (v === 'finance-summary')   renderFinanceSummary();
+// ════════════════════════════════════════════════════════════════
+//  DERIVED VALUES (the calculation engines)
+// ════════════════════════════════════════════════════════════════
+
+function finPricePerGram(karat) {
+  const p = state.goldPrices || {};
+  if (karat === 24) return Number(p.p24) || 0;
+  if (karat === 21) return Number(p.p21) || 0;
+  if (karat === 18) return Number(p.p18) || 0;
+  return 0;
+}
+function finGoldGrams() {
+  const g = { 24: 0, 21: 0, 18: 0 };
+  (state.goldAssets || []).forEach(a => {
+    const k = Number(a.karat) || 24;
+    if (g[k] === undefined) g[k] = 0;
+    g[k] += Number(a.grams_owned) || 0;
+  });
+  return g;
+}
+function finGoldValue() {
+  const g = finGoldGrams();
+  return Object.keys(g).reduce((s, k) => s + g[k] * finPricePerGram(Number(k)), 0);
+}
+function finAccountsTotal() {
+  return (state.accounts || []).reduce((s, a) => s + (Number(a.balance) || 0), 0);
+}
+function finEmergencyAccount() {
+  return (state.accounts || []).find(a => a.isEmergency);
+}
+function finEmergencyBalance() {
+  const acc = finEmergencyAccount();
+  return acc ? (Number(acc.balance) || 0) : 0;
+}
+function finAssetsValue() {
+  return (state.assets || []).reduce((s, a) => s + (Number(a.currentValue) || 0), 0);
+}
+// Cash-funded goals hold money set aside (outside accounts) → part of net worth.
+function finCashGoalsSaved() {
+  return (state.goals || [])
+    .filter(g => (g.fundingType || 'cash') === 'cash')
+    .reduce((s, g) => s + (Number(g.savedAmount) || 0), 0);
+}
+function finDebtsRemaining() {
+  return (state.debts || []).reduce((s, d) => s + (Number(d.remaining) || 0), 0);
+}
+function finDebtsMonthlyMin() {
+  return (state.debts || []).reduce((s, d) => s + (Number(d.monthlyMin) || 0), 0);
+}
+function finTotalAssets() {
+  return finAccountsTotal() + finGoldValue() + finAssetsValue() + finCashGoalsSaved();
+}
+function finNetWorth() {
+  return finTotalAssets() - finDebtsRemaining();
+}
+function finIncome() {
+  return Number(state.plan?.income) || 0;
+}
+function finPercents() {
+  const p = { ...FIN_DEFAULT_PERCENTS, ...(state.plan?.percents || {}) };
+  return p;
+}
+function finPercentsSum() {
+  const p = finPercents();
+  return FIN_BUCKETS.reduce((s, b) => s + (Number(p[b.key]) || 0), 0);
+}
+// Recommended monthly EGP per bucket = percent × income.
+function finPlanAmount(key) {
+  return finRound2(finIncome() * (Number(finPercents()[key]) || 0) / 100);
+}
+// Monthly essentials = sum of budget-category targets, fallback to plan "needs" amount.
+function finMonthlyEssential() {
+  const cats = (state.categories || []).reduce((s, c) => s + (Number(c.target) || 0), 0);
+  return cats > 0 ? cats : finPlanAmount('needs');
+}
+function finEmergencyTarget() {
+  const months = Number(state.finSettings?.targetMonths) || 3;
+  return finMonthlyEssential() * months;
+}
+function finEmergencyCoverage() {
+  const ess = finMonthlyEssential();
+  return ess > 0 ? finEmergencyBalance() / ess : 0;
+}
+function finCategorySpent(catId, period) {
+  return (state.transactions || [])
+    .filter(t => t.type === 'expense' && t.categoryId === catId && finTxPeriod(t) === period)
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+}
+function finPeriodTotals(period) {
+  let income = 0, expense = 0;
+  (state.transactions || []).forEach(t => {
+    if (finTxPeriod(t) !== period) return;
+    if (t.type === 'income') income += Number(t.amount) || 0;
+    else if (['expense', 'debtPayment', 'zakat', 'sadaqah'].includes(t.type)) expense += Number(t.amount) || 0;
+  });
+  return { income, expense, net: income - expense };
+}
+// Goal maths — required monthly + progress + status.
+function finGoalValue(g) {
+  if ((g.fundingType || 'cash') === 'asset' && g.linkedAssetId) {
+    const a = (state.assets || []).find(x => x.id === g.linkedAssetId);
+    if (a) return Number(a.currentValue) || 0;
+  }
+  return Number(g.savedAmount) || 0;
+}
+function finMonthsUntil(deadlineISO) {
+  if (!deadlineISO) return null;
+  const d = new Date(deadlineISO), now = new Date();
+  const months = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth());
+  return Math.max(0, months) + (d.getDate() >= now.getDate() ? 0 : 0);
+}
+function finGoalMonthlyNeed(g) {
+  const remaining = Math.max(0, (Number(g.targetAmount) || 0) - finGoalValue(g));
+  const months = finMonthsUntil(g.deadline);
+  if (months === null) return null;
+  if (months <= 0) return remaining;
+  return finRound2(remaining / months);
+}
+// Zakat — nisab = 85g gold value; zakatable = gold + cash + liquid investments.
+function finNisabValue() {
+  const grams = Number(state.finSettings?.nisabGrams) || 85;
+  const p24 = finPricePerGram(24);
+  return grams * p24;
+}
+function finZakatableTotal() {
+  const liquidAssets = (state.assets || [])
+    .filter(a => a.type !== 'realestate')
+    .reduce((s, a) => s + (Number(a.currentValue) || 0), 0);
+  return finAccountsTotal() + finGoldValue() + liquidAssets;
+}
+function finHawlPassed() {
+  const due = state.finSettings?.zakatDueDate;
+  if (!due) return false;
+  return new Date(due).getTime() <= Date.now();
+}
+function finZakatDue() {
+  const total = finZakatableTotal();
+  const nisab = finNisabValue();
+  if (nisab > 0 && total < nisab) return 0;
+  return finRound2(total * 0.025);
+}
+// Financial-health score 0..100 (emergency 30 · debt 25 · savings 25 · goals 20).
+function finHealthScore() {
+  let score = 0;
+  const targetMonths = Number(state.finSettings?.targetMonths) || 3;
+  const cov = finEmergencyCoverage();
+  score += Math.max(0, Math.min(1, cov / targetMonths)) * 30;
+  const income = finIncome();
+  const dti = income > 0 ? finDebtsMonthlyMin() / income : (finDebtsRemaining() > 0 ? 1 : 0);
+  score += Math.max(0, Math.min(1, 1 - dti / 0.4)) * 25;
+  const p = finPercents();
+  const savingsRate = ((Number(p.emergency) || 0) + (Number(p.invest) || 0)) / 100;
+  score += Math.max(0, Math.min(1, savingsRate / 0.2)) * 25;
+  const goals = state.goals || [];
+  if (goals.length) {
+    const onTrack = goals.filter(g => {
+      const need = finGoalMonthlyNeed(g);
+      return need === null || need <= finPlanAmount('invest') + 1;
+    }).length;
+    score += (onTrack / goals.length) * 20;
+  } else {
+    score += 20;
+  }
+  return Math.round(score);
+}
+function finHealthLabel(s) {
+  if (s >= 80) return { txt: 'ممتازة', color: '#3DB981' };
+  if (s >= 60) return { txt: 'جيدة', color: '#3574F0' };
+  if (s >= 40) return { txt: 'متوسطة', color: '#F0A835' };
+  return { txt: 'تحتاج انتباه', color: '#E05C5C' };
 }
 
-// ── Subscriptions ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+//  SUBSCRIPTIONS
+// ════════════════════════════════════════════════════════════════
 function subscribeFinance() {
+  (state.finUnsub || []).forEach(u => { try { u(); } catch (e) {} });
+  state.finUnsub = [];
   const push = (u) => state.finUnsub.push(u);
   const onErr = (label) => (e) => console.error('finance snapshot:', label, e);
+  const bySort = (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
 
-  push(onSnapshot(banksRef(), snap => {
-    state.banks = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    setOnline();
-    debounceRender(renderFinHub);
-  }, onErr('banks')));
+  push(onSnapshot(accountsRef(), s => { state.accounts = s.docs.map(d => ({ id: d.id, ...d.data() })).sort(bySort); setOnline(); debounceRender(renderFinHub); }, onErr('accounts')));
+  push(onSnapshot(categoriesRef(), s => { state.categories = s.docs.map(d => ({ id: d.id, ...d.data() })).sort(bySort); debounceRender(renderFinHub); }, onErr('categories')));
+  push(onSnapshot(goalsRef(), s => { state.goals = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9)); debounceRender(renderFinHub); }, onErr('goals')));
+  push(onSnapshot(debtsRef(), s => { state.debts = s.docs.map(d => ({ id: d.id, ...d.data() })).sort(bySort); debounceRender(renderFinHub); }, onErr('debts')));
+  push(onSnapshot(assetsRef(), s => { state.assets = s.docs.map(d => ({ id: d.id, ...d.data() })); debounceRender(renderFinHub); }, onErr('assets')));
+  push(onSnapshot(goldAssetsRef(), s => { state.goldAssets = s.docs.map(d => ({ id: d.id, ...d.data() })); debounceRender(renderFinHub); }, onErr('gold')));
+  push(onSnapshot(transactionsRef(), s => { state.transactions = s.docs.map(d => ({ id: d.id, ...d.data() })); debounceRender(renderFinHub); }, onErr('transactions')));
+  push(onSnapshot(planDoc(), d => { state.plan = d.exists() ? d.data() : null; debounceRender(renderFinHub); }, onErr('plan')));
+  push(onSnapshot(goldPricesDoc(), d => { state.goldPrices = d.exists() ? d.data() : null; debounceRender(renderFinHub); }, onErr('goldPrices')));
+  push(onSnapshot(finSettingsDoc(), d => { state.finSettings = { targetMonths: 3, nisabGrams: 85, usdEgp: 50, zakatDueDate: null, ...(d.exists() ? d.data() : {}) }; debounceRender(renderFinHub); }, onErr('finSettings')));
 
-  push(onSnapshot(envelopesRef(), snap => {
-    state.envelopes = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    debounceRender(renderFinHub);
-  }, onErr('envelopes')));
-
-  push(onSnapshot(transactionsRef(), snap => {
-    state.transactions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinHub);
-  }, onErr('transactions')));
-
-  push(onSnapshot(goldAssetsRef(), snap => {
-    state.goldAssets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinHub);
-  }, onErr('gold')));
-
-  push(onSnapshot(allocRuleDoc('salary'), d => {
-    state.allocRules.salary = d.exists() ? (d.data().allocations || []) : [];
-    debounceRender(renderFinHub);
-  }, onErr('rule.salary')));
-
-  push(onSnapshot(allocRuleDoc('freelance'), d => {
-    state.allocRules.freelance = d.exists() ? (d.data().allocations || []) : [];
-    debounceRender(renderFinHub);
-  }, onErr('rule.freelance')));
-
-  push(onSnapshot(goldPricesDoc(), d => {
-    state.goldPrices = d.exists() ? d.data() : null;
-    debounceRender(renderFinHub);
-  }, onErr('goldPrices')));
-
-  push(onSnapshot(liabilitiesRef(), snap => {
-    state.liabilities = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    debounceRender(renderFinHub);
-  }, onErr('liabilities')));
-
-  push(onSnapshot(finSettingsDoc(), d => {
-    state.finSettings = d.exists() ? { unallocatedEnvelopeId: null, ...d.data() } : { unallocatedEnvelopeId: null };
-    debounceRender(renderFinHub);
-  }, onErr('finSettings')));
-
-  // Immediate paint with whatever data is already in state
   renderFinHub();
 }
 
-function toggleFinPrivacy() {
-  const mainView = document.getElementById('view-finance');
-  if (!mainView) return;
-  const revealed = mainView.classList.toggle('privacy-revealed');
-  ['view-finance-banks','view-finance-bank','view-finance-envelopes','view-finance-envelope','view-finance-gold','view-finance-summary'].forEach(id => {
-    document.getElementById(id)?.classList.toggle('privacy-revealed', revealed);
-  });
-  document.querySelectorAll('.fin-priv-toggle').forEach(btn => btn.setAttribute('aria-pressed', String(revealed)));
-  document.getElementById('btn-fin-privacy')?.setAttribute('aria-pressed', String(revealed));
+// ════════════════════════════════════════════════════════════════
+//  RENDER — router + shared builders
+// ════════════════════════════════════════════════════════════════
+function renderFinHub() {
+  updateDashFinancePortal();
+  const v = state.view;
+  if      (v === 'finance')         renderFinanceHome();
+  else if (v === 'finance-budget')  renderFinanceBudget();
+  else if (v === 'finance-debts')   renderFinanceDebts();
+  else if (v === 'finance-goals')   renderFinanceGoals();
+  else if (v === 'finance-assets')  renderFinanceAssets();
+  else if (v === 'finance-zakat')   renderFinanceZakat();
 }
-
-// ── Render ─────────────────────────────────────────────────────
 function updateDashFinancePortal() {
-  const dashFinSub = document.getElementById('dash-finance-subtitle');
-  if (!dashFinSub) return;
-  const banksTotal  = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
-  const byK = { 24: 0, 21: 0, 18: 0 };
-  state.goldAssets.forEach(a => { const k = Number(a.karat); if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0; });
-  const goldGrams   = byK[24] + byK[21] + byK[18];
-  const goldValue   = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
-  const hasPrices   = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
-  const totalAssets = banksTotal + goldValue;
-  const parts = [`🏦 ${finFmt(banksTotal)}`];
-  if (hasPrices && goldGrams > 0) parts.push(`🥇 ${finFmt(goldValue)}`);
-  dashFinSub.innerHTML = `${finFmt(totalAssets)} ${FIN_CUR} &nbsp;·&nbsp; ${parts.join(' · ')}`;
+  const sub = document.getElementById('dash-finance-subtitle');
+  if (sub) sub.textContent = `صافي الثروة: ${finFmt(finNetWorth())} ${FIN_CUR}`;
 }
 
-// ── Monthly strip (الفصل الشهري) — month nav + income/expense/net ──
-function renderFinMonthStrip() {
-  const strip = document.getElementById('fin-month-strip');
-  if (!strip) return;
-  const period = state.finPeriod || finThisPeriod();
-  const monthTxs = state.transactions.filter(t => finTxPeriod(t) === period);
-  const income  = monthTxs.filter(t => t.type === 'income').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const expense = monthTxs.filter(t => t.type === 'expense').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const net     = income - expense;
-  const isCurrent = period === finThisPeriod();
-  strip.innerHTML = `
-    <div class="fin-month-nav">
-      <button class="fin-month-btn" id="fin-month-prev" type="button" title="الشهر السابق">‹</button>
-      <span class="fin-month-label">📅 ${escapeHtml(finPeriodLabel(period))}</span>
-      <button class="fin-month-btn" id="fin-month-next" type="button" title="الشهر التالي" ${isCurrent ? 'disabled' : ''}>›</button>
-      ${isCurrent ? '' : '<button class="fin-month-today" id="fin-month-today" type="button">الشهر الحالي</button>'}
-    </div>
-    <div class="fin-month-figures">
-      <div class="fin-month-fig income">
-        <span class="fin-month-fig-lbl">دخل الشهر</span>
-        <span class="fin-month-fig-val privacy-sensitive">+${finFmt(income)} <span class="fin-cur">${FIN_CUR}</span></span>
-      </div>
-      <div class="fin-month-fig expense">
-        <span class="fin-month-fig-lbl">مصروف الشهر</span>
-        <span class="fin-month-fig-val privacy-sensitive">−${finFmt(expense)} <span class="fin-cur">${FIN_CUR}</span></span>
-      </div>
-      <div class="fin-month-fig net">
-        <span class="fin-month-fig-lbl">صافي الشهر</span>
-        <span class="fin-month-fig-val privacy-sensitive ${net < 0 ? 'is-neg' : 'is-pos'}">${net < 0 ? '−' : '+'}${finFmt(Math.abs(net))} <span class="fin-cur">${FIN_CUR}</span></span>
-      </div>
-    </div>`;
-  document.getElementById('fin-month-prev')?.addEventListener('click', () => { state.finPeriod = finShiftPeriod(period, -1); renderFinanceHome(); });
-  document.getElementById('fin-month-next')?.addEventListener('click', () => { if (!isCurrent) { state.finPeriod = finShiftPeriod(period, 1); renderFinanceHome(); } });
-  document.getElementById('fin-month-today')?.addEventListener('click', () => { state.finPeriod = finThisPeriod(); renderFinanceHome(); });
+function finToolbar(title, actionsHtml, backView) {
+  const back = backView
+    ? `<button class="fin-back" data-fin-nav="${backView}" type="button" title="رجوع">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+       </button>`
+    : '';
+  return `<div class="fin-toolbar">${back}<span class="fin-title">${title}</span><div class="fin-spacer"></div>${actionsHtml || ''}</div>`;
+}
+function finBar(pct, color) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  return `<div class="fin-bar"><div class="fin-bar-fill" style="width:${p}%;background:${color || 'var(--accent)'}"></div></div>`;
+}
+function finEmpty(icon, msg, actHtml) {
+  return `<div class="fin-empty"><div class="fin-empty-icon">${icon}</div><p>${msg}</p>${actHtml || ''}</div>`;
+}
+function finBtn(act, label, cls) {
+  return `<button class="fin-btn ${cls || ''}" data-fin-act="${act}" type="button">${label}</button>`;
 }
 
+// ── Health ring (SVG donut) ──
+function finHealthRing(score) {
+  const { txt, color } = finHealthLabel(score);
+  const r = 44, c = 2 * Math.PI * r, off = c * (1 - score / 100);
+  return `<div class="fin-health">
+    <svg viewBox="0 0 110 110" class="fin-health-svg">
+      <circle cx="55" cy="55" r="${r}" class="fin-health-track"/>
+      <circle cx="55" cy="55" r="${r}" class="fin-health-arc" stroke="${color}"
+        stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
+    </svg>
+    <div class="fin-health-center"><strong>${score}</strong><span>${txt}</span></div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER — HOME (the report / dashboard)
+// ════════════════════════════════════════════════════════════════
 function renderFinanceHome() {
-  if (state.view !== 'finance') return;
+  const root = document.getElementById('fin-home-root');
+  if (!root) return;
 
-  renderFinMonthStrip();
+  const net = finNetWorth();
+  const score = finHealthScore();
+  const income = finIncome();
+  const period = state.finPeriod || finThisPeriod();
+  const tot = finPeriodTotals(period);
 
-  // Compute numbers
-  const banksTotal = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
-  const byK = { 24: 0, 21: 0, 18: 0 };
-  state.goldAssets.forEach(a => { const k = Number(a.karat); if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0; });
-  const goldGrams  = byK[24] + byK[21] + byK[18];
-  const goldValue  = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
-  const hasPrices  = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
-  const totalAssets = banksTotal + goldValue;
+  const actions = finBtn('income', '＋ دخل', 'fin-btn-success')
+                + finBtn('expense', '－ مصروف', 'fin-btn-danger')
+                + finBtn('plan', '⚙️ الخطة', 'fin-btn-ghost')
+                + `<button class="fin-btn fin-btn-ghost fin-btn-icon" data-fin-act="privacy" type="button" title="إظهار/إخفاء">👁️</button>`;
 
-  // ── Summary bar — Option B (Net Worth Hero, no graph) ──
-  const summaryBar = document.getElementById('fin-summary-bar');
-  if (summaryBar) {
-    // Envelope tags with remaining balance + mini progress
-    const envTags = state.envelopes.map(e => {
-      const remaining = Number(e.current_balance) || 0;
-      const budget    = Number(e.budget) || 0;
-      const pct  = budget > 0 ? Math.min(100, Math.round((remaining / budget) * 100)) : -1;
-      const cls  = pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'ok';
-      return `<div class="fin-hero-env-tag">
-        <span class="fin-hero-env-name">${escapeHtml(e.icon || '✉️')} ${escapeHtml(e.name || '')}</span>
-        <span class="fin-hero-env-val privacy-sensitive">${finFmt(remaining)}</span>
-        ${pct >= 0 ? `<div class="fin-card-prog" style="width:36px;margin:0"><div class="fin-card-prog-fill ${cls}" style="width:${pct}%"></div></div>` : ''}
-      </div>`;
-    }).join('');
-
-    summaryBar.innerHTML = `
-      <div class="fin-hero-card">
-        <div class="fin-hero-main">
-          <div class="fin-hero-lbl">صافي الأصول</div>
-          <div class="fin-hero-num privacy-sensitive">${finFmt(totalAssets)}<span class="fin-hero-cur"> ${FIN_CUR}</span></div>
-        </div>
-        <div class="fin-hero-divider"></div>
-        <div class="fin-hero-sub-row">
-          <div class="fin-hero-sub">
-            <span class="fin-hero-sub-icon">🏦</span>
-            <div class="fin-hero-sub-txt">
-              <span class="fin-hero-sub-lbl">البنوك</span>
-              <span class="fin-hero-sub-val privacy-sensitive">${finFmt(banksTotal)} <span class="fin-hero-sub-cur">${FIN_CUR}</span></span>
-            </div>
-          </div>
-          <div class="fin-hero-sub">
-            <span class="fin-hero-sub-icon">🥇</span>
-            <div class="fin-hero-sub-txt">
-              <span class="fin-hero-sub-lbl">الذهب</span>
-              <span class="fin-hero-sub-val privacy-sensitive" style="color:#F0A835">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جم'}</span>
-            </div>
-          </div>
-        </div>
-        ${envTags.length ? `<div class="fin-hero-env-row">${envTags}</div>` : ''}
-      </div>`;
-  }
-
-  // ── Hub cards (entity-card style, rendered into #fin-hub-cards) ──
-  const grid = document.getElementById('fin-hub-cards');
-  if (!grid) return;
-
-  const envTotal = state.envelopes.reduce((s, e) => s + (Number(e.current_balance) || 0), 0);
-  const liabTotal = state.liabilities.reduce((s, l) => s + (Number(l.remaining_amount) || 0), 0);
-
-  grid.innerHTML = `
-    <div class="entity-card" id="fin-hub-banks" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(53,116,240,.18);font-size:20px">🏦</div>
-        <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">البنوك والسيولة</div>
-      <div class="card-desc privacy-sensitive">${finFmt(banksTotal)} ${FIN_CUR}</div>
-      <div class="card-meta">
-        <span>${state.banks.length} بنك</span>
-        <span>${state.banks.length ? state.banks.map(b => escapeHtml(b.name)).join(' · ') : 'أضف بنكك الأول'}</span>
+  // Hero
+  const hero = `<div class="fin-hero">
+    <div class="fin-hero-net">
+      <span class="fin-hero-label">صافي الثروة</span>
+      <span class="fin-hero-value ${net < 0 ? 'is-neg' : ''}">${finPriv(finFmt(net))} <em>${FIN_CUR}</em></span>
+      <div class="fin-hero-breakdown">
+        <span>💧 سيولة ${finPriv(finFmt(finAccountsTotal()))}</span>
+        <span>🥇 ذهب ${finPriv(finFmt(finGoldValue()))}</span>
+        <span>📈 استثمار ${finPriv(finFmt(finAssetsValue()))}</span>
+        <span class="is-neg">💳 ديون ${finPriv(finFmt(finDebtsRemaining()))}</span>
       </div>
     </div>
-    <div class="entity-card" id="fin-hub-envelopes" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(240,168,53,.18);font-size:20px">✉️</div>
-        <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">الأظرف</div>
-      <div class="card-desc privacy-sensitive">${finFmt(envTotal)} ${FIN_CUR}</div>
-      <div class="card-meta">
-        <span>${state.envelopes.length} ظرف</span>
-        <span>${state.envelopes.length ? state.envelopes.map(e => escapeHtml(e.name)).join(' · ') : 'أضف ظرفك الأول'}</span>
+    ${finHealthRing(score)}
+  </div>`;
+
+  // Month strip
+  const strip = `<div class="fin-month-strip">
+    <button class="fin-month-nav" data-fin-period="prev" type="button">‹</button>
+    <div class="fin-month-info">
+      <span class="fin-month-label">${finPeriodLabel(period)}</span>
+      <div class="fin-month-nums">
+        <span class="fin-pos">دخل ${finPriv(finFmt(tot.income))}</span>
+        <span class="fin-neg">مصروف ${finPriv(finFmt(tot.expense))}</span>
+        <span class="${tot.net < 0 ? 'fin-neg' : 'fin-pos'}">صافي ${finPriv(finFmt(tot.net))}</span>
       </div>
     </div>
-    <div class="entity-card" id="fin-hub-gold" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(240,168,53,.25);font-size:20px">🥇</div>
-        <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">خزنة الذهب</div>
-      <div class="card-desc privacy-sensitive">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جرام'}</div>
-      <div class="card-meta">
-        <span>${finFmt(goldGrams)} جم</span>
-        <span>${hasPrices ? 'السعر محدّث' : 'حدّد الأسعار لعرض القيمة'}</span>
-      </div>
-    </div>
-    <div class="entity-card" id="fin-hub-liabilities" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:rgba(224,92,92,.18);font-size:20px">💳</div>
-        <span class="card-arrow">←</span>
-      </div>
-      <div class="card-name">الالتزامات والديون</div>
-      <div class="card-desc privacy-sensitive" style="color:var(--danger)">${finFmt(liabTotal)} ${FIN_CUR}</div>
-      <div class="card-meta">
-        <span>${state.liabilities.length} التزام</span>
-        <span>${state.liabilities.length ? 'المتبقّي إجمالاً' : 'أضف أول دين/قسط'}</span>
-      </div>
-    </div>`;
+    <button class="fin-month-nav" data-fin-period="next" type="button">›</button>
+  </div>`;
 
-  // Wire clicks
-  document.getElementById('fin-hub-banks')?.addEventListener('click', () => navigateTo('finance-banks'));
-  document.getElementById('fin-hub-envelopes')?.addEventListener('click', () => navigateTo('finance-envelopes'));
-  document.getElementById('fin-hub-gold')?.addEventListener('click', () => navigateTo('finance-gold'));
-  document.getElementById('fin-hub-liabilities')?.addEventListener('click', () => navigateTo('finance-liabilities'));
-  document.getElementById('fin-hub-banks')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-banks'); });
-  document.getElementById('fin-hub-envelopes')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-envelopes'); });
-  document.getElementById('fin-hub-gold')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-gold'); });
-  document.getElementById('fin-hub-liabilities')?.addEventListener('keydown', e => { if (e.key === 'Enter') navigateTo('finance-liabilities'); });
+  // Plan breakdown bar
+  const plan = renderPlanBreakdown();
 
-  if (!document.getElementById('manage-modal-overlay')?.classList.contains('hidden')) {
-    renderManageList();
-  }
+  // Status cards
+  const cards = `<div class="fin-cards">
+    ${finHomeDebtCard()}
+    ${finHomeEmergencyCard()}
+    ${finHomeGoalsCard()}
+    ${finHomeAssetsCard()}
+    ${finHomeBudgetCard(period)}
+    ${finHomeZakatCard()}
+  </div>`;
+
+  root.innerHTML = finToolbar('💰 المركز المالي', actions, 'dashboard') +
+    `<div class="fin-page">${hero}${strip}${plan}${cards}</div>`;
 }
 
-// legacy alias kept for modal re-renders
-function renderFinance() { renderFinanceHome(); }
-
-function renderFinanceSummary() {
-  if (state.view !== 'finance-summary') return;
-  const el = document.getElementById('fin-summary-content');
-  if (!el) return;
-
-  const banksTotal  = state.banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
-  const byK = { 24: 0, 21: 0, 18: 0 };
-  state.goldAssets.forEach(a => { const k = Number(a.karat); if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0; });
-  const goldGrams   = byK[24] + byK[21] + byK[18];
-  const goldValue   = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
-  const hasPrices   = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
-  const totalAssets = banksTotal + goldValue;
-
-  // Build card definitions using entity-card style
-  const mkCard = (id, icon, label, valueHtml, extra = '', envId = '') =>
-    `<div class="entity-card fin-sum-card-draggable" data-card-id="${id}" ${envId ? `data-sum-env="${envId}"` : ''} draggable="true" role="button" tabindex="0">
-      <div class="card-header-row">
-        <div class="fin-sum-entity-icon">${icon}</div>
-      </div>
-      <div class="card-name">${label}</div>
-      <div class="card-meta">
-        <span class="fin-sum-entity-val privacy-sensitive">${valueHtml}</span>
-        <span class="card-arrow">←</span>
-      </div>
-      ${extra}
-    </div>`;
-
-  const cardDefs = {
-    banks: mkCard('banks', '🏦', 'البنوك والسيولة',
-      `${finFmt(banksTotal)} <span class="fin-sum-card-cur">${FIN_CUR}</span>`),
-    gold: mkCard('gold', '🥇', 'الذهب',
-      `<span style="color:#F0A835">${hasPrices ? finFmt(goldValue) + ' ' + FIN_CUR : finFmt(goldGrams) + ' جم'}</span>`),
-  };
-  state.envelopes.forEach(e => {
-    const remaining = Number(e.current_balance) || 0;
-    const budget    = Number(e.budget) || 0;
-    const pct    = budget > 0 ? Math.min(100, Math.round((remaining / budget) * 100)) : -1;
-    const pctCls = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : 'ok';
-    const prog   = pct >= 0 ? `<div class="fin-card-prog"><div class="fin-card-prog-fill ${pctCls}" style="width:${pct}%"></div></div>` : '';
-    cardDefs['env-' + e.id] = mkCard(
-      'env-' + e.id,
-      escapeHtml(e.icon || '✉️'),
-      escapeHtml(e.name || ''),
-      `${finFmt(remaining)} <span class="fin-sum-card-cur">${FIN_CUR}</span>`,
-      prog,
-      e.id
-    );
-  });
-
-  // Load saved order, filter to only existing cards, then append any new ones
-  const allIds = Object.keys(cardDefs);
-  let savedOrder = [];
-  try { savedOrder = JSON.parse(localStorage.getItem('finSummaryOrder') || '[]'); } catch(e) {}
-  const orderedIds = [
-    ...savedOrder.filter(id => allIds.includes(id)),
-    ...allIds.filter(id => !savedOrder.includes(id))
-  ];
-
-  el.innerHTML = `
-    <div class="fin-sum-grid" id="fin-sum-grid">
-      <div class="fin-sum-card fin-sum-card-hero">
-        <div class="fin-sum-card-icon">💰</div>
-        <div class="fin-sum-card-body">
-          <div class="fin-sum-card-label">صافي الأصول</div>
-          <div class="fin-sum-card-value privacy-sensitive">${finFmt(totalAssets)} <span class="fin-sum-card-cur">${FIN_CUR}</span></div>
-        </div>
-      </div>
-      ${orderedIds.map(id => cardDefs[id]).join('')}
-    </div>`;
-
-  // Wire click events
-  el.querySelector('[data-card-id="banks"]')?.addEventListener('click', () => navigateTo('finance-banks'));
-  el.querySelector('[data-card-id="gold"]')?.addEventListener('click', () => navigateTo('finance-gold'));
-  el.querySelectorAll('[data-sum-env]').forEach(tag => {
-    tag.addEventListener('click', () => {
-      const envelope = state.envelopes.find(e => e.id === tag.dataset.sumEnv);
-      if (envelope) navigateTo('finance-envelope', { envelope });
-    });
-  });
-
-  // Wire drag-and-drop (same pattern as clients page)
-  const grid = document.getElementById('fin-sum-grid');
-  grid.querySelectorAll('.fin-sum-card-draggable').forEach(card => {
-    card.addEventListener('dragstart', e => {
-      state.draggedEntityId   = card.dataset.cardId;
-      state.draggedEntityType = 'fin-summary-card';
-      card.classList.add('dragging-card');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    card.addEventListener('dragend', () => {
-      card.classList.remove('dragging-card');
-      state.draggedEntityId   = null;
-      state.draggedEntityType = null;
-      grid.querySelectorAll('.fin-sum-card-draggable').forEach(c => c.classList.remove('drag-over-card'));
-    });
-    card.addEventListener('dragover', e => {
-      e.preventDefault();
-      if (state.draggedEntityType !== 'fin-summary-card' || state.draggedEntityId === card.dataset.cardId) return;
-      grid.querySelectorAll('.fin-sum-card-draggable').forEach(c => c.classList.remove('drag-over-card'));
-      card.classList.add('drag-over-card');
-    });
-    card.addEventListener('dragleave', e => {
-      if (!card.contains(e.relatedTarget)) card.classList.remove('drag-over-card');
-    });
-    card.addEventListener('drop', e => {
-      e.preventDefault();
-      card.classList.remove('drag-over-card');
-      const fromId = state.draggedEntityId;
-      const toId   = card.dataset.cardId;
-      if (!fromId || fromId === toId) return;
-
-      let saved = [];
-      try { saved = JSON.parse(localStorage.getItem('finSummaryOrder') || '[]'); } catch(err) {}
-      const allIds = Object.keys(cardDefs);
-      let order = [
-        ...saved.filter(id => allIds.includes(id)),
-        ...allIds.filter(id => !saved.includes(id))
-      ];
-      const fromIdx = order.indexOf(fromId);
-      const toIdx   = order.indexOf(toId);
-      if (fromIdx === -1 || toIdx === -1) return;
-      order.splice(fromIdx, 1);
-      order.splice(toIdx, 0, fromId);
-      localStorage.setItem('finSummaryOrder', JSON.stringify(order));
-      renderFinanceSummary();
-    });
-  });
-}
-
-function renderEnvelopesBox() {
-  const grid = document.getElementById('fin-envelopes-grid');
-  const totalEl = document.getElementById('fin-envelopes-total');
-  if (!grid) return;
-  const env = state.envelopes;
-  const total = env.reduce((s, e) => s + (Number(e.current_balance) || 0), 0);
-  if (totalEl) totalEl.innerHTML = env.length ? `الإجمالي: ${finPriv(finFmt(total) + ' ' + FIN_CUR)}` : '';
-  if (!env.length) {
-    grid.innerHTML = `<div class="fin-empty">مفيش أظرف لسه — <span class="fin-empty-link" data-fin-open="manage-envelopes">أضف ظرف</span></div>`;
-    return;
-  }
-  grid.innerHTML = env.map(e => {
-    const bal = Number(e.current_balance) || 0;
-    const budget = Number(e.budget) || 0;
-    const pct = budget > 0 ? Math.min(100, Math.round((bal / budget) * 100)) : -1;
-    const pctCls = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : 'ok';
-    return `<div class="fin-card fin-card-link" data-env-id="${e.id}" role="button" tabindex="0">
-      ${finBadge(e.icon || '✉️', finColorFor(e))}
-      <div class="fin-card-info">
-        <span class="fin-card-name">${escapeHtml(e.name || '')}</span>
-        <span class="fin-card-balance ${bal < 0 ? 'is-neg' : ''}">${finPriv(finFmt(bal))}<span class="fin-cur">${FIN_CUR}</span></span>
-        ${pct >= 0 ? `<div class="fin-card-prog"><div class="fin-card-prog-fill ${pctCls}" style="width:${pct}%"></div></div>` : ''}
-      </div>
-      <span class="fin-card-arrow">←</span>
+function renderPlanBreakdown() {
+  const income = finIncome();
+  const p = finPercents();
+  const sum = finPercentsSum();
+  const segs = FIN_BUCKETS.map(b => {
+    const pct = Number(p[b.key]) || 0;
+    return `<div class="fin-plan-seg" style="flex:${pct};background:${b.color}" title="${b.label} ${pct}%"></div>`;
+  }).join('');
+  const legend = FIN_BUCKETS.map(b => {
+    const pct = Number(p[b.key]) || 0;
+    const amt = finRound2(income * pct / 100);
+    return `<div class="fin-plan-leg">
+      <span class="fin-dot" style="background:${b.color}"></span>
+      <span class="fin-plan-leg-name">${b.icon} ${b.label}</span>
+      <span class="fin-plan-leg-pct">${pct}%</span>
+      <span class="fin-plan-leg-amt">${income > 0 ? finPriv(finFmt(amt)) + ' ' + FIN_CUR : '—'}</span>
     </div>`;
   }).join('');
-
-  grid.querySelectorAll('.fin-card-link[data-env-id]').forEach(card => {
-    const go = () => {
-      const envelope = state.envelopes.find(e => e.id === card.dataset.envId);
-      if (envelope) navigateTo('finance-envelope', { envelope });
-    };
-    card.addEventListener('click', go);
-    card.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-  });
+  const warn = sum !== 100 ? `<span class="fin-plan-warn">⚠️ مجموع النِّسب ${sum}% (المفروض 100%)</span>` : '';
+  const head = income > 0
+    ? `الدخل الشهري <strong>${finPriv(finFmt(income))} ${FIN_CUR}</strong> ${warn}`
+    : `<button class="fin-link" data-fin-act="plan" type="button">➕ حدّد دخلك الشهري ونِسبك</button> ${warn}`;
+  return `<div class="fin-section fin-plan-box">
+    <div class="fin-section-head"><h3>🧭 خطة توزيع الدخل</h3>
+      <button class="fin-link" data-fin-act="plan" type="button">تعديل</button></div>
+    <div class="fin-plan-head">${head}</div>
+    <div class="fin-plan-bar">${segs}</div>
+    <div class="fin-plan-legend">${legend}</div>
+  </div>`;
 }
 
+function finHomeCard(nav, icon, title, valueHtml, subHtml, barHtml) {
+  return `<button class="fin-card" data-fin-nav="${nav}" type="button">
+    <div class="fin-card-top"><span class="fin-card-icon">${icon}</span><span class="fin-card-title">${title}</span><span class="fin-card-arrow">›</span></div>
+    <div class="fin-card-value">${valueHtml}</div>
+    ${barHtml || ''}
+    <div class="fin-card-sub">${subHtml || ''}</div>
+  </button>`;
+}
+function finHomeDebtCard() {
+  const rem = finDebtsRemaining();
+  const n = (state.debts || []).length;
+  const sub = n ? `${n} ${n === 1 ? 'التزام' : 'التزامات'} • الحد الأدنى ${finFmt(finDebtsMonthlyMin())}/شهر` : 'لا ديون — ممتاز 👏';
+  return finHomeCard('finance-debts', '💳', 'الديون والالتزامات',
+    finPriv(finFmt(rem)) + ` <em>${FIN_CUR}</em>`, sub, '');
+}
+function finHomeEmergencyCard() {
+  const cov = finEmergencyCoverage();
+  const target = Number(state.finSettings?.targetMonths) || 3;
+  const pct = (cov / target) * 100;
+  const color = cov >= target ? '#3DB981' : cov >= 1 ? '#F0A835' : '#E05C5C';
+  return finHomeCard('finance-budget', '🛟', 'صندوق الطوارئ',
+    finPriv(finFmt(finEmergencyBalance())) + ` <em>${FIN_CUR}</em>`,
+    `تغطية ${cov.toFixed(1)} / ${target} شهور`, finBar(pct, color));
+}
+function finHomeGoalsCard() {
+  const goals = state.goals || [];
+  const onTrack = goals.filter(g => { const need = finGoalMonthlyNeed(g); return need === null || need <= finPlanAmount('invest') + 1; }).length;
+  const sub = goals.length ? `${onTrack} في المسار من ${goals.length}` : 'مفيش أهداف بعد';
+  return finHomeCard('finance-goals', '🎯', 'الأهداف',
+    goals.length ? `${goals.length}` : '—', sub, '');
+}
+function finHomeAssetsCard() {
+  const gold = finGoldValue();
+  const inv = finAssetsValue();
+  const totalA = finTotalAssets();
+  const goldPct = totalA > 0 ? (gold / totalA) * 100 : 0;
+  return finHomeCard('finance-assets', '🥇', 'الأصول والذهب',
+    finPriv(finFmt(gold + inv)) + ` <em>${FIN_CUR}</em>`,
+    `الذهب ${goldPct.toFixed(0)}% من أصولك` + (goldPct > 10 ? ' ⚠️ فوق 10%' : ''), '');
+}
+function finHomeBudgetCard(period) {
+  const target = (state.categories || []).reduce((s, c) => s + (Number(c.target) || 0), 0);
+  const spent = (state.categories || []).reduce((s, c) => s + finCategorySpent(c.id, period), 0);
+  const pct = target > 0 ? (spent / target) * 100 : 0;
+  const color = pct > 100 ? '#E05C5C' : pct > 80 ? '#F0A835' : '#3DB981';
+  return finHomeCard('finance-budget', '🗂️', 'الميزانية الشهرية',
+    finPriv(finFmt(spent)) + ` / ${finFmt(target)}`,
+    target > 0 ? `صُرف ${pct.toFixed(0)}% من ميزانية الشهر` : 'حدّد بنود مصاريفك', target > 0 ? finBar(pct, color) : '');
+}
+function finHomeZakatCard() {
+  const due = finZakatDue();
+  const hawl = finHawlPassed();
+  const sub = hawl ? '🔔 حان موعد الزكاة' : (state.finSettings?.zakatDueDate ? `الحول: ${state.finSettings.zakatDueDate}` : 'حدّد تاريخ حَوَلان الحول');
+  return finHomeCard('finance-zakat', '🕌', 'الزكاة',
+    finPriv(finFmt(due)) + ` <em>${FIN_CUR}</em>`, sub, '');
+}
 
-function renderBanksList() {
-  const grid = document.getElementById('fin-banks-grid');
-  const totalEl = document.getElementById('fin-banks-total');
-  if (!grid) return;
-  const banks = state.banks;
-  const total = banks.reduce((s, b) => s + (Number(b.current_balance) || 0), 0);
-  if (totalEl) totalEl.innerHTML = banks.length ? `الإجمالي: ${finPriv(finFmt(total) + ' ' + FIN_CUR)}` : '';
-  if (!banks.length) {
-    grid.innerHTML = `<div class="fin-empty">مفيش بنوك لسه — <span class="fin-empty-link" data-fin-open="manage-banks">أضف بنك</span></div>`;
-    return;
-  }
-  grid.innerHTML = banks.map(b => {
-    const bal = Number(b.current_balance) || 0;
-    return `<div class="fin-card fin-card-link" data-bank-id="${b.id}" role="button" tabindex="0">
-      ${finBadge(b.icon || '🏦', finColorFor(b))}
-      <div class="fin-card-info">
-        <span class="fin-card-name">${escapeHtml(b.name || '')}</span>
-        <span class="fin-card-balance ${bal < 0 ? 'is-neg' : ''}">${finPriv(finFmt(bal))}<span class="fin-cur">${FIN_CUR}</span></span>
+// ════════════════════════════════════════════════════════════════
+//  RENDER — BUDGET (accounts + monthly categories)
+// ════════════════════════════════════════════════════════════════
+function renderFinanceBudget() {
+  const root = document.getElementById('fin-budget-root');
+  if (!root) return;
+  const period = state.finPeriod || finThisPeriod();
+
+  const accActions = finBtn('add-account', '＋ حساب', 'fin-btn-ghost') + finBtn('transfer', '↔ تحويل', 'fin-btn-ghost');
+  const accRows = (state.accounts || []).length ? (state.accounts).map(a => `
+    <div class="fin-row">
+      <div class="fin-row-main">
+        <span class="fin-row-icon">${escapeHtml(a.icon || '🏦')}</span>
+        <div><div class="fin-row-name">${escapeHtml(a.name)} ${a.isEmergency ? '<span class="fin-tag">🛟 طوارئ</span>' : ''}</div>
+        <div class="fin-row-meta">${a.type === 'cash' ? 'كاش' : a.type === 'wallet' ? 'محفظة' : 'حساب'}</div></div>
       </div>
-      <span class="fin-card-arrow">←</span>
+      <div class="fin-row-side">
+        <span class="fin-row-amt">${finPriv(finFmt(a.balance))} ${FIN_CUR}</span>
+        <button class="fin-icon-btn" data-fin-act="edit-account:${a.id}" title="تعديل">✏️</button>
+        <button class="fin-icon-btn" data-fin-act="del-account:${a.id}" title="حذف">🗑️</button>
+      </div>
+    </div>`).join('') : finEmpty('💧', 'مفيش حسابات لسه.', finBtn('add-account', '＋ ضيف حساب', 'fin-btn-primary'));
+
+  const catActions = finBtn('add-category', '＋ بند', 'fin-btn-ghost');
+  const catRows = (state.categories || []).length ? (state.categories).map(c => {
+    const spent = finCategorySpent(c.id, period), target = Number(c.target) || 0;
+    const pct = target > 0 ? (spent / target) * 100 : 0;
+    const color = pct > 100 ? '#E05C5C' : pct > 80 ? '#F0A835' : '#3DB981';
+    return `<div class="fin-row fin-row-col">
+      <div class="fin-row-line">
+        <div class="fin-row-main"><span class="fin-row-icon">${escapeHtml(c.icon || '🗂️')}</span>
+          <div class="fin-row-name">${escapeHtml(c.name)}</div></div>
+        <div class="fin-row-side">
+          <span class="fin-row-amt">${finPriv(finFmt(spent))} / ${finFmt(target)}</span>
+          <button class="fin-icon-btn" data-fin-act="edit-category:${c.id}" title="تعديل">✏️</button>
+          <button class="fin-icon-btn" data-fin-act="del-category:${c.id}" title="حذف">🗑️</button>
+        </div>
+      </div>
+      ${target > 0 ? finBar(pct, color) : ''}
     </div>`;
-  }).join('');
-  grid.querySelectorAll('.fin-card-link[data-bank-id]').forEach(card => {
-    const go = () => {
-      const bank = state.banks.find(b => b.id === card.dataset.bankId);
-      if (bank) navigateTo('finance-bank', { bank });
-    };
-    card.addEventListener('click', go);
-    card.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-  });
-}
-// kept for any legacy calls (manage modal re-render)
-function renderBanksBox() { renderBanksList(); }
+  }).join('') : finEmpty('🗂️', 'حدّد بنود مصاريفك الشهرية (إيجار، أكل، فواتير...).', finBtn('add-category', '＋ ضيف بند', 'fin-btn-primary'));
 
-function renderBankDetail() {
-  if (state.view !== 'finance-bank') return;
-  const bank = state.banks.find(b => b.id === state.bank?.id) || state.bank;
-  if (!bank) { navigateTo('finance-banks'); return; }
-  state.bank = bank;
-
-  const titleEl = document.getElementById('fin-bank-title');
-  if (titleEl) titleEl.textContent = `${bank.icon || '🏦'} ${bank.name || ''}`;
-
-  const bal   = Number(bank.current_balance) || 0;
-  const txAll = state.transactions.filter(t => t.bankId === bank.id);
-  const income = txAll.filter(t => t.type === 'income').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const statsEl = document.getElementById('fin-bank-stats');
-  if (statsEl) statsEl.innerHTML = `
-    <div class="fin-stat-card">
-      <div class="fin-stat-label">الرصيد الحالي</div>
-      <div class="fin-stat-val ${bal < 0 ? 'is-neg' : 'is-pos'} privacy-sensitive">${finFmt(bal)} <span class="fin-stat-unit">${FIN_CUR}</span></div>
+  root.innerHTML = finToolbar('🗂️ الميزانية الشهرية', '', 'finance') + `<div class="fin-page">
+    <div class="fin-section"><div class="fin-section-head"><h3>💧 الحسابات والسيولة</h3><div class="fin-inline-actions">${accActions}</div></div>
+      <div class="fin-list">${accRows}</div>
+      <div class="fin-section-foot">الإجمالي: <strong>${finPriv(finFmt(finAccountsTotal()))} ${FIN_CUR}</strong></div>
     </div>
-    <div class="fin-stat-card">
-      <div class="fin-stat-label">إجمالي الدخل</div>
-      <div class="fin-stat-val is-pos privacy-sensitive">${finFmt(income)} <span class="fin-stat-unit">${FIN_CUR}</span></div>
+    <div class="fin-section"><div class="fin-section-head"><h3>🗂️ بنود المصاريف — ${finPeriodLabel(period)}</h3><div class="fin-inline-actions">${catActions}</div></div>
+      <div class="fin-list">${catRows}</div>
     </div>
-    <div class="fin-stat-card">
-      <div class="fin-stat-label">عدد الحركات</div>
-      <div class="fin-stat-val">${txAll.length}</div>
-    </div>`;
-
-  renderBankFeed();
+  </div>`;
 }
 
-function renderBankFeed() {
-  const list = document.getElementById('fin-bank-feed-list');
-  if (!list || !state.bank) return;
-  const { type: fType, from: fFrom, to: fTo } = state.finBankFilter;
-  let txs = state.transactions.filter(t => t.bankId === state.bank.id)
-    .sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt));
-  if (fType !== 'all') txs = txs.filter(t => t.type === fType);
-  if (fFrom)           txs = txs.filter(t => finTsMillis(t.createdAt) >= fFrom);
-  if (fTo)             txs = txs.filter(t => finTsMillis(t.createdAt) <= fTo + 86399999);
+// ════════════════════════════════════════════════════════════════
+//  RENDER — DEBTS
+// ════════════════════════════════════════════════════════════════
+function renderFinanceDebts() {
+  const root = document.getElementById('fin-debts-root');
+  if (!root) return;
+  const debts = [...(state.debts || [])].sort((a, b) => (Number(a.remaining) || 0) - (Number(b.remaining) || 0)); // snowball order
+  const totalRem = finDebtsRemaining();
 
-  document.querySelectorAll('#fin-bank-feed-filters .fin-filter-pill').forEach(p => {
-    p.classList.toggle('active', p.dataset.filterType === fType);
-  });
-
-  if (!txs.length) {
-    list.innerHTML = `<div class="fin-empty">${state.transactions.filter(t => t.bankId === state.bank.id).length ? 'مفيش حركات بهذا الفلتر' : 'مفيش حركات لهذا البنك لسه'}</div>`;
-    return;
-  }
-  const envName = id => state.envelopes.find(e => e.id === id)?.name || '—';
-  list.innerHTML = txs.map(t => {
-    const income = t.type === 'income';
-    const typeLabel = income
-      ? ({ salary: 'مرتب 💼', freelance: 'فريلانس 🧑‍💻', normal: 'دخل عادي 💵' }[t.incomeType] || 'دخل')
-      : (t.note || 'مصروف');
-    const dest = income ? 'دخل' : escapeHtml(envName(t.envelopeId));
-    return `<div class="fin-feed-row" data-tx-id="${t.id}">
-      <span class="fin-feed-icon ${income ? 'income' : 'expense'}">${income ? '＋' : '－'}</span>
-      <div class="fin-feed-main">
-        <div class="fin-feed-title">${escapeHtml(typeLabel)}</div>
-        <div class="fin-feed-meta">${dest} · ${escapeHtml(formatDate(t.createdAt))}</div>
+  const rows = debts.length ? debts.map((d, i) => {
+    const total = Number(d.total) || 0, rem = Number(d.remaining) || 0;
+    const paidPct = total > 0 ? ((total - rem) / total) * 100 : 0;
+    const min = Number(d.monthlyMin) || 0;
+    const months = min > 0 ? Math.ceil(rem / min) : null;
+    return `<div class="fin-row fin-row-col">
+      <div class="fin-row-line">
+        <div class="fin-row-main"><span class="fin-row-icon">${escapeHtml(d.icon || '💳')}</span>
+          <div><div class="fin-row-name">${escapeHtml(d.creditor)} ${d.hasPenalty ? '<span class="fin-tag fin-tag-danger">غرامة</span>' : ''} ${i === 0 ? '<span class="fin-tag">🎯 ابدأ بيه</span>' : ''}</div>
+          <div class="fin-row-meta">متبقّي ${finFmt(rem)} من ${finFmt(total)}${months ? ` • ~${months} شهر` : ''}</div></div>
+        </div>
+        <div class="fin-row-side">
+          ${finBtn('pay-debt:' + d.id, 'دفعة', 'fin-btn-success fin-btn-xs')}
+          <button class="fin-icon-btn" data-fin-act="edit-debt:${d.id}" title="تعديل">✏️</button>
+          <button class="fin-icon-btn" data-fin-act="del-debt:${d.id}" title="حذف">🗑️</button>
+        </div>
       </div>
-      <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(t.amount))}</div>
-      <div class="fin-feed-actions">
-        <button class="fin-feed-act-btn" data-edit-tx="${t.id}" title="تعديل">✏️</button>
-        <button class="fin-feed-act-btn del" data-del-tx="${t.id}" title="حذف">🗑</button>
-      </div>
+      ${finBar(paidPct, '#3DB981')}
     </div>`;
-  }).join('');
+  }).join('') : finEmpty('🎉', 'مفيش ديون! لو عليك التزام ضيفه عشان تتابع سداده.', finBtn('add-debt', '＋ ضيف دين', 'fin-btn-primary'));
 
-  list.querySelectorAll('[data-del-tx]').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); deleteTx(btn.dataset.delTx); });
-  });
-  list.querySelectorAll('[data-edit-tx]').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); openEditTxModal(btn.dataset.editTx); });
-  });
+  const advice = debts.length
+    ? `<div class="fin-note">💡 مرتّبين بالأصغر أولاً (Snowball). ادفع الحد الأدنى للكل، وركّز الفائض على أول واحد. سدّد من دخل الفري لانس — مش من صندوق الطوارئ.</div>`
+    : '';
+
+  root.innerHTML = finToolbar('💳 الديون والالتزامات', finBtn('add-debt', '＋ دين', 'fin-btn-ghost'), 'finance') +
+    `<div class="fin-page">
+      <div class="fin-section fin-total-hero"><span>إجمالي المتبقّي</span><strong class="is-neg">${finPriv(finFmt(totalRem))} ${FIN_CUR}</strong></div>
+      ${advice}
+      <div class="fin-list">${rows}</div>
+    </div>`;
 }
 
-function finPricePerGram(karat) {
-  const p = state.goldPrices;
-  if (!p) return 0;
-  return Number(p['p' + karat]) || 0;
-}
-function renderGoldBox() {
-  const summaryEl = document.getElementById('fin-gold-summary');
-  const assetsEl  = document.getElementById('fin-gold-assets-list');
-  if (!summaryEl) return;
-  const byK = { 24: 0, 21: 0, 18: 0 };
-  state.goldAssets.forEach(a => {
-    const k = Number(a.karat);
-    if (byK[k] !== undefined) byK[k] += Number(a.grams_owned) || 0;
-  });
-  const totalGrams = byK[24] + byK[21] + byK[18];
-  const totalValue = byK[24] * finPricePerGram(24) + byK[21] * finPricePerGram(21) + byK[18] * finPricePerGram(18);
-  const hasPrices = !!(finPricePerGram(24) || finPricePerGram(21) || finPricePerGram(18));
+// ════════════════════════════════════════════════════════════════
+//  RENDER — GOALS
+// ════════════════════════════════════════════════════════════════
+function renderFinanceGoals() {
+  const root = document.getElementById('fin-goals-root');
+  if (!root) return;
+  const goals = state.goals || [];
+  const rows = goals.length ? goals.map(g => {
+    const val = finGoalValue(g), target = Number(g.targetAmount) || 0;
+    const pct = target > 0 ? (val / target) * 100 : 0;
+    const need = finGoalMonthlyNeed(g);
+    const onTrack = need === null || need <= finPlanAmount('invest') + 1;
+    const isAsset = (g.fundingType || 'cash') === 'asset';
+    const liqWarn = isAsset && finMonthsUntil(g.deadline) !== null && finMonthsUntil(g.deadline) <= 24
+      ? '<span class="fin-tag fin-tag-danger">⚠️ هدف قريب على أصل متقلّب</span>' : '';
+    return `<div class="fin-row fin-row-col">
+      <div class="fin-row-line">
+        <div class="fin-row-main"><span class="fin-row-icon">${escapeHtml(g.icon || '🎯')}</span>
+          <div><div class="fin-row-name">${escapeHtml(g.name)} ${isAsset ? '<span class="fin-tag">📈 أصل</span>' : '<span class="fin-tag">💵 كاش</span>'} ${liqWarn}</div>
+          <div class="fin-row-meta">${finFmt(val)} / ${finFmt(target)} ${g.deadline ? '• ' + g.deadline : ''}${need !== null ? ` • مطلوب ${finFmt(need)}/شهر` : ''}</div></div>
+        </div>
+        <div class="fin-row-side">
+          ${!isAsset ? finBtn('contribute:' + g.id, '＋ ادخار', 'fin-btn-success fin-btn-xs') : ''}
+          <button class="fin-icon-btn" data-fin-act="edit-goal:${g.id}" title="تعديل">✏️</button>
+          <button class="fin-icon-btn" data-fin-act="del-goal:${g.id}" title="حذف">🗑️</button>
+        </div>
+      </div>
+      ${finBar(pct, onTrack ? '#3DB981' : '#F0A835')}
+    </div>`;
+  }).join('') : finEmpty('🎯', 'حدّد أهدافك (بيت، عربية...). الأهداف القريبة خليها كاش، والبعيدة اربطها بأصل بينمو.', finBtn('add-goal', '＋ ضيف هدف', 'fin-btn-primary'));
 
-  const karatCards = [24, 21, 18].filter(k => byK[k] > 0).map(k => `
-    <div class="fin-stat-card">
-      <div class="fin-stat-label">عيار ${k}</div>
-      <div class="fin-stat-val privacy-sensitive">${finFmt(byK[k])} <span class="fin-stat-unit">جم</span></div>
-      ${hasPrices ? `<div class="fin-stat-sub privacy-sensitive">≈ ${finFmt(byK[k] * finPricePerGram(k))} ${FIN_CUR}</div>` : ''}
+  root.innerHTML = finToolbar('🎯 الأهداف', finBtn('add-goal', '＋ هدف', 'fin-btn-ghost'), 'finance') +
+    `<div class="fin-page"><div class="fin-list">${rows}</div></div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER — ASSETS (gold + investments)
+// ════════════════════════════════════════════════════════════════
+function renderFinanceAssets() {
+  const root = document.getElementById('fin-assets-root');
+  if (!root) return;
+  const g = finGoldGrams();
+  const goldVal = finGoldValue();
+  const totalA = finTotalAssets();
+  const goldPct = totalA > 0 ? (goldVal / totalA) * 100 : 0;
+  const prices = state.goldPrices;
+  const priceNote = prices
+    ? `أسعار الجرام: 24=${finFmt(prices.p24)} · 21=${finFmt(prices.p21)} · 18=${finFmt(prices.p18)} <span class="fin-row-meta">(${prices.source === 'api' ? 'تلقائي' : 'يدوي'})</span>`
+    : 'لسه مفيش أسعار — اجلبها تلقائياً أو اكتبها.';
+
+  const goldRows = Object.keys(g).filter(k => g[k] > 0).map(k => `
+    <div class="fin-row"><div class="fin-row-main"><span class="fin-row-icon">🥇</span>
+      <div class="fin-row-name">عيار ${k} — ${finFmt(g[k])} جم</div></div>
+      <div class="fin-row-side"><span class="fin-row-amt">${finPriv(finFmt(g[k] * finPricePerGram(Number(k))))} ${FIN_CUR}</span></div>
+    </div>`).join('') || `<div class="fin-row-meta" style="padding:8px 4px">مفيش ذهب مسجّل.</div>`;
+
+  const invRows = (state.assets || []).length ? state.assets.map(a => `
+    <div class="fin-row"><div class="fin-row-main"><span class="fin-row-icon">${a.type === 'realestate' ? '🏘️' : '📈'}</span>
+      <div><div class="fin-row-name">${escapeHtml(a.name)}</div><div class="fin-row-meta">${finAssetTypeLabel(a.type)}${a.platform ? ' • ' + escapeHtml(a.platform) : ''}</div></div></div>
+      <div class="fin-row-side"><span class="fin-row-amt">${finPriv(finFmt(a.currentValue))} ${FIN_CUR}</span>
+        <button class="fin-icon-btn" data-fin-act="edit-asset:${a.id}" title="تعديل">✏️</button>
+        <button class="fin-icon-btn" data-fin-act="del-asset:${a.id}" title="حذف">🗑️</button></div>
+    </div>`).join('') : finEmpty('📈', 'ضيف استثماراتك الحلال (ذهب ثاندر، صندوق إسلامي، عقار...).', finBtn('add-asset', '＋ استثمار', 'fin-btn-primary'));
+
+  const advice = goldPct > 10 ? `<div class="fin-note fin-note-warn">⚠️ الذهب ${goldPct.toFixed(0)}% من أصولك (المفضّل 5–10%). فكّر في تنويع.</div>` : '';
+
+  root.innerHTML = finToolbar('🥇 الأصول والذهب',
+    finBtn('gold-add', '＋ ذهب', 'fin-btn-ghost') + finBtn('gold-prices', '🔄 الأسعار', 'fin-btn-ghost') + finBtn('add-asset', '＋ استثمار', 'fin-btn-ghost'),
+    'finance') + `<div class="fin-page">
+      <div class="fin-section fin-total-hero"><span>إجمالي الأصول</span><strong>${finPriv(finFmt(totalA))} ${FIN_CUR}</strong></div>
+      ${advice}
+      <div class="fin-section"><div class="fin-section-head"><h3>🥇 الذهب</h3>
+        <div class="fin-inline-actions">${finBtn('gold-add', '＋ إضافة', 'fin-btn-xs fin-btn-ghost')}${finBtn('gold-sub', '－ سحب', 'fin-btn-xs fin-btn-ghost')}</div></div>
+        <div class="fin-note">${priceNote}</div>
+        <div class="fin-list">${goldRows}</div>
+        <div class="fin-section-foot">قيمة الذهب: <strong>${finPriv(finFmt(goldVal))} ${FIN_CUR}</strong></div>
+      </div>
+      <div class="fin-section"><div class="fin-section-head"><h3>📈 استثمارات حلال</h3><div class="fin-inline-actions">${finBtn('add-asset', '＋ استثمار', 'fin-btn-xs fin-btn-ghost')}</div></div>
+        <div class="fin-list">${invRows}</div>
+      </div>
+      <div class="fin-note">💡 اشترِ الذهب بالتدريج، احتفظ به سنة على الأقل، وبِع عند القمم أو لتحقيق هدف. سبائك 24 مغلّفة = مصنعية أقل.</div>
+    </div>`;
+}
+function finAssetTypeLabel(t) {
+  return ({ gold: 'ذهب', thndr_gold: 'ذهب (ثاندر)', thndr_fund: 'صندوق إسلامي (ثاندر)', realestate: 'عقار', other: 'أخرى' })[t] || 'استثمار';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER — ZAKAT
+// ════════════════════════════════════════════════════════════════
+function renderFinanceZakat() {
+  const root = document.getElementById('fin-zakat-root');
+  if (!root) return;
+  const total = finZakatableTotal();
+  const nisab = finNisavGuard();
+  const due = finZakatDue();
+  const hawl = finHawlPassed();
+  const above = nisab > 0 && total >= nisab;
+
+  root.innerHTML = finToolbar('🕌 الزكاة', finBtn('zakat-settings', '⚙️ إعدادات', 'fin-btn-ghost'), 'finance') +
+    `<div class="fin-page">
+      <div class="fin-section fin-total-hero"><span>الزكاة المستحقّة (2.5%)</span><strong>${finPriv(finFmt(due))} ${FIN_CUR}</strong></div>
+      <div class="fin-section">
+        <div class="fin-kv"><span>الأموال الخاضعة للزكاة</span><strong>${finPriv(finFmt(total))} ${FIN_CUR}</strong></div>
+        <div class="fin-kv"><span>النِّصاب (${state.finSettings?.nisabGrams || 85}جم ذهب)</span><strong>${finFmt(nisab)} ${FIN_CUR}</strong></div>
+        <div class="fin-kv"><span>فوق النِّصاب؟</span><strong>${above ? 'نعم ✅' : 'لا'}</strong></div>
+        <div class="fin-kv"><span>تاريخ حَوَلان الحَوْل</span><strong>${state.finSettings?.zakatDueDate || '— غير محدد'}</strong></div>
+        <div class="fin-kv"><span>الحالة</span><strong>${hawl ? '🔔 حان الموعد' : 'لسه'}</strong></div>
+      </div>
+      ${above && hawl ? `<div class="fin-page-actions">${finBtn('pay-zakat', '💸 سجّل إخراج الزكاة', 'fin-btn-primary')}</div>` : ''}
+      <div class="fin-note">💡 الزكاة 2.5% على (الذهب + النقد + الاستثمارات السائلة) بعد مرور عام هجري كامل فوق النِّصاب. العقار للسكن الشخصي لا زكاة عليه.</div>
+    </div>`;
+}
+function finNisavGuard() { return finNisabValue(); }
+
+// ════════════════════════════════════════════════════════════════
+//  DYNAMIC MODAL
+// ════════════════════════════════════════════════════════════════
+let finModalSubmit = null;
+function finModal(title, bodyHtml, footerHtml, onSubmit) {
+  document.getElementById('fin-modal-title').innerHTML = title;
+  document.getElementById('fin-modal-body').innerHTML = bodyHtml;
+  document.getElementById('fin-modal-footer').innerHTML = footerHtml ||
+    `<button type="button" class="btn-ghost" data-fin-modal-close>إلغاء</button><button type="submit" class="btn-primary">حفظ</button>`;
+  finModalSubmit = onSubmit;
+  finShow('fin-modal-overlay');
+  setTimeout(() => document.querySelector('#fin-modal-body input,#fin-modal-body select')?.focus(), 60);
+}
+function finCloseModal() { finHide('fin-modal-overlay'); finModalSubmit = null; }
+
+// Shared field builders
+function finFieldNum(id, label, val, extra) {
+  return `<div class="form-group"><label class="form-label">${label}</label>
+    <input type="number" id="${id}" class="form-input" step="0.01" inputmode="decimal" value="${val ?? ''}" ${extra || ''}/></div>`;
+}
+function finFieldText(id, label, val, ph, extra) {
+  return `<div class="form-group"><label class="form-label">${label}</label>
+    <input type="text" id="${id}" class="form-input" value="${val != null ? escapeHtml(String(val)) : ''}" placeholder="${ph || ''}" ${extra || ''}/></div>`;
+}
+function finAccountOptions(selId) {
+  return (state.accounts || []).map(a => `<option value="${a.id}" ${a.id === selId ? 'selected' : ''}>${escapeHtml(a.icon || '')} ${escapeHtml(a.name)} (${finFmt(a.balance)})</option>`).join('');
+}
+function finFieldAccount(id, label, selId) {
+  return `<div class="form-group"><label class="form-label">${label}</label>
+    <select id="${id}" class="form-input" required>${finAccountOptions(selId)}</select></div>`;
+}
+function finNeedAccount() {
+  if ((state.accounts || []).length) return false;
+  toast('ضيف حساب الأول من الميزانية الشهرية', 'error');
+  return true;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — plan
+// ════════════════════════════════════════════════════════════════
+function openPlanModal() {
+  const p = finPercents();
+  const income = finIncome();
+  const sliders = FIN_BUCKETS.map(b => `
+    <div class="fin-slider-row">
+      <label>${b.icon} ${b.label}</label>
+      <div class="fin-slider-ctl">
+        <input type="range" min="0" max="100" step="1" value="${Number(p[b.key]) || 0}" data-plan-key="${b.key}" class="fin-slider" style="accent-color:${b.color}">
+        <input type="number" min="0" max="100" value="${Number(p[b.key]) || 0}" data-plan-num="${b.key}" class="form-input fin-slider-num">
+      </div>
     </div>`).join('');
-
-  summaryEl.innerHTML = `
-    <div class="fin-section" style="padding-top:12px">
-      <div class="fin-section-header">
-        <span class="fin-section-icon">🥇</span>
-        <h3 class="fin-section-title">الملخص</h3>
-      </div>
-      <div class="fin-stats-grid">
-        <div class="fin-stat-card">
-          <div class="fin-stat-label">إجمالي القيمة</div>
-          <div class="fin-stat-val privacy-sensitive" style="color:#F0A835">${hasPrices ? finFmt(totalValue) : '—'} <span class="fin-stat-unit">${hasPrices ? FIN_CUR : ''}</span></div>
-        </div>
-        <div class="fin-stat-card">
-          <div class="fin-stat-label">إجمالي الجرامات</div>
-          <div class="fin-stat-val privacy-sensitive">${finFmt(totalGrams)} <span class="fin-stat-unit">جم</span></div>
-        </div>
-        ${karatCards}
-        ${!hasPrices ? `<div class="fin-stat-card fin-stat-card--muted"><div class="fin-stat-label">حدّد الأسعار لعرض القيمة</div></div>` : ''}
-      </div>
-      <div class="fin-gold-actions" style="margin-top:12px">
-        <button class="fin-gold-btn add" id="fin-gold-add" type="button">＋ إضافة</button>
-        <button class="fin-gold-btn sub" id="fin-gold-sub" type="button">－ سحب</button>
-      </div>
-    </div>`;
-
-  if (assetsEl) {
-    if (!state.goldAssets.length) {
-      assetsEl.innerHTML = `<div class="fin-empty">مفيش قطع مسجّلة لسه</div>`;
-    } else {
-      assetsEl.innerHTML = `<div class="fin-gold-asset-list">` +
-        state.goldAssets
-          .sort((a, b) => Number(b.karat) - Number(a.karat))
-          .map(a => {
-            const grams = Number(a.grams_owned) || 0;
-            const val   = grams * finPricePerGram(Number(a.karat));
-            return `<div class="fin-gold-asset-card">
-              <div class="fin-gold-asset-karat">ع${a.karat}</div>
-              <div class="fin-gold-asset-info">
-                <div class="fin-gold-asset-name">${a.notes ? escapeHtml(a.notes) : 'سبيكة عيار ' + a.karat}</div>
-                <div class="fin-gold-asset-date">${a.purchase_date || ''}</div>
-              </div>
-              <div class="fin-gold-asset-val">
-                <div class="privacy-sensitive">${finFmt(grams)} جم</div>
-                ${hasPrices ? `<div class="fin-gold-asset-price privacy-sensitive">≈ ${finFmt(val)} ${FIN_CUR}</div>` : ''}
-              </div>
-            </div>`;
-          }).join('') +
-        `</div>`;
-    }
-  }
+  finModal('🧭 خطة توزيع الدخل',
+    finFieldNum('plan-income', 'الدخل الشهري (جنيه)', income, 'min="0"') +
+    `<div class="fin-sliders">${sliders}</div>
+     <div class="fin-alloc-summary"><span>مجموع النِّسب:</span><strong id="plan-sum">0%</strong></div>`,
+    `<button type="button" class="btn-ghost" data-fin-modal-close>إلغاء</button><button type="submit" class="btn-primary">💾 حفظ الخطة</button>`,
+    savePlan);
+  updatePlanSum();
 }
-
-function renderFeedBox() {
-  const list = document.getElementById('fin-feed-list');
-  if (!list) return;
-
-  const { type: fType, from: fFrom, to: fTo } = state.finFilter;
-  let txs = [...state.transactions]
-    .sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt));
-
-  if (fType !== 'all') txs = txs.filter(t => t.type === fType);
-  if (fFrom)           txs = txs.filter(t => finTsMillis(t.createdAt) >= fFrom);
-  if (fTo)             txs = txs.filter(t => finTsMillis(t.createdAt) <= fTo + 86399999);
-
-  // sync filter pill active states
-  document.querySelectorAll('#fin-feed-filters .fin-filter-pill').forEach(p => {
-    p.classList.toggle('active', p.dataset.filterType === fType);
-  });
-
-  if (!txs.length) {
-    list.innerHTML = `<div class="fin-empty">${state.transactions.length ? 'مفيش حركات بهذا الفلتر' : 'مفيش حركات لسه'}</div>`;
-    return;
-  }
-  const bankName = id => state.banks.find(b => b.id === id)?.name || '—';
-  const envName  = id => state.envelopes.find(e => e.id === id)?.name || '—';
-  list.innerHTML = txs.map(t => {
-    const income = t.type === 'income';
-    const typeLabel = income
-      ? ({ salary: 'مرتب 💼', freelance: 'فريلانس 🧑‍💻', normal: 'دخل عادي 💵' }[t.incomeType] || 'دخل')
-      : (t.note || 'مصروف');
-    const dest = income
-      ? `إلى ${escapeHtml(bankName(t.bankId))}`
-      : `${escapeHtml(envName(t.envelopeId))} · ${escapeHtml(bankName(t.bankId))}`;
-    const pending = income && t.incomeType === 'normal' && !t.allocated;
-    const dateStr = formatDate(t.createdAt);
-    return `<div class="fin-feed-row${pending ? ' is-pending' : ''}"${pending ? ` data-fin-alloc="${t.id}" style="cursor:pointer"` : ''}>
-      <span class="fin-feed-icon ${income ? 'income' : 'expense'}">${income ? '＋' : '－'}</span>
-      <div class="fin-feed-main">
-        <div class="fin-feed-title">${escapeHtml(typeLabel)}${pending ? '<span class="fin-feed-pending">يحتاج توزيع</span>' : ''}</div>
-        <div class="fin-feed-meta">${dest} · ${escapeHtml(dateStr)}</div>
-      </div>
-      <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(t.amount))}</div>
-    </div>`;
-  }).join('');
+function updatePlanSum() {
+  const body = document.getElementById('fin-modal-body');
+  if (!body) return;
+  let sum = 0;
+  body.querySelectorAll('[data-plan-num]').forEach(n => sum += Number(n.value) || 0);
+  const el = document.getElementById('plan-sum');
+  if (el) { el.textContent = sum + '%'; el.classList.toggle('fin-bad', sum !== 100); }
 }
-
-// ── Envelope Detail Page ──────────────────────────────────────
-function renderEnvelopeDetail() {
-  if (state.view !== 'finance-envelope') return;
-  // Always use fresh envelope data from state
-  const env = state.envelopes.find(e => e.id === state.envelope?.id) || state.envelope;
-  if (!env) { navigateTo('finance'); return; }
-  state.envelope = env;
-
-  const titleEl = document.getElementById('fin-env-title');
-  if (titleEl) titleEl.textContent = (env.icon || '✉️') + '  ' + (env.name || 'ظرف');
-
-  // ── Stats row ──
-  const statsEl = document.getElementById('fin-env-stats');
-  if (statsEl) {
-    const remaining = Number(env.current_balance) || 0;
-    const budget    = Number(env.budget) || 0;
-    const spent     = budget > 0 ? Math.max(0, budget - remaining) : null;
-    statsEl.innerHTML = `
-      <div class="fin-detail-stat">
-        <span class="fin-detail-stat-label">المتاح للصرف</span>
-        <span class="fin-detail-stat-value ${remaining < 0 ? 'is-neg' : 'is-pos'} privacy-sensitive">${finFmt(remaining)}<span class="fin-cur"> ${FIN_CUR}</span></span>
-      </div>
-      ${budget > 0 ? `
-      <div class="fin-detail-stat">
-        <span class="fin-detail-stat-label">الميزانية الكلية</span>
-        <span class="fin-detail-stat-value privacy-sensitive">${finFmt(budget)}<span class="fin-cur"> ${FIN_CUR}</span></span>
-      </div>
-      <div class="fin-detail-stat">
-        <span class="fin-detail-stat-label">تم الصرف</span>
-        <span class="fin-detail-stat-value privacy-sensitive">${finFmt(spent)}<span class="fin-cur"> ${FIN_CUR}</span></span>
-      </div>` : ''}
-    `;
-  }
-
-  // ── Progress bar ──
-  const progressWrap = document.getElementById('fin-env-progress-wrap');
-  if (progressWrap) {
-    const bal    = Number(env.current_balance) || 0;
-    const budget = Number(env.budget) || 0;
-    if (budget > 0) {
-      const pct    = Math.min(100, Math.round((bal / budget) * 100));
-      const pctCls = pct >= 100 ? 'danger' : pct >= 80 ? 'warning' : 'ok';
-      progressWrap.innerHTML = `
-        <div class="fin-env-prog-bar"><div class="fin-env-prog-fill ${pctCls}" style="width:${pct}%"></div></div>
-        <span class="fin-env-prog-label">${pct}% من الميزانية مستخدم</span>
-      `;
-      progressWrap.classList.remove('hidden');
-    } else {
-      progressWrap.classList.add('hidden');
-    }
-  }
-
-  renderEnvItems(env);
-  renderEnvFeed(env);
-}
-
-function renderEnvItems(env) {
-  const listEl  = document.getElementById('fin-env-items-list');
-  const totalEl = document.getElementById('fin-env-items-total');
-  if (!listEl) return;
-  const items = Array.isArray(env.items) ? env.items : [];
-  const total = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
-  if (totalEl) totalEl.textContent = items.length ? `إجمالي: ${finFmt(total)} ${FIN_CUR}` : '';
-  if (!items.length) {
-    listEl.innerHTML = `<div class="fin-empty">لا توجد بنود — أضف بنداً أدناه</div>`;
-    return;
-  }
-  listEl.innerHTML = items.map((it, idx) => `
-    <div class="fin-item-row" data-item-idx="${idx}">
-      <span class="fin-item-name">${escapeHtml(it.name || '')}</span>
-      <span class="fin-item-amount">${finFmt(it.amount || 0)}<span class="fin-cur"> ${FIN_CUR}</span></span>
-      <div class="fin-feed-actions" style="opacity:0">
-        <button class="fin-feed-act-btn fin-item-edit" type="button" data-item-id="${it.id}" title="تعديل">✏️</button>
-        <button class="fin-feed-act-btn del fin-item-del" type="button" data-item-idx="${idx}" title="حذف البند">🗑</button>
-      </div>
-    </div>
-  `).join('');
-
-  listEl.querySelectorAll('.fin-item-row').forEach(row => {
-    row.addEventListener('mouseenter', () => row.querySelector('.fin-feed-actions').style.opacity = '1');
-    row.addEventListener('mouseleave', () => row.querySelector('.fin-feed-actions').style.opacity = '0');
-  });
-  listEl.querySelectorAll('.fin-item-edit').forEach(btn => {
-    btn.addEventListener('click', () => openEnvItemModal(btn.dataset.itemId));
-  });
-  listEl.querySelectorAll('.fin-item-del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const idx = Number(btn.dataset.itemIdx);
-      const confirmed = await confirmDialog({ title: 'حذف البند', message: `هتحذف "${items[idx]?.name}"؟`, icon: '🗑️', confirmText: 'احذف' });
-      if (!confirmed) return;
-      const newItems = [...items];
-      newItems.splice(idx, 1);
-      try {
-        await updateDoc(envelopeDoc(env.id), { items: newItems });
-        toast('تم حذف البند', 'success');
-      } catch (err) { toast('فشل الحذف', 'error'); console.error(err); }
-    });
-  });
-}
-
-function renderEnvFeed(env) {
-  const listEl = document.getElementById('fin-env-feed-list');
-  if (!listEl) return;
-  const fType = state.finEnvFilter?.type || 'all';
-
-  // sync pills
-  document.querySelectorAll('#fin-env-filter-pills .fin-filter-pill').forEach(p => {
-    p.classList.toggle('active', p.dataset.filterType === fType);
-  });
-
-  let txs = state.transactions.filter(t => {
-    if (t.type === 'expense') return t.envelopeId === env.id;
-    if (t.type === 'income' && Array.isArray(t.allocations)) {
-      return t.allocations.some(a => a.envelopeId === env.id);
-    }
-    return false;
-  }).sort((a, b) => finTsMillis(b.createdAt) - finTsMillis(a.createdAt));
-
-  if (fType !== 'all') txs = txs.filter(t => t.type === fType);
-
-  if (!txs.length) {
-    listEl.innerHTML = `<div class="fin-empty">لا توجد حركات لهذا الظرف</div>`;
-    return;
-  }
-  const bankName = id => state.banks.find(b => b.id === id)?.name || '—';
-  listEl.innerHTML = txs.map(t => {
-    const income = t.type === 'income';
-    const typeLabel = income
-      ? ({ salary: 'مرتب 💼', freelance: 'فريلانس 🧑‍💻', normal: 'دخل عادي 💵' }[t.incomeType] || 'دخل')
-      : (t.note || 'مصروف');
-    const allocAmt = income && Array.isArray(t.allocations)
-      ? (t.allocations.find(a => a.envelopeId === env.id)?.amount ?? t.amount)
-      : t.amount;
-    return `<div class="fin-feed-row" data-tx-id="${t.id}">
-      <span class="fin-feed-icon ${income ? 'income' : 'expense'}">${income ? '＋' : '－'}</span>
-      <div class="fin-feed-main">
-        <div class="fin-feed-title">${escapeHtml(typeLabel)}</div>
-        <div class="fin-feed-meta">${escapeHtml(bankName(t.bankId))} · ${escapeHtml(formatDate(t.createdAt))}</div>
-      </div>
-      <div class="fin-feed-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'}${finPriv(finFmt(allocAmt))}</div>
-      <div class="fin-feed-actions">
-        <button class="fin-feed-act-btn" data-edit-tx="${t.id}" title="تعديل">✏️</button>
-        <button class="fin-feed-act-btn del" data-del-tx="${t.id}" title="حذف">🗑</button>
-      </div>
-    </div>`;
-  }).join('');
-
-  listEl.querySelectorAll('[data-del-tx]').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); deleteTx(btn.dataset.delTx); });
-  });
-  listEl.querySelectorAll('[data-edit-tx]').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); openEditTxModal(btn.dataset.editTx); });
-  });
-}
-
-// ── Income (manual entry + auto allocation) ────────────────────
-function updateIncomeTypeHint() {
-  const t = document.getElementById('income-type')?.value;
-  const hint = document.getElementById('income-type-hint');
-  if (!hint) return;
-  if (t === 'normal') {
-    hint.textContent = 'هيتطلب منك توزيع المبلغ يدوياً على الأظرف فوراً.';
-    return;
-  }
-  const rule = (state.allocRules[t] || []).filter(r => Number(r.percent) > 0);
-  const sum = rule.reduce((s, r) => s + Number(r.percent), 0);
-  if (!rule.length || Math.round(sum) !== 100) {
-    hint.innerHTML = `⚠️ مفيش قاعدة ${t === 'salary' ? 'مرتب' : 'فريلانس'} مظبوطة (لازم 100%). عدّلها من «القواعد».`;
-  } else {
-    hint.textContent = `هيتوزع تلقائياً على ${rule.length} ظرف حسب القاعدة.`;
-  }
-}
-function openIncomeModal() {
-  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
-  const bankSel = document.getElementById('income-bank');
-  bankSel.innerHTML = state.banks.map(b => `<option value="${b.id}">${escapeHtml((b.icon || '') + ' ' + b.name)}</option>`).join('');
-  document.getElementById('income-amount').value = '';
-  document.getElementById('income-type-pills').querySelectorAll('.fin-type-pill')
-    .forEach(p => p.classList.toggle('active', p.dataset.type === 'salary'));
-  document.getElementById('income-type').value = 'salary';
-  updateIncomeTypeHint();
-  finShow('income-modal-overlay');
-  setTimeout(() => document.getElementById('income-amount')?.focus(), 60);
-}
-async function submitIncome(e) {
+async function savePlan(e) {
   e.preventDefault();
-  const amount = Number(document.getElementById('income-amount').value);
-  const bankId = document.getElementById('income-bank').value;
-  const type = document.getElementById('income-type').value;
-  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
-  if (!bankId) { toast('اختار البنك', 'error'); return; }
-  const btn = document.getElementById('submit-income-btn');
-  btn.disabled = true;
+  const income = Number(document.getElementById('plan-income').value) || 0;
+  const percents = {};
+  let sum = 0;
+  document.querySelectorAll('#fin-modal-body [data-plan-num]').forEach(n => {
+    const k = n.dataset.planNum; const v = Number(n.value) || 0; percents[k] = v; sum += v;
+  });
+  if (sum !== 100) { toast(`مجموع النِّسب ${sum}% — لازم يساوي 100%`, 'error'); return; }
   try {
-    if (type === 'salary' || type === 'freelance') {
-      const rule = (state.allocRules[type] || []).filter(r => Number(r.percent) > 0 && state.envelopes.find(e => e.id === r.envelopeId));
-      const sum = rule.reduce((s, r) => s + Number(r.percent), 0);
-      if (!rule.length || Math.round(sum) !== 100) {
-        toast('قاعدة التوزيع لازم تكون 100% على أظرف موجودة — عدّلها من «القواعد»', 'error');
-        btn.disabled = false; return;
-      }
-      // Cut each envelope by its percentage (rounded to piaster), then route
-      // any rounding remainder to the "unallocated funds catcher" (صائد الكسور)
-      // — falls back to the last rule envelope when no catcher is configured.
-      const allocMap = new Map();
-      let allocated = 0;
-      rule.forEach(r => {
-        const amt = +(amount * r.percent / 100).toFixed(2);
-        allocMap.set(r.envelopeId, +((allocMap.get(r.envelopeId) || 0) + amt).toFixed(2));
-        allocated = +(allocated + amt).toFixed(2);
-      });
-      const remainder = +(amount - allocated).toFixed(2);
-      if (Math.abs(remainder) >= 0.005) {
-        const catcherId = state.finSettings?.unallocatedEnvelopeId;
-        const target = (catcherId && state.envelopes.find(e => e.id === catcherId))
-          ? catcherId
-          : rule[rule.length - 1].envelopeId;
-        allocMap.set(target, +((allocMap.get(target) || 0) + remainder).toFixed(2));
-      }
-      const allocations = [...allocMap.entries()].map(([envelopeId, amt]) => ({ envelopeId, amount: amt }));
-      const batch = writeBatch(db);
-      batch.update(bankDoc(bankId), { current_balance: increment(amount) });
-      allocations.forEach(a => batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(a.amount) }));
-      const txRef = doc(transactionsRef());
-      batch.set(txRef, { type: 'income', amount, bankId, incomeType: type, allocated: true, allocations, period: finThisPeriod(), createdAt: serverTimestamp() });
-      await batch.commit();
-      toast('تم تسجيل الدخل وتوزيعه ✅', 'success');
-      finHide('income-modal-overlay');
-    } else {
-      // Normal — lands in bank, frozen until manual 100% allocation
-      const batch = writeBatch(db);
-      batch.update(bankDoc(bankId), { current_balance: increment(amount) });
-      const txRef = doc(transactionsRef());
-      batch.set(txRef, { type: 'income', amount, bankId, incomeType: 'normal', allocated: false, allocations: [], period: finThisPeriod(), createdAt: serverTimestamp() });
-      await batch.commit();
-      finHide('income-modal-overlay');
-      openManualAlloc(txRef.id, amount);
-    }
-  } catch (err) {
-    console.error(err);
-    toast('فشل حفظ الدخل', 'error');
-  }
-  btn.disabled = false;
+    await setDoc(planDoc(), { income, percents, updatedAt: serverTimestamp() }, { merge: true });
+    toast('تم حفظ الخطة', 'success');
+    finCloseModal();
+  } catch (err) { console.error(err); toast('فشل الحفظ', 'error'); }
 }
 
-// ── Forced manual allocation (Normal income) ──────────────────
-function openManualAlloc(txId, amount) {
-  if (!state.envelopes.length) { toast('لازم تضيف أظرف الأول عشان توزع', 'error'); return; }
-  state.pendingIncomeTxId = txId;
-  state.pendingIncomeAmount = amount;
-  document.getElementById('alloc-total-display').textContent = finFmt(amount) + ' ' + FIN_CUR;
-  document.getElementById('alloc-rows').innerHTML = state.envelopes.map(env => `
-    <div class="fin-alloc-row">
-      <span class="fin-alloc-label">${escapeHtml(env.icon || '✉️')} ${escapeHtml(env.name)}</span>
-      <input type="number" class="form-input fin-alloc-input" data-env="${env.id}" min="0" step="0.01" inputmode="decimal" placeholder="0">
-    </div>`).join('');
-  updateAllocRemaining();
-  finShow('alloc-modal-overlay');
-}
-function updateAllocRemaining() {
-  let sum = 0;
-  document.querySelectorAll('#alloc-rows .fin-alloc-input').forEach(i => sum += Number(i.value) || 0);
-  const remaining = +(state.pendingIncomeAmount - sum).toFixed(2);
-  const el = document.getElementById('alloc-remaining');
-  el.textContent = finFmt(remaining) + ' ' + FIN_CUR;
-  el.className = Math.abs(remaining) < 0.005 ? 'ok' : 'bad';
-  document.getElementById('submit-alloc-btn').disabled = Math.abs(remaining) >= 0.005;
-}
-// Dump whatever is still unallocated into the catcher envelope's input
-// (صائد الكسور) — falls back to the first envelope when none is configured.
-function fillAllocCatcher() {
-  const inputs = [...document.querySelectorAll('#alloc-rows .fin-alloc-input')];
-  if (!inputs.length) return;
-  let sum = 0;
-  inputs.forEach(i => sum += Number(i.value) || 0);
-  const remaining = +(state.pendingIncomeAmount - sum).toFixed(2);
-  if (remaining <= 0.005) { toast('مفيش باقي للتوزيع', 'info'); return; }
-  const catcherId = state.finSettings?.unallocatedEnvelopeId;
-  let target = inputs.find(i => i.dataset.env === catcherId) || inputs[0];
-  target.value = +((Number(target.value) || 0) + remaining).toFixed(2);
-  updateAllocRemaining();
-}
-async function submitManualAlloc() {
-  const inputs = [...document.querySelectorAll('#alloc-rows .fin-alloc-input')];
-  const allocations = inputs
-    .map(i => ({ envelopeId: i.dataset.env, amount: +(Number(i.value) || 0).toFixed(2) }))
-    .filter(a => a.amount > 0);
-  const sum = allocations.reduce((s, a) => s + a.amount, 0);
-  if (Math.abs(sum - state.pendingIncomeAmount) >= 0.005) { toast('لازم توزع كامل المبلغ', 'error'); return; }
-  const btn = document.getElementById('submit-alloc-btn');
-  btn.disabled = true;
-  try {
-    const batch = writeBatch(db);
-    allocations.forEach(a => {
-      if (state.envelopes.find(e => e.id === a.envelopeId)) batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(a.amount) });
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — accounts
+// ════════════════════════════════════════════════════════════════
+function openAccountModal(id) {
+  const a = (state.accounts || []).find(x => x.id === id) || {};
+  finModal(id ? '✏️ تعديل حساب' : '＋ حساب جديد',
+    finFieldText('acc-icon', 'أيقونة', a.icon || '🏦', '🏦', 'maxlength="2"') +
+    finFieldText('acc-name', 'الاسم', a.name, 'مثلاً: كاش / إنستاباي', 'required') +
+    `<div class="form-group"><label class="form-label">النوع</label><select id="acc-type" class="form-input">
+      <option value="cash" ${a.type === 'cash' ? 'selected' : ''}>كاش</option>
+      <option value="wallet" ${a.type === 'wallet' ? 'selected' : ''}>محفظة إلكترونية</option>
+      <option value="bank" ${a.type === 'bank' ? 'selected' : ''}>حساب بنكي (بدون فائدة)</option></select></div>` +
+    finFieldNum('acc-balance', 'الرصيد الحالي', a.balance || 0, 'min="0"') +
+    `<label class="fin-check"><input type="checkbox" id="acc-emergency" ${a.isEmergency ? 'checked' : ''}> 🛟 ده حساب صندوق الطوارئ</label>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const data = {
+        icon: document.getElementById('acc-icon').value.trim() || '🏦',
+        name: document.getElementById('acc-name').value.trim(),
+        type: document.getElementById('acc-type').value,
+        balance: Number(document.getElementById('acc-balance').value) || 0,
+        isEmergency: document.getElementById('acc-emergency').checked,
+      };
+      if (!data.name) { toast('اكتب اسم', 'error'); return; }
+      try {
+        if (data.isEmergency) {
+          const other = (state.accounts || []).find(x => x.isEmergency && x.id !== id);
+          if (other) await updateDoc(accountDoc(other.id), { isEmergency: false });
+        }
+        if (id) await updateDoc(accountDoc(id), data);
+        else await addDoc(accountsRef(), { ...data, sortOrder: (state.accounts || []).length, createdAt: serverTimestamp() });
+        toast('تم الحفظ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل الحفظ', 'error'); }
     });
-    batch.update(transactionDoc(state.pendingIncomeTxId), { allocated: true, allocations });
-    await batch.commit();
-    toast('تم التوزيع ✅', 'success');
-    finHide('alloc-modal-overlay');
-    state.pendingIncomeTxId = null;
-  } catch (err) {
-    console.error(err);
-    toast('فشل التوزيع', 'error');
-    btn.disabled = false;
-  }
+}
+async function deleteAccount(id) {
+  const a = (state.accounts || []).find(x => x.id === id);
+  if (!a) return;
+  if (!confirm(`حذف حساب "${a.name}"؟`)) return;
+  try { await deleteDoc(accountDoc(id)); toast('تم الحذف', 'success'); }
+  catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
 
-// ── Expense (behavioral block on envelope overspend) ──────────
-function updateExpenseHint() {
-  const env = state.envelopes.find(e => e.id === document.getElementById('expense-envelope').value);
-  const hint = document.getElementById('expense-envelope-hint');
-  if (env && hint) hint.textContent = `رصيد الظرف: ${finFmt(env.current_balance || 0)} ${FIN_CUR}`;
-  // Update بند dropdown
-  const itemGroup = document.getElementById('expense-item-group');
-  const itemSel   = document.getElementById('expense-item');
-  const items = Array.isArray(env?.items) ? env.items : [];
-  if (items.length && itemGroup && itemSel) {
-    itemSel.innerHTML = items.map(it =>
-      `<option value="${it.id}">${escapeHtml(it.name || '')}${it.amount ? ' — ' + finFmt(it.amount) + ' ' + FIN_CUR : ''}</option>`
-    ).join('');
-    itemGroup.style.display = '';
-  } else if (itemGroup) {
-    itemGroup.style.display = 'none';
-  }
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — categories
+// ════════════════════════════════════════════════════════════════
+function openCategoryModal(id) {
+  const c = (state.categories || []).find(x => x.id === id) || {};
+  finModal(id ? '✏️ تعديل بند' : '＋ بند مصروف',
+    finFieldText('cat-icon', 'أيقونة', c.icon || '🗂️', '🗂️', 'maxlength="2"') +
+    finFieldText('cat-name', 'اسم البند', c.name, 'مثلاً: إيجار / أكل / فواتير', 'required') +
+    finFieldNum('cat-target', 'الميزانية الشهرية', c.target || 0, 'min="0"'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const data = {
+        icon: document.getElementById('cat-icon').value.trim() || '🗂️',
+        name: document.getElementById('cat-name').value.trim(),
+        target: Number(document.getElementById('cat-target').value) || 0,
+      };
+      if (!data.name) { toast('اكتب اسم', 'error'); return; }
+      try {
+        if (id) await updateDoc(categoryDoc(id), data);
+        else await addDoc(categoriesRef(), { ...data, sortOrder: (state.categories || []).length, createdAt: serverTimestamp() });
+        toast('تم الحفظ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل الحفظ', 'error'); }
+    });
+}
+async function deleteCategory(id) {
+  const c = (state.categories || []).find(x => x.id === id);
+  if (!c || !confirm(`حذف بند "${c.name}"؟`)) return;
+  try { await deleteDoc(categoryDoc(id)); toast('تم الحذف', 'success'); }
+  catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — income / expense / transfer
+// ════════════════════════════════════════════════════════════════
+function openIncomeModal() {
+  if (finNeedAccount()) return;
+  finModal('＋ إضافة دخل',
+    finFieldNum('inc-amount', 'المبلغ', '', 'min="0" required') +
+    finFieldAccount('inc-account', 'الحساب المستلِم') +
+    `<div class="form-group"><label class="form-label">نوع الدخل</label><select id="inc-kind" class="form-input">
+      <option value="salary">💼 مرتب (منتظم)</option><option value="freelance">🧑‍💻 فري لانس (استخدمه للديون/الأهداف)</option></select></div>` +
+    finFieldText('inc-note', 'ملاحظة (اختياري)', '', 'مصدر الدخل'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('inc-amount').value) || 0;
+      const accountId = document.getElementById('inc-account').value;
+      if (!(amount > 0) || !accountId) { toast('حط مبلغ وحساب', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(accountId), { balance: increment(amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'income', amount, accountId, incomeKind: document.getElementById('inc-kind').value,
+          note: document.getElementById('inc-note').value.trim(), period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast('تم تسجيل الدخل', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
 }
 function openExpenseModal() {
-  if (!state.envelopes.length) { toast('أضف أظرف الأول من «إدارة»', 'error'); return; }
-  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
-  document.getElementById('expense-envelope').innerHTML = state.envelopes
-    .map(env => `<option value="${env.id}">${escapeHtml((env.icon || '') + ' ' + env.name)} — ${finFmt(env.current_balance || 0)}</option>`).join('');
-  document.getElementById('expense-bank').innerHTML = state.banks
-    .map(b => `<option value="${b.id}">${escapeHtml((b.icon || '') + ' ' + b.name)}</option>`).join('');
-  document.getElementById('expense-amount').value = '';
-  document.getElementById('expense-note').value = '';
-  updateExpenseHint();
-  finShow('expense-modal-overlay');
-  setTimeout(() => document.getElementById('expense-amount')?.focus(), 60);
+  if (finNeedAccount()) return;
+  const cats = (state.categories || []).map(c => `<option value="${c.id}">${escapeHtml(c.icon || '')} ${escapeHtml(c.name)}</option>`).join('');
+  finModal('－ تسجيل مصروف',
+    finFieldNum('exp-amount', 'المبلغ', '', 'min="0" required') +
+    finFieldAccount('exp-account', 'من حساب') +
+    `<div class="form-group"><label class="form-label">بند المصروف</label><select id="exp-category" class="form-input">${cats || '<option value="">— بدون بند —</option>'}</select></div>` +
+    finFieldText('exp-note', 'ملاحظة (اختياري)', '', 'على إيه؟'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('exp-amount').value) || 0;
+      const accountId = document.getElementById('exp-account').value;
+      const acc = (state.accounts || []).find(a => a.id === accountId);
+      if (!(amount > 0) || !acc) { toast('حط مبلغ وحساب', 'error'); return; }
+      if (amount > (Number(acc.balance) || 0) + 0.005) { toast(`🚫 رصيد "${acc.name}" مش كفاية (${finFmt(acc.balance)})`, 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(accountId), { balance: increment(-amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'expense', amount, accountId, categoryId: document.getElementById('exp-category').value || null,
+          note: document.getElementById('exp-note').value.trim(), period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast('تم تسجيل المصروف', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
 }
-async function deleteTx(txId) {
-  const tx = state.transactions.find(t => t.id === txId);
-  if (!tx) return;
-  const label = tx.type === 'income' ? 'دخل' : 'مصروف';
-  const confirmed = await confirmDialog({
-    title: `حذف ${label}`,
-    message: `هتحذف ${label} بقيمة ${finFmt(tx.amount)} ${FIN_CUR}. الحذف مش هيتراجع — هيتم عكس الأرصدة تلقائياً.`,
-    icon: '🗑️',
-    confirmText: 'نعم، احذف',
+function openTransferModal() {
+  if ((state.accounts || []).length < 2) { toast('محتاج حسابين على الأقل', 'error'); return; }
+  finModal('↔ تحويل بين الحسابات',
+    finFieldNum('tr-amount', 'المبلغ', '', 'min="0" required') +
+    finFieldAccount('tr-from', 'من حساب') +
+    `<div class="form-group"><label class="form-label">إلى حساب</label><select id="tr-to" class="form-input">${finAccountOptions()}</select></div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('tr-amount').value) || 0;
+      const from = document.getElementById('tr-from').value, to = document.getElementById('tr-to').value;
+      const accFrom = (state.accounts || []).find(a => a.id === from);
+      if (!(amount > 0) || from === to) { toast('راجع البيانات', 'error'); return; }
+      if (amount > (Number(accFrom?.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(from), { balance: increment(-amount) });
+        batch.update(accountDoc(to), { balance: increment(amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'transfer', amount, accountId: from, toAccountId: to, period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast('تم التحويل', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — debts
+// ════════════════════════════════════════════════════════════════
+function openDebtModal(id) {
+  const d = (state.debts || []).find(x => x.id === id) || {};
+  finModal(id ? '✏️ تعديل دين' : '＋ دين / التزام',
+    finFieldText('debt-creditor', 'الدائن / الجهة', d.creditor, 'مثلاً: قسط / سلفة', 'required') +
+    finFieldNum('debt-total', 'إجمالي الدين', d.total || 0, 'min="0"') +
+    finFieldNum('debt-remaining', 'المتبقّي', d.remaining ?? d.total ?? 0, 'min="0"') +
+    finFieldNum('debt-min', 'الحد الأدنى الشهري', d.monthlyMin || 0, 'min="0"') +
+    `<label class="fin-check"><input type="checkbox" id="debt-penalty" ${d.hasPenalty ? 'checked' : ''}> ⚠️ عليه فايدة/غرامة تأخير</label>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const data = {
+        creditor: document.getElementById('debt-creditor').value.trim(),
+        total: Number(document.getElementById('debt-total').value) || 0,
+        remaining: Number(document.getElementById('debt-remaining').value) || 0,
+        monthlyMin: Number(document.getElementById('debt-min').value) || 0,
+        hasPenalty: document.getElementById('debt-penalty').checked,
+      };
+      if (!data.creditor) { toast('اكتب اسم الدائن', 'error'); return; }
+      try {
+        if (id) await updateDoc(debtDoc(id), data);
+        else await addDoc(debtsRef(), { ...data, sortOrder: (state.debts || []).length, createdAt: serverTimestamp() });
+        toast('تم الحفظ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+function openPayDebtModal(id) {
+  const d = (state.debts || []).find(x => x.id === id);
+  if (!d) return;
+  if (finNeedAccount()) return;
+  const nonEmerg = (state.accounts || []).filter(a => !a.isEmergency);
+  const opts = (nonEmerg.length ? nonEmerg : state.accounts).map(a => `<option value="${a.id}">${escapeHtml(a.icon || '')} ${escapeHtml(a.name)} (${finFmt(a.balance)})</option>`).join('');
+  finModal(`دفعة على "${escapeHtml(d.creditor)}"`,
+    `<div class="fin-note">المتبقّي: ${finFmt(d.remaining)} ${FIN_CUR}</div>` +
+    finFieldNum('pay-amount', 'مبلغ الدفعة', Math.min(Number(d.remaining) || 0, Number(d.monthlyMin) || 0) || '', 'min="0" required') +
+    `<div class="form-group"><label class="form-label">من حساب</label><select id="pay-account" class="form-input">${opts}</select></div>
+     <div class="fin-note">💡 يُفضّل السداد من دخل الفري لانس — مش من صندوق الطوارئ.</div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('pay-amount').value) || 0;
+      const accountId = document.getElementById('pay-account').value;
+      const acc = (state.accounts || []).find(a => a.id === accountId);
+      if (!(amount > 0) || !acc) { toast('راجع البيانات', 'error'); return; }
+      if (amount > (Number(acc.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
+      if (acc.isEmergency && !confirm('بتدفع من صندوق الطوارئ — متأكد؟ ده مش مُفضّل.')) return;
+      try {
+        const newRem = Math.max(0, (Number(d.remaining) || 0) - amount);
+        const batch = writeBatch(db);
+        batch.update(accountDoc(accountId), { balance: increment(-amount) });
+        batch.update(debtDoc(id), { remaining: newRem });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'debtPayment', amount, accountId, debtId: id, period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast(newRem === 0 ? '🎉 اتقفل الدين!' : 'تم تسجيل الدفعة', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+async function deleteDebt(id) {
+  const d = (state.debts || []).find(x => x.id === id);
+  if (!d || !confirm(`حذف دين "${d.creditor}"؟`)) return;
+  try { await deleteDoc(debtDoc(id)); toast('تم الحذف', 'success'); }
+  catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — goals
+// ════════════════════════════════════════════════════════════════
+function openGoalModal(id) {
+  const g = (state.goals || []).find(x => x.id === id) || {};
+  const assetOpts = (state.assets || []).map(a => `<option value="${a.id}" ${a.id === g.linkedAssetId ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('');
+  finModal(id ? '✏️ تعديل هدف' : '＋ هدف جديد',
+    finFieldText('goal-icon', 'أيقونة', g.icon || '🎯', '🎯', 'maxlength="2"') +
+    finFieldText('goal-name', 'اسم الهدف', g.name, 'مثلاً: بيت / عربية', 'required') +
+    finFieldNum('goal-target', 'المبلغ المستهدف', g.targetAmount || 0, 'min="0"') +
+    finFieldNum('goal-saved', 'المُدّخر حالياً (للكاش)', g.savedAmount || 0, 'min="0"') +
+    `<div class="form-group"><label class="form-label">التاريخ المستهدف</label><input type="date" id="goal-deadline" class="form-input" value="${g.deadline || ''}"></div>
+     <div class="form-group"><label class="form-label">التمويل</label><select id="goal-funding" class="form-input">
+       <option value="cash" ${(g.fundingType || 'cash') === 'cash' ? 'selected' : ''}>💵 كاش (للأهداف القريبة)</option>
+       <option value="asset" ${g.fundingType === 'asset' ? 'selected' : ''}>📈 أصل استثماري (للأهداف البعيدة)</option></select></div>
+     <div class="form-group" id="goal-asset-wrap" style="display:${g.fundingType === 'asset' ? 'block' : 'none'}">
+       <label class="form-label">الأصل المربوط</label><select id="goal-asset" class="form-input">${assetOpts || '<option value="">— ضيف أصل الأول —</option>'}</select></div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const fundingType = document.getElementById('goal-funding').value;
+      const data = {
+        icon: document.getElementById('goal-icon').value.trim() || '🎯',
+        name: document.getElementById('goal-name').value.trim(),
+        targetAmount: Number(document.getElementById('goal-target').value) || 0,
+        savedAmount: Number(document.getElementById('goal-saved').value) || 0,
+        deadline: document.getElementById('goal-deadline').value || null,
+        fundingType,
+        linkedAssetId: fundingType === 'asset' ? (document.getElementById('goal-asset').value || null) : null,
+      };
+      if (!data.name) { toast('اكتب اسم الهدف', 'error'); return; }
+      try {
+        if (id) await updateDoc(goalDoc(id), data);
+        else await addDoc(goalsRef(), { ...data, priority: (state.goals || []).length, createdAt: serverTimestamp() });
+        toast('تم الحفظ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+  document.getElementById('goal-funding')?.addEventListener('change', (ev) => {
+    document.getElementById('goal-asset-wrap').style.display = ev.target.value === 'asset' ? 'block' : 'none';
   });
-  if (!confirmed) return;
-  try {
-    const batch = writeBatch(db);
-    if (tx.type === 'expense') {
-      batch.update(bankDoc(tx.bankId), { current_balance: increment(tx.amount) });
-      if (tx.envelopeId) {
-        const env = state.envelopes.find(e => e.id === tx.envelopeId);
-        const envRestore = { current_balance: increment(tx.amount) };
-        if (tx.itemId && env) {
-          const restoredItems = (Array.isArray(env.items) ? env.items : []).map(it =>
-            it.id === tx.itemId ? { ...it, amount: (Number(it.amount) || 0) + tx.amount } : it
-          );
-          envRestore.items = restoredItems;
+}
+function openContributeModal(id) {
+  const g = (state.goals || []).find(x => x.id === id);
+  if (!g) return;
+  if (finNeedAccount()) return;
+  finModal(`＋ ادخار لهدف "${escapeHtml(g.name)}"`,
+    `<div class="fin-note">المُدّخر: ${finFmt(g.savedAmount)} / ${finFmt(g.targetAmount)}</div>` +
+    finFieldNum('gc-amount', 'المبلغ', '', 'min="0" required') +
+    finFieldAccount('gc-account', 'من حساب'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('gc-amount').value) || 0;
+      const accountId = document.getElementById('gc-account').value;
+      const acc = (state.accounts || []).find(a => a.id === accountId);
+      if (!(amount > 0) || !acc) { toast('راجع البيانات', 'error'); return; }
+      if (amount > (Number(acc.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(accountId), { balance: increment(-amount) });
+        batch.update(goalDoc(id), { savedAmount: increment(amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'goalContribution', amount, accountId, goalId: id, period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast('تم الادخار', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+async function deleteGoal(id) {
+  const g = (state.goals || []).find(x => x.id === id);
+  if (!g || !confirm(`حذف هدف "${g.name}"؟`)) return;
+  try { await deleteDoc(goalDoc(id)); toast('تم الحذف', 'success'); }
+  catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — assets (investments)
+// ════════════════════════════════════════════════════════════════
+function openAssetModal(id) {
+  const a = (state.assets || []).find(x => x.id === id) || {};
+  finModal(id ? '✏️ تعديل استثمار' : '＋ استثمار حلال',
+    finFieldText('asset-name', 'الاسم', a.name, 'مثلاً: ذهب ثاندر', 'required') +
+    `<div class="form-group"><label class="form-label">النوع</label><select id="asset-type" class="form-input">
+      <option value="thndr_gold" ${a.type === 'thndr_gold' ? 'selected' : ''}>ذهب (ثاندر)</option>
+      <option value="thndr_fund" ${a.type === 'thndr_fund' ? 'selected' : ''}>صندوق إسلامي (ثاندر)</option>
+      <option value="gold" ${a.type === 'gold' ? 'selected' : ''}>ذهب آخر</option>
+      <option value="realestate" ${a.type === 'realestate' ? 'selected' : ''}>عقار</option>
+      <option value="other" ${a.type === 'other' ? 'selected' : ''}>أخرى</option></select></div>` +
+    finFieldText('asset-platform', 'المنصة (اختياري)', a.platform, 'Thndr') +
+    finFieldNum('asset-value', 'القيمة الحالية', a.currentValue || 0, 'min="0"'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const data = {
+        name: document.getElementById('asset-name').value.trim(),
+        type: document.getElementById('asset-type').value,
+        platform: document.getElementById('asset-platform').value.trim() || null,
+        currentValue: Number(document.getElementById('asset-value').value) || 0,
+        isHalal: true,
+      };
+      if (!data.name) { toast('اكتب اسم', 'error'); return; }
+      try {
+        if (id) await updateDoc(assetDoc(id), data);
+        else await addDoc(assetsRef(), { ...data, createdAt: serverTimestamp() });
+        toast('تم الحفظ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+async function deleteAsset(id) {
+  const a = (state.assets || []).find(x => x.id === id);
+  if (!a || !confirm(`حذف "${a.name}"؟`)) return;
+  try { await deleteDoc(assetDoc(id)); toast('تم الحذف', 'success'); }
+  catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ACTIONS — gold (grams + prices) — reuses the old API fetch logic
+// ════════════════════════════════════════════════════════════════
+function openGoldGramsModal(mode) {
+  const isAdd = mode !== 'sub';
+  finModal(isAdd ? '🥇 إضافة ذهب' : '🥇 سحب ذهب',
+    `<div class="form-group"><label class="form-label">العيار</label><select id="gg-karat" class="form-input">
+      <option value="24">عيار 24</option><option value="21">عيار 21</option><option value="18">عيار 18</option></select></div>` +
+    finFieldNum('gg-grams', 'عدد الجرامات', '', 'min="0" step="0.001" required') +
+    (isAdd ? finFieldText('gg-notes', 'ملاحظة (اختياري)', '', 'مثلاً: سبيكة مغلّفة') : ''),
+    `<button type="button" class="btn-ghost" data-fin-modal-close>إلغاء</button><button type="submit" class="btn-primary">${isAdd ? 'إضافة' : 'سحب'}</button>`,
+    async (e) => {
+      e.preventDefault();
+      const karat = Number(document.getElementById('gg-karat').value);
+      const grams = Number(document.getElementById('gg-grams').value) || 0;
+      if (!(grams > 0)) { toast('حط جرامات صحيحة', 'error'); return; }
+      try {
+        if (isAdd) {
+          await addDoc(goldAssetsRef(), { karat, grams_owned: grams, purchase_date: toLocalISODate(new Date()),
+            notes: document.getElementById('gg-notes')?.value.trim() || '', createdAt: serverTimestamp() });
+          toast('تمت الإضافة', 'success');
+        } else {
+          const assets = (state.goldAssets || []).filter(a => Number(a.karat) === karat)
+            .sort((a, b) => finTsMillis(a.createdAt) - finTsMillis(b.createdAt));
+          const total = assets.reduce((s, a) => s + (Number(a.grams_owned) || 0), 0);
+          if (grams > total + 0.0005) { toast(`🚫 معندكش غير ${finFmt(total)} جم عيار ${karat}`, 'error'); return; }
+          let remaining = grams; const batch = writeBatch(db);
+          for (const a of assets) {
+            if (remaining <= 0.0005) break;
+            const have = Number(a.grams_owned) || 0;
+            if (have <= remaining + 0.0005) { batch.delete(goldAssetDoc(a.id)); remaining -= have; }
+            else { batch.update(goldAssetDoc(a.id), { grams_owned: finRound2(have - remaining) }); remaining = 0; }
+          }
+          await batch.commit();
+          toast('تم السحب', 'success');
         }
-        batch.update(envelopeDoc(tx.envelopeId), envRestore);
-      }
-    } else if (tx.type === 'income') {
-      batch.update(bankDoc(tx.bankId), { current_balance: increment(-tx.amount) });
-      if (Array.isArray(tx.allocations)) {
-        tx.allocations.forEach(a => {
-          if (a.envelopeId) batch.update(envelopeDoc(a.envelopeId), { current_balance: increment(-a.amount) });
-        });
-      }
-    }
-    batch.delete(transactionDoc(txId));
-    await batch.commit();
-    toast('تم الحذف', 'success');
-  } catch (err) {
-    console.error('deleteTx', err);
-    toast('حصل خطأ أثناء الحذف', 'error');
-  }
+        finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
 }
-
-function openEditTxModal(txId) {
-  const tx = state.transactions.find(t => t.id === txId);
-  if (!tx) return;
-  document.getElementById('edit-tx-id').value   = txId;
-  document.getElementById('edit-tx-note').value = tx.note || '';
-  const envGroup = document.getElementById('edit-tx-envelope-group');
-  const envSel   = document.getElementById('edit-tx-envelope');
-  if (tx.type === 'expense') {
-    envGroup.style.display = '';
-    envSel.innerHTML = state.envelopes.map(e =>
-      `<option value="${e.id}"${e.id === tx.envelopeId ? ' selected' : ''}>${escapeHtml((e.icon||'') + ' ' + e.name)}</option>`
-    ).join('');
-  } else {
-    envGroup.style.display = 'none';
-  }
-  document.getElementById('edit-tx-modal-overlay').classList.remove('hidden');
-  setTimeout(() => document.getElementById('edit-tx-note').focus(), 60);
-}
-
-async function submitEditTx(e) {
-  e.preventDefault();
-  const txId = document.getElementById('edit-tx-id').value;
-  const tx   = state.transactions.find(t => t.id === txId);
-  if (!tx || !txId) return;
-  const note      = document.getElementById('edit-tx-note').value.trim();
-  const envelopeId = tx.type === 'expense' ? document.getElementById('edit-tx-envelope').value : tx.envelopeId;
-  const btn = document.getElementById('submit-edit-tx-btn');
-  btn.disabled = true;
-  try {
-    const updates = { note };
-    if (tx.type === 'expense' && envelopeId !== tx.envelopeId) {
-      // move expense between envelopes: reverse old, apply new
-      const batch = writeBatch(db);
-      if (tx.envelopeId) batch.update(envelopeDoc(tx.envelopeId), { current_balance: increment(tx.amount) });
-      batch.update(envelopeDoc(envelopeId), { current_balance: increment(-tx.amount) });
-      batch.update(transactionDoc(txId), { note, envelopeId });
-      await batch.commit();
-    } else {
-      await updateDoc(transactionDoc(txId), updates);
-    }
-    document.getElementById('edit-tx-modal-overlay').classList.add('hidden');
-    toast('تم التعديل', 'success');
-  } catch (err) {
-    console.error('submitEditTx', err);
-    toast('حصل خطأ', 'error');
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function openEnvItemModal(itemId) {
-  const editId = document.getElementById('env-item-edit-id');
-  const nameInp = document.getElementById('env-item-name-inp');
-  const amtInp  = document.getElementById('env-item-amount-inp');
-  const title   = document.querySelector('#env-item-modal-overlay h2');
-  const submitBtn = document.getElementById('submit-env-item-btn');
-  if (itemId) {
-    const item = (state.envelope?.items || []).find(i => i.id === itemId);
-    editId.value    = itemId;
-    nameInp.value   = item?.name   || '';
-    amtInp.value    = item?.amount || '';
-    if (title)     title.textContent  = '✏️ تعديل بند';
-    if (submitBtn) submitBtn.textContent = 'حفظ التعديل';
-  } else {
-    editId.value = '';
-    nameInp.value = '';
-    amtInp.value  = '';
-    if (title)     title.textContent  = '＋ إضافة بند';
-    if (submitBtn) submitBtn.textContent = 'حفظ البند';
-  }
-  document.getElementById('env-item-modal-overlay').classList.remove('hidden');
-  setTimeout(() => nameInp.focus(), 60);
-}
-
-async function submitExpense(e) {
-  e.preventDefault();
-  const amount = Number(document.getElementById('expense-amount').value);
-  const envelopeId = document.getElementById('expense-envelope').value;
-  const bankId = document.getElementById('expense-bank').value;
-  const note = document.getElementById('expense-note').value.trim();
-  const itemId = document.getElementById('expense-item')?.value || '';
-  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
-  const env = state.envelopes.find(e => e.id === envelopeId);
-  if (!env) { toast('اختار ظرف', 'error'); return; }
-  const envItems = Array.isArray(env.items) ? env.items : [];
-  if (envItems.length && !itemId) { toast('اختار البند المناسب', 'error'); return; }
-  // ⛔ Behavioral block — overspending a single envelope is forbidden outright
-  if (amount > (Number(env.current_balance) || 0) + 0.005) {
-    toast(`🚫 الصرف اتمنع — رصيد ظرف «${env.name}» مايكفيش`, 'error');
-    return;
-  }
-  const bank = state.banks.find(b => b.id === bankId);
-  if (bank && amount > (Number(bank.current_balance) || 0) + 0.005) {
-    toast(`⚠️ تنبيه: رصيد بنك «${bank.name}» أقل من المبلغ`, 'info');
-  }
-  const btn = document.getElementById('submit-expense-btn');
-  btn.disabled = true;
-  try {
-    const batch = writeBatch(db);
-    const envUpdate = { current_balance: increment(-amount) };
-    if (itemId) {
-      const updatedItems = envItems.map(it =>
-        it.id === itemId ? { ...it, amount: Math.max(0, (Number(it.amount) || 0) - amount) } : it
-      );
-      envUpdate.items = updatedItems;
-    }
-    batch.update(envelopeDoc(envelopeId), envUpdate);
-    batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
-    const txRef = doc(transactionsRef());
-    const txData = { type: 'expense', amount, bankId, envelopeId, note, period: finThisPeriod(), createdAt: serverTimestamp() };
-    if (itemId) txData.itemId = itemId;
-    batch.set(txRef, txData);
-    await batch.commit();
-    toast('تم تسجيل المصروف', 'success');
-    finHide('expense-modal-overlay');
-  } catch (err) {
-    console.error(err);
-    toast('فشل تسجيل المصروف', 'error');
-  }
-  btn.disabled = false;
-}
-
-// ── Allocation rules editor ───────────────────────────────────
-let finRulesTab = 'salary';
-function openRulesModal(type) {
-  if (!state.envelopes.length) { toast('أضف أظرف الأول من «إدارة»', 'error'); return; }
-  finRulesTab = (type === 'freelance') ? 'freelance' : 'salary';
-  document.querySelectorAll('.fin-rules-tab').forEach(t => t.classList.toggle('active', t.dataset.rule === finRulesTab));
-  renderRulesRows();
-  // Populate the "unallocated funds catcher" (صائد الكسور) selector
-  const catcherSel = document.getElementById('rules-catcher-env');
-  if (catcherSel) {
-    catcherSel.innerHTML = `<option value="">— بدون (يروح لآخر ظرف) —</option>` +
-      state.envelopes.map(e => `<option value="${e.id}">${escapeHtml((e.icon || '✉️') + ' ' + e.name)}</option>`).join('');
-    catcherSel.value = state.finSettings?.unallocatedEnvelopeId || '';
-  }
-  finShow('rules-modal-overlay');
-}
-function renderRulesRows() {
-  const rule = state.allocRules[finRulesTab] || [];
-  document.getElementById('rules-rows').innerHTML = state.envelopes.map(env => {
-    const r = rule.find(x => x.envelopeId === env.id);
-    return `<div class="fin-alloc-row">
-      <span class="fin-alloc-label">${escapeHtml(env.icon || '✉️')} ${escapeHtml(env.name)}</span>
-      <input type="number" class="form-input fin-rule-input" data-env="${env.id}" min="0" max="100" step="1" inputmode="numeric" value="${r ? Number(r.percent) : ''}" placeholder="0">
-      <span class="fin-alloc-suffix">%</span>
-    </div>`;
-  }).join('');
-  updateRulesSum();
-}
-function updateRulesSum() {
-  let sum = 0;
-  document.querySelectorAll('#rules-rows .fin-rule-input').forEach(i => sum += Number(i.value) || 0);
-  const el = document.getElementById('rules-sum');
-  el.textContent = sum + '%';
-  el.className = sum === 100 ? 'ok' : 'bad';
-}
-async function saveRules() {
-  const inputs = [...document.querySelectorAll('#rules-rows .fin-rule-input')];
-  const allocations = inputs
-    .map(i => ({ envelopeId: i.dataset.env, percent: Number(i.value) || 0 }))
-    .filter(a => a.percent > 0);
-  const sum = allocations.reduce((s, a) => s + a.percent, 0);
-  if (sum !== 100) { toast('مجموع النسب لازم يساوي 100%', 'error'); return; }
-  const btn = document.getElementById('save-rules-btn');
-  btn.disabled = true;
-  try {
-    await setDoc(allocRuleDoc(finRulesTab), { allocations, updatedAt: serverTimestamp() });
-    // Persist the unallocated-funds catcher choice (صائد الكسور)
-    const catcherId = document.getElementById('rules-catcher-env')?.value || null;
-    await setDoc(finSettingsDoc(), { unallocatedEnvelopeId: catcherId }, { merge: true });
-    toast('تم حفظ القاعدة ✅', 'success');
-    finHide('rules-modal-overlay');
-  } catch (err) {
-    console.error(err);
-    toast('فشل حفظ القاعدة', 'error');
-  }
-  btn.disabled = false;
-}
-
-// ── Manage banks & envelopes (CRUD) ───────────────────────────
-let finManageTab = 'banks';
-let finManageEditId = null;
-function openManageModal(kind) {
-  finManageTab = (kind === 'envelopes') ? 'envelopes' : 'banks';
-  document.querySelectorAll('.fin-manage-tab').forEach(t => t.classList.toggle('active', t.dataset.kind === finManageTab));
-  resetManageForm();
-  renderManageList();
-  finShow('manage-modal-overlay');
-}
-function renderManageColors(selected) {
-  const wrap = document.getElementById('manage-colors');
-  if (!wrap) return;
-  const sel = selected || COLORS[0];
-  document.getElementById('manage-color').value = sel;
-  wrap.innerHTML = COLORS.map(c =>
-    `<button type="button" class="fin-swatch${c === sel ? ' active' : ''}" data-color="${c}" style="background:${c}" title="${c}" aria-label="لون"></button>`
-  ).join('');
-}
-function resetManageForm() {
-  finManageEditId = null;
-  document.getElementById('manage-edit-id').value = '';
-  document.getElementById('manage-icon').value = '';
-  document.getElementById('manage-name').value = '';
-  document.getElementById('manage-desc').value = '';
-  document.getElementById('manage-submit-btn').textContent = 'إضافة';
-  renderManageColors(COLORS[Math.floor(Math.random() * COLORS.length)]);
-}
-function renderManageList() {
-  const items = finManageTab === 'banks' ? state.banks : state.envelopes;
-  const list = document.getElementById('manage-list');
-  if (!list) return;
-  if (!items.length) {
-    list.innerHTML = `<div class="fin-empty">مفيش ${finManageTab === 'banks' ? 'بنوك' : 'أظرف'} لسه</div>`;
-    return;
-  }
-  list.innerHTML = items.map(it => `<div class="fin-manage-item">
-    <span class="fin-mi-icon" style="background:${finHexA(finColorFor(it), .16)};border-color:${finHexA(finColorFor(it), .42)}">${escapeHtml(it.icon || (finManageTab === 'banks' ? '🏦' : '✉️'))}</span>
-    <span class="fin-mi-name">${escapeHtml(it.name)}</span>
-    <span class="fin-mi-bal">${finPriv(finFmt(it.current_balance || 0) + ' ' + FIN_CUR)}</span>
-    <button class="fin-mi-action edit" type="button" data-mi-edit="${it.id}" title="تعديل">✏️</button>
-    <button class="fin-mi-action del" type="button" data-mi-del="${it.id}" title="حذف">🗑️</button>
-  </div>`).join('');
-}
-async function submitManage(e) {
-  e.preventDefault();
-  const name = document.getElementById('manage-name').value.trim();
-  const icon = document.getElementById('manage-icon').value.trim();
-  const desc = document.getElementById('manage-desc').value.trim();
-  const color = document.getElementById('manage-color').value || COLORS[0];
-  if (!name) { toast('اكتب الاسم', 'error'); return; }
-  const btn = document.getElementById('manage-submit-btn');
-  btn.disabled = true;
-  try {
-    if (finManageEditId) {
-      const ref = finManageTab === 'banks' ? bankDoc(finManageEditId) : envelopeDoc(finManageEditId);
-      await updateDoc(ref, { name, icon, description: desc, color });
-      toast('تم التعديل', 'success');
-    } else {
-      const items = finManageTab === 'banks' ? state.banks : state.envelopes;
-      const maxOrder = items.reduce((m, i) => Math.max(m, i.sortOrder ?? 0), 0);
-      await addDoc(finManageTab === 'banks' ? banksRef() : envelopesRef(),
-        { name, icon, description: desc, color, current_balance: 0, sortOrder: maxOrder + 1, createdAt: serverTimestamp() });
-      toast('تمت الإضافة', 'success');
-    }
-    resetManageForm();
-  } catch (err) {
-    console.error(err);
-    toast('فشل الحفظ', 'error');
-  }
-  btn.disabled = false;
-}
-function editManageItem(id) {
-  const items = finManageTab === 'banks' ? state.banks : state.envelopes;
-  const it = items.find(x => x.id === id);
-  if (!it) return;
-  finManageEditId = id;
-  document.getElementById('manage-edit-id').value = id;
-  document.getElementById('manage-icon').value = it.icon || '';
-  document.getElementById('manage-name').value = it.name || '';
-  document.getElementById('manage-desc').value = it.description || '';
-  renderManageColors(finColorFor(it));
-  document.getElementById('manage-submit-btn').textContent = 'حفظ التعديل';
-  document.getElementById('manage-name').focus();
-}
-async function deleteManageItem(id) {
-  const items = finManageTab === 'banks' ? state.banks : state.envelopes;
-  const it = items.find(x => x.id === id);
-  if (!it) return;
-  const bal = Number(it.current_balance) || 0;
-  const ok = await confirmDialog({
-    title: `حذف ${finManageTab === 'banks' ? 'البنك' : 'الظرف'}`,
-    message: `متأكد تحذف «${it.name}»؟${bal ? ` رصيده الحالي ${finFmt(bal)} ${FIN_CUR}.` : ''}`,
-    confirmText: 'نعم، احذف',
-  });
-  if (!ok) return;
-  try {
-    await deleteDoc(finManageTab === 'banks' ? bankDoc(id) : envelopeDoc(id));
-    toast('تم الحذف', 'success');
-    if (finManageEditId === id) resetManageForm();
-  } catch (err) {
-    console.error(err);
-    toast('فشل الحذف', 'error');
-  }
-}
-
-// ── Gold prices (free API + manual fallback) ──────────────────
 function openGoldPricesModal() {
-  const p = state.goldPrices;
-  document.getElementById('gold-price-24').value = p?.p24 ?? '';
-  document.getElementById('gold-price-21').value = p?.p21 ?? '';
-  document.getElementById('gold-price-18').value = p?.p18 ?? '';
-  const note = document.getElementById('gold-prices-source-note');
-  note.textContent = p?.updatedAt
-    ? `آخر تحديث: ${formatDate(p.updatedAt)} (${p.source === 'api' ? 'تلقائي' : 'يدوي'})`
-    : 'مفيش أسعار محفوظة — اضغط «جلب تلقائي» أو اكتبها يدوياً.';
-  finShow('gold-prices-modal-overlay');
-}
-async function saveGoldPrices(e) {
-  e.preventDefault();
-  const p24 = Number(document.getElementById('gold-price-24').value) || 0;
-  const p21 = Number(document.getElementById('gold-price-21').value) || 0;
-  const p18 = Number(document.getElementById('gold-price-18').value) || 0;
-  if (!(p24 || p21 || p18)) { toast('اكتب سعر واحد على الأقل', 'error'); return; }
-  try {
-    await setDoc(goldPricesDoc(), { p24, p21, p18, source: 'manual', updatedAt: serverTimestamp() });
-    toast('تم حفظ الأسعار', 'success');
-    finHide('gold-prices-modal-overlay');
-  } catch (err) {
-    console.error(err);
-    toast('فشل الحفظ', 'error');
-  }
+  const p = state.goldPrices || {};
+  finModal('🥇 أسعار الجرام',
+    `<p class="form-hint">سعر الدولار المستخدم في الجلب التلقائي: <input type="number" id="gp-usd" class="form-input fin-inline-input" value="${Number(localStorage.getItem('fin-usd-egp')) || state.finSettings?.usdEgp || 50}" style="width:90px"> جنيه</p>` +
+    finFieldNum('gold-price-24', 'عيار 24 (جنيه/جرام)', p.p24 || '') +
+    finFieldNum('gold-price-21', 'عيار 21 (جنيه/جرام)', p.p21 || '') +
+    finFieldNum('gold-price-18', 'عيار 18 (جنيه/جرام)', p.p18 || ''),
+    `<button type="button" class="btn-ghost" id="fin-gold-refresh-btn">🔄 جلب تلقائي</button><button type="submit" class="btn-primary">💾 حفظ</button>`,
+    async (e) => {
+      e.preventDefault();
+      const p24 = Number(document.getElementById('gold-price-24').value) || 0;
+      const p21 = Number(document.getElementById('gold-price-21').value) || 0;
+      const p18 = Number(document.getElementById('gold-price-18').value) || 0;
+      const usd = Number(document.getElementById('gp-usd').value) || 0;
+      if (usd) localStorage.setItem('fin-usd-egp', String(usd));
+      if (!(p24 || p21 || p18)) { toast('اكتب سعر واحد على الأقل', 'error'); return; }
+      try {
+        await setDoc(goldPricesDoc(), { p24, p21, p18, source: 'manual', updatedAt: serverTimestamp() });
+        toast('تم حفظ الأسعار', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل الحفظ', 'error'); }
+    });
+  document.getElementById('fin-gold-refresh-btn')?.addEventListener('click', fetchGoldPricesAuto);
 }
 async function fetchGoldPricesAuto() {
   const btn = document.getElementById('fin-gold-refresh-btn');
-  const orig = btn.textContent;
-  btn.textContent = '...'; btn.disabled = true;
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
   try {
     let usdPerOz = Number(sessionStorage.getItem('fin-gold-xau')) || null;
     if (!usdPerOz) {
@@ -5352,515 +5035,145 @@ async function fetchGoldPricesAuto() {
       if (usdPerOz) sessionStorage.setItem('fin-gold-xau', String(usdPerOz));
     }
     if (!usdPerOz) throw new Error('noprice');
-    const usdEgp = Number(localStorage.getItem('fin-usd-egp')) || 50;
+    const usdEgp = Number(document.getElementById('gp-usd')?.value) || Number(localStorage.getItem('fin-usd-egp')) || 50;
     const gram24 = usdPerOz / 31.1034768 * usdEgp;
     document.getElementById('gold-price-24').value = gram24.toFixed(2);
     document.getElementById('gold-price-21').value = (gram24 * 21 / 24).toFixed(2);
     document.getElementById('gold-price-18').value = (gram24 * 18 / 24).toFixed(2);
-    toast('تم الجلب — راجع الأسعار وعدّل سعر الدولار لو محتاج ثم احفظ', 'info');
+    toast('تم الجلب — راجع الأسعار واحفظ', 'info');
   } catch (err) {
     console.error('gold fetch', err);
-    toast('تعذّر الجلب التلقائي — اكتب السعر يدوياً', 'error');
+    toast('تعذّر الجلب — اكتب السعر يدوياً', 'error');
   }
-  btn.textContent = orig; btn.disabled = false;
-}
-
-// ── Gold grams add / withdraw ─────────────────────────────────
-let finGoldMode = 'add';
-function openGoldGramsModal(mode) {
-  finGoldMode = (mode === 'sub') ? 'sub' : 'add';
-  document.getElementById('gold-grams-title').textContent = finGoldMode === 'add' ? '🥇 إضافة ذهب' : '🥇 سحب ذهب';
-  document.getElementById('submit-gold-grams-btn').textContent = finGoldMode === 'add' ? 'إضافة' : 'سحب';
-  document.getElementById('gold-grams').value = '';
-  document.getElementById('gold-notes').value = '';
-  document.getElementById('gold-karat-pills').querySelectorAll('.fin-type-pill')
-    .forEach(p => p.classList.toggle('active', p.dataset.karat === '24'));
-  document.getElementById('gold-karat').value = '24';
-  document.getElementById('gold-notes').closest('.form-group').style.display = finGoldMode === 'add' ? '' : 'none';
-  finShow('gold-grams-modal-overlay');
-}
-async function submitGoldGrams(e) {
-  e.preventDefault();
-  const karat = Number(document.getElementById('gold-karat').value);
-  const grams = Number(document.getElementById('gold-grams').value);
-  const notes = document.getElementById('gold-notes').value.trim();
-  if (!(grams > 0)) { toast('حط عدد جرامات صحيح', 'error'); return; }
-  const btn = document.getElementById('submit-gold-grams-btn');
-  btn.disabled = true;
-  try {
-    if (finGoldMode === 'add') {
-      await addDoc(goldAssetsRef(), { karat, grams_owned: grams, purchase_date: toLocalISODate(new Date()), notes, createdAt: serverTimestamp() });
-      toast('تمت إضافة الذهب', 'success');
-    } else {
-      const assets = state.goldAssets
-        .filter(a => Number(a.karat) === karat)
-        .sort((a, b) => finTsMillis(a.createdAt) - finTsMillis(b.createdAt));
-      const total = assets.reduce((s, a) => s + (Number(a.grams_owned) || 0), 0);
-      if (grams > total + 0.0005) {
-        toast(`🚫 معندكش غير ${finFmt(total)} جم من عيار ${karat}`, 'error');
-        btn.disabled = false; return;
-      }
-      let remaining = grams;
-      const batch = writeBatch(db);
-      for (const a of assets) {
-        if (remaining <= 0.0005) break;
-        const have = Number(a.grams_owned) || 0;
-        if (have <= remaining + 0.0005) { batch.delete(goldAssetDoc(a.id)); remaining -= have; }
-        else { batch.update(goldAssetDoc(a.id), { grams_owned: +(have - remaining).toFixed(3) }); remaining = 0; }
-      }
-      await batch.commit();
-      toast('تم سحب الذهب', 'success');
-    }
-    finHide('gold-grams-modal-overlay');
-  } catch (err) {
-    console.error(err);
-    toast('فشل العملية', 'error');
-  }
-  btn.disabled = false;
-}
-
-// ── Generic pill selector wiring ──────────────────────────────
-function bindFinPills(containerId, hiddenId, attr, onChange) {
-  const c = document.getElementById(containerId);
-  if (!c) return;
-  c.addEventListener('click', e => {
-    const pill = e.target.closest('.fin-type-pill');
-    if (!pill) return;
-    c.querySelectorAll('.fin-type-pill').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    const hid = document.getElementById(hiddenId);
-    if (hid) hid.value = pill.dataset[attr];
-    if (onChange) onChange();
-  });
+  if (btn) { btn.textContent = orig; btn.disabled = false; }
 }
 
 // ════════════════════════════════════════════════════════════════
-//  LIABILITIES (الالتزامات / الديون) — snowball debt tracking
+//  ACTIONS — zakat settings + payment
 // ════════════════════════════════════════════════════════════════
-function renderLiabilities() {
-  if (state.view !== 'finance-liabilities') return;
-  const grid    = document.getElementById('fin-liabilities-grid');
-  const totalEl = document.getElementById('fin-liabilities-total');
-  const hintEl  = document.getElementById('fin-snowball-hint');
-  if (!grid) return;
-
-  // Snowball: sort by remaining ascending — smallest active debt first.
-  const liabs = [...state.liabilities]
-    .sort((a, b) => (Number(a.remaining_amount) || 0) - (Number(b.remaining_amount) || 0));
-  const totalRemaining = liabs.reduce((s, l) => s + (Number(l.remaining_amount) || 0), 0);
-  if (totalEl) totalEl.innerHTML = liabs.length ? `المتبقّي: ${finPriv(finFmt(totalRemaining) + ' ' + FIN_CUR)}` : '';
-
-  const nextTarget = liabs.find(l => (Number(l.remaining_amount) || 0) > 0.005);
-  if (hintEl) hintEl.innerHTML = nextTarget
-    ? `❄️ طريقة كرة الثلج: ركّز على «${escapeHtml(nextTarget.name)}» — أصغر دين متبقّي، خلّصه الأول.`
-    : (liabs.length ? '🎉 مفيش ديون متبقّية — كله متسدّد!' : '');
-
-  if (!liabs.length) {
-    grid.innerHTML = `<div class="fin-empty">مفيش التزامات لسه — أضف أول دين أو قسط من «التزام جديد»</div>`;
-    return;
-  }
-
-  grid.innerHTML = liabs.map(l => {
-    const total     = Number(l.total_amount) || 0;
-    const remaining = Number(l.remaining_amount) || 0;
-    const paid      = Math.max(0, total - remaining);
-    const pct       = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
-    const cleared   = remaining <= 0.005;
-    const isNext    = nextTarget && l.id === nextTarget.id;
-    const env       = state.envelopes.find(e => e.id === l.envelopeId);
-    return `<div class="fin-card fin-liab-card${cleared ? ' is-cleared' : ''}${isNext ? ' is-next' : ''}" data-liab-id="${l.id}">
-      <div class="fin-liab-head">
-        ${finBadge(l.icon || '💳', finColorFor(l))}
-        <div class="fin-card-info">
-          <span class="fin-card-name">${escapeHtml(l.name || '')}${isNext ? '<span class="fin-liab-tag next">التالي ❄️</span>' : ''}${cleared ? '<span class="fin-liab-tag done">مسدَّد ✅</span>' : ''}</span>
-          <span class="fin-card-sub">${env ? escapeHtml((env.icon || '✉️') + ' ' + env.name) : '⚠️ ظرف محذوف'}</span>
-        </div>
-        <div class="fin-liab-actions">
-          <button class="fin-feed-act-btn fin-liab-edit" type="button" data-liab-id="${l.id}" title="تعديل">✏️</button>
-          <button class="fin-feed-act-btn del fin-liab-del" type="button" data-liab-id="${l.id}" title="حذف">🗑</button>
-        </div>
-      </div>
-      <div class="fin-liab-figs">
-        <span class="fin-liab-remaining privacy-sensitive ${remaining > 0 ? 'is-neg' : 'is-pos'}">${finFmt(remaining)}<span class="fin-cur"> ${FIN_CUR}</span></span>
-        <span class="fin-liab-of privacy-sensitive">من ${finFmt(total)}</span>
-      </div>
-      <div class="fin-card-prog"><div class="fin-card-prog-fill ${cleared ? 'ok' : 'accent'}" style="width:${pct}%"></div></div>
-      <div class="fin-liab-foot">
-        <span class="fin-liab-pct">${pct}% مسدَّد</span>
-        ${cleared ? '' : `<button class="fin-btn fin-btn-expense fin-liab-pay" type="button" data-liab-id="${l.id}">💳 سداد قسط</button>`}
-      </div>
-    </div>`;
-  }).join('');
-
-  grid.querySelectorAll('.fin-liab-pay').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openLiabilityPayModal(b.dataset.liabId); }));
-  grid.querySelectorAll('.fin-liab-edit').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openLiabilityModal(b.dataset.liabId); }));
-  grid.querySelectorAll('.fin-liab-del').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); deleteLiability(b.dataset.liabId); }));
-}
-
-function openLiabilityModal(id) {
-  if (!state.envelopes.length) { toast('أضف ظرف الأول عشان تربط بيه الالتزام', 'error'); return; }
-  const title   = document.getElementById('liability-modal-title');
-  const submit  = document.getElementById('submit-liability-btn');
-  const remGroup = document.getElementById('liability-remaining-group');
-  const envSel  = document.getElementById('liability-envelope');
-  envSel.innerHTML = state.envelopes.map(e => `<option value="${e.id}">${escapeHtml((e.icon || '✉️') + ' ' + e.name)}</option>`).join('');
-  const l = id ? state.liabilities.find(x => x.id === id) : null;
-  document.getElementById('liability-edit-id').value = l ? l.id : '';
-  document.getElementById('liability-icon').value    = l?.icon || '';
-  document.getElementById('liability-name').value    = l?.name || '';
-  document.getElementById('liability-total').value   = l ? (Number(l.total_amount) || 0) : '';
-  document.getElementById('liability-remaining').value = l ? (Number(l.remaining_amount) || 0) : '';
-  if (l) envSel.value = l.envelopeId || state.envelopes[0].id;
-  // Remaining is editable only when editing an existing liability
-  remGroup.style.display = l ? '' : 'none';
-  if (title)  title.textContent  = l ? '✏️ تعديل التزام' : '＋ التزام جديد';
-  if (submit) submit.textContent = l ? 'حفظ التعديل' : 'حفظ';
-  finShow('liability-modal-overlay');
-  setTimeout(() => document.getElementById('liability-name').focus(), 60);
-}
-
-async function submitLiability(e) {
-  e.preventDefault();
-  const id    = document.getElementById('liability-edit-id').value;
-  const name  = document.getElementById('liability-name').value.trim();
-  const icon  = document.getElementById('liability-icon').value.trim() || '💳';
-  const total = Number(document.getElementById('liability-total').value);
-  const envelopeId = document.getElementById('liability-envelope').value;
-  if (!name) { toast('اكتب اسم الالتزام', 'error'); return; }
-  if (!(total > 0)) { toast('حط إجمالي مبلغ صحيح', 'error'); return; }
-  if (!envelopeId) { toast('اختار الظرف المرتبط', 'error'); return; }
-  const btn = document.getElementById('submit-liability-btn');
-  btn.disabled = true;
-  try {
-    if (id) {
-      const remaining = Math.max(0, Number(document.getElementById('liability-remaining').value) || 0);
-      await updateDoc(liabilityDoc(id), { name, icon, total_amount: total, remaining_amount: remaining, envelopeId });
-      toast('تم تعديل الالتزام ✅', 'success');
-    } else {
-      await addDoc(liabilitiesRef(), {
-        name, icon, total_amount: total, remaining_amount: total, envelopeId,
-        color: finColorFor({ name }), sortOrder: state.liabilities.length, createdAt: serverTimestamp(),
-      });
-      toast('تم إضافة الالتزام ✅', 'success');
-    }
-    finHide('liability-modal-overlay');
-  } catch (err) {
-    console.error('submitLiability', err);
-    toast('فشل حفظ الالتزام', 'error');
-  }
-  btn.disabled = false;
-}
-
-async function deleteLiability(id) {
-  const l = state.liabilities.find(x => x.id === id);
-  if (!l) return;
-  const confirmed = await confirmDialog({
-    title: 'حذف التزام',
-    message: `هتحذف «${l.name}». ده مش هيرجّع أي أرصدة — بس بيشيل الالتزام من القائمة.`,
-    icon: '🗑️', confirmText: 'نعم، احذف',
-  });
-  if (!confirmed) return;
-  try {
-    await deleteDoc(liabilityDoc(id));
-    toast('تم حذف الالتزام', 'success');
-  } catch (err) {
-    console.error('deleteLiability', err);
-    toast('فشل الحذف', 'error');
-  }
-}
-
-function openLiabilityPayModal(id) {
-  const l = state.liabilities.find(x => x.id === id);
-  if (!l) return;
-  if (!state.banks.length) { toast('أضف بنك الأول من «إدارة»', 'error'); return; }
-  const env = state.envelopes.find(e => e.id === l.envelopeId);
-  const remaining = Number(l.remaining_amount) || 0;
-  document.getElementById('liability-pay-id').value = id;
-  document.getElementById('liability-pay-info').innerHTML =
-    `«${escapeHtml(l.name)}» — المتبقّي <strong class="privacy-sensitive">${finFmt(remaining)} ${FIN_CUR}</strong>`
-    + `<br>هيتخصم من ظرف ${env ? escapeHtml((env.icon || '✉️') + ' ' + env.name) : '—'} (المتاح: <span class="privacy-sensitive">${finFmt(Number(env?.current_balance) || 0)}</span>)`;
-  document.getElementById('liability-pay-amount').value = '';
-  document.getElementById('liability-pay-note').value = '';
-  document.getElementById('liability-pay-bank').innerHTML = state.banks
-    .map(b => `<option value="${b.id}">${escapeHtml((b.icon || '🏦') + ' ' + b.name)}</option>`).join('');
-  finShow('liability-pay-modal-overlay');
-  setTimeout(() => document.getElementById('liability-pay-amount').focus(), 60);
-}
-
-async function submitLiabilityPay(e) {
-  e.preventDefault();
-  const id     = document.getElementById('liability-pay-id').value;
-  const amount = Number(document.getElementById('liability-pay-amount').value);
-  const bankId = document.getElementById('liability-pay-bank').value;
-  const note   = document.getElementById('liability-pay-note').value.trim();
-  const l = state.liabilities.find(x => x.id === id);
-  if (!l) return;
-  if (!(amount > 0)) { toast('حط مبلغ صحيح', 'error'); return; }
-  const remaining = Number(l.remaining_amount) || 0;
-  if (amount > remaining + 0.005) { toast(`المبلغ أكبر من المتبقّي (${finFmt(remaining)})`, 'error'); return; }
-  const env = state.envelopes.find(x => x.id === l.envelopeId);
-  if (!env) { toast('الظرف المرتبط اتحذف — عدّل الالتزام الأول', 'error'); return; }
-  // ⛔ Behavioral block — can't pay more than the linked envelope holds
-  if (amount > (Number(env.current_balance) || 0) + 0.005) {
-    toast(`🚫 رصيد ظرف «${env.name}» مايكفيش للسداد`, 'error');
-    return;
-  }
-  const btn = document.getElementById('submit-liability-pay-btn');
-  btn.disabled = true;
-  try {
-    const batch = writeBatch(db);
-    batch.update(envelopeDoc(env.id), { current_balance: increment(-amount) });
-    batch.update(bankDoc(bankId), { current_balance: increment(-amount) });
-    batch.update(liabilityDoc(id), { remaining_amount: Math.max(0, +(remaining - amount).toFixed(2)) });
-    const txRef = doc(transactionsRef());
-    batch.set(txRef, {
-      type: 'expense', amount, bankId, envelopeId: env.id, liabilityId: id,
-      note: note || `سداد قسط: ${l.name}`, period: finThisPeriod(), createdAt: serverTimestamp(),
+function openZakatSettingsModal() {
+  const s = state.finSettings || {};
+  finModal('⚙️ إعدادات الزكاة',
+    finFieldNum('zk-nisab', 'النِّصاب (جرامات ذهب)', s.nisabGrams || 85, 'min="0"') +
+    `<div class="form-group"><label class="form-label">تاريخ حَوَلان الحَوْل (متى تُخرج الزكاة)</label>
+      <input type="date" id="zk-due" class="form-input" value="${s.zakatDueDate || ''}"></div>
+     <div class="fin-note">النِّصاب الشرعي للذهب = 85 جرام تقريباً. حدّد تاريخ مرور العام الهجري على مالك.</div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      try {
+        await setDoc(finSettingsDoc(), {
+          nisabGrams: Number(document.getElementById('zk-nisab').value) || 85,
+          zakatDueDate: document.getElementById('zk-due').value || null,
+        }, { merge: true });
+        toast('تم الحفظ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
     });
-    await batch.commit();
-    toast('تم تسجيل السداد 💳', 'success');
-    finHide('liability-pay-modal-overlay');
-  } catch (err) {
-    console.error('submitLiabilityPay', err);
-    toast('فشل تسجيل السداد', 'error');
-  }
-  btn.disabled = false;
+}
+function openPayZakatModal() {
+  if (finNeedAccount()) return;
+  const due = finZakatDue();
+  finModal('💸 إخراج الزكاة',
+    `<div class="fin-note">الزكاة المستحقّة: ${finFmt(due)} ${FIN_CUR}</div>` +
+    finFieldNum('zk-amount', 'المبلغ', due, 'min="0" required') +
+    finFieldAccount('zk-account', 'من حساب'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('zk-amount').value) || 0;
+      const accountId = document.getElementById('zk-account').value;
+      const acc = (state.accounts || []).find(a => a.id === accountId);
+      if (!(amount > 0) || !acc) { toast('راجع البيانات', 'error'); return; }
+      if (amount > (Number(acc.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(accountId), { balance: increment(-amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'zakat', amount, accountId, period: finThisPeriod(), createdAt: serverTimestamp() });
+        // roll the hawl forward by ~1 lunar year (354 days)
+        const next = new Date(); next.setDate(next.getDate() + 354);
+        batch.set(finSettingsDoc(), { zakatDueDate: toLocalISODate(next) }, { merge: true });
+        await batch.commit();
+        toast('تقبّل الله 🤲', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
 }
 
-// ── Event bindings (static elements exist from page load) ─────
+// ════════════════════════════════════════════════════════════════
+//  EVENT WIRING
+// ════════════════════════════════════════════════════════════════
+function finHandleAction(act) {
+  const [name, arg] = act.split(':');
+  switch (name) {
+    case 'income': return openIncomeModal();
+    case 'expense': return openExpenseModal();
+    case 'transfer': return openTransferModal();
+    case 'plan': return openPlanModal();
+    case 'privacy': return toggleFinPrivacy();
+    case 'add-account': return openAccountModal(null);
+    case 'edit-account': return openAccountModal(arg);
+    case 'del-account': return deleteAccount(arg);
+    case 'add-category': return openCategoryModal(null);
+    case 'edit-category': return openCategoryModal(arg);
+    case 'del-category': return deleteCategory(arg);
+    case 'add-debt': return openDebtModal(null);
+    case 'edit-debt': return openDebtModal(arg);
+    case 'del-debt': return deleteDebt(arg);
+    case 'pay-debt': return openPayDebtModal(arg);
+    case 'add-goal': return openGoalModal(null);
+    case 'edit-goal': return openGoalModal(arg);
+    case 'del-goal': return deleteGoal(arg);
+    case 'contribute': return openContributeModal(arg);
+    case 'add-asset': return openAssetModal(null);
+    case 'edit-asset': return openAssetModal(arg);
+    case 'del-asset': return deleteAsset(arg);
+    case 'gold-add': return openGoldGramsModal('add');
+    case 'gold-sub': return openGoldGramsModal('sub');
+    case 'gold-prices': return openGoldPricesModal();
+    case 'zakat-settings': return openZakatSettingsModal();
+    case 'pay-zakat': return openPayZakatModal();
+  }
+}
+function toggleFinPrivacy() {
+  document.querySelectorAll('#content').forEach(c => c.classList.toggle('fin-privacy-on'));
+}
+
 (function bindFinanceUI() {
-  // Toolbar
-  document.getElementById('btn-fin-income')?.addEventListener('click', openIncomeModal);
-  document.getElementById('btn-fin-expense')?.addEventListener('click', openExpenseModal);
-  document.getElementById('btn-env-expense')?.addEventListener('click', () => {
-    openExpenseModal();
-    // pre-select the current envelope
-    setTimeout(() => {
-      const sel = document.getElementById('expense-envelope');
-      if (sel && state.envelope) sel.value = state.envelope.id;
-      updateExpenseHint();
-    }, 80);
-  });
-  document.getElementById('btn-fin-manage')?.addEventListener('click', () => openManageModal('banks'));
-  document.getElementById('btn-fin-rules')?.addEventListener('click', () => openRulesModal('salary'));
-  document.getElementById('btn-fin-privacy')?.addEventListener('click', toggleFinPrivacy);
-  document.getElementById('fin-gold-prices-btn')?.addEventListener('click', openGoldPricesModal);
-  document.getElementById('view-finance-gold')?.addEventListener('click', e => {
-    if (e.target.closest('#fin-gold-add')) { openGoldGramsModal('add'); return; }
-    if (e.target.closest('#fin-gold-sub')) { openGoldGramsModal('sub'); return; }
-  });
-
-  // Forms
-  document.getElementById('income-form')?.addEventListener('submit', submitIncome);
-  document.getElementById('expense-form')?.addEventListener('submit', submitExpense);
-  document.getElementById('gold-prices-form')?.addEventListener('submit', saveGoldPrices);
-  document.getElementById('gold-grams-form')?.addEventListener('submit', submitGoldGrams);
-  document.getElementById('manage-form')?.addEventListener('submit', submitManage);
-  document.getElementById('submit-alloc-btn')?.addEventListener('click', submitManualAlloc);
-  document.getElementById('alloc-fill-catcher')?.addEventListener('click', fillAllocCatcher);
-  document.getElementById('save-rules-btn')?.addEventListener('click', saveRules);
-  document.getElementById('fin-gold-refresh-btn')?.addEventListener('click', fetchGoldPricesAuto);
-  document.getElementById('expense-envelope')?.addEventListener('change', updateExpenseHint);
-
-  // Pills
-  bindFinPills('income-type-pills', 'income-type', 'type', updateIncomeTypeHint);
-  bindFinPills('gold-karat-pills', 'gold-karat', 'karat');
-
-  // Close / cancel buttons → hide their overlay
-  const closeMap = {
-    'close-income-modal-btn': 'income-modal-overlay', 'cancel-income-modal-btn': 'income-modal-overlay',
-    'close-expense-modal-btn': 'expense-modal-overlay', 'cancel-expense-modal-btn': 'expense-modal-overlay',
-    'close-rules-modal-btn': 'rules-modal-overlay', 'cancel-rules-modal-btn': 'rules-modal-overlay',
-    'close-manage-modal-btn': 'manage-modal-overlay',
-    'close-gold-prices-modal-btn': 'gold-prices-modal-overlay',
-    'close-gold-grams-modal-btn': 'gold-grams-modal-overlay', 'cancel-gold-grams-modal-btn': 'gold-grams-modal-overlay',
-    'close-liability-modal-btn': 'liability-modal-overlay', 'cancel-liability-modal-btn': 'liability-modal-overlay',
-    'close-liability-pay-modal-btn': 'liability-pay-modal-overlay', 'cancel-liability-pay-modal-btn': 'liability-pay-modal-overlay',
-  };
-  Object.entries(closeMap).forEach(([btnId, ovId]) => {
-    document.getElementById(btnId)?.addEventListener('click', () => finHide(ovId));
-  });
-  // Backdrop click closes the liability overlays
-  ['liability-modal-overlay', 'liability-pay-modal-overlay'].forEach(ovId => {
-    document.getElementById(ovId)?.addEventListener('click', e => { if (e.target === e.currentTarget) finHide(ovId); });
-  });
-
-  // Backdrop click closes (NOT the forced allocation modal)
-  ['income-modal-overlay', 'expense-modal-overlay', 'rules-modal-overlay', 'manage-modal-overlay', 'gold-prices-modal-overlay', 'gold-grams-modal-overlay'].forEach(id => {
-    const ov = document.getElementById(id);
-    ov?.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hidden'); });
-  });
-
-  // Live sums
-  document.getElementById('alloc-rows')?.addEventListener('input', updateAllocRemaining);
-  document.getElementById('rules-rows')?.addEventListener('input', updateRulesSum);
-
-  // Rules tabs
-  document.getElementById('rules-modal-overlay')?.addEventListener('click', e => {
-    const tab = e.target.closest('.fin-rules-tab');
-    if (!tab) return;
-    finRulesTab = tab.dataset.rule;
-    document.querySelectorAll('.fin-rules-tab').forEach(t => t.classList.toggle('active', t === tab));
-    renderRulesRows();
-  });
-
-  // Manage tabs + list actions
-  document.getElementById('manage-modal-overlay')?.addEventListener('click', e => {
-    const tab = e.target.closest('.fin-manage-tab');
-    if (tab) {
-      finManageTab = tab.dataset.kind;
-      document.querySelectorAll('.fin-manage-tab').forEach(t => t.classList.toggle('active', t === tab));
-      resetManageForm();
-      renderManageList();
-      return;
-    }
-    const swatch = e.target.closest('.fin-swatch');
-    if (swatch) {
-      document.getElementById('manage-color').value = swatch.dataset.color;
-      document.querySelectorAll('#manage-colors .fin-swatch').forEach(s => s.classList.toggle('active', s === swatch));
-      return;
-    }
-    const edit = e.target.closest('[data-mi-edit]');
-    if (edit) { editManageItem(edit.dataset.miEdit); return; }
-    const del = e.target.closest('[data-mi-del]');
-    if (del) { deleteManageItem(del.dataset.miDel); return; }
-  });
-
-  // Delegated clicks inside the finance view (dynamic elements)
-  document.getElementById('view-finance')?.addEventListener('click', e => {
-    const allocRow = e.target.closest('[data-fin-alloc]');
-    if (allocRow) {
-      const tx = state.transactions.find(t => t.id === allocRow.dataset.finAlloc);
-      if (tx) openManualAlloc(tx.id, Number(tx.amount) || 0);
-      return;
-    }
-    const openLink = e.target.closest('[data-fin-open]');
-    if (openLink) {
-      if (openLink.dataset.finOpen === 'manage-envelopes') openManageModal('envelopes');
-      else if (openLink.dataset.finOpen === 'manage-banks') openManageModal('banks');
-      return;
-    }
-    if (e.target.closest('#fin-gold-add')) { openGoldGramsModal('add'); return; }
-    if (e.target.closest('#fin-gold-sub')) { openGoldGramsModal('sub'); return; }
-  });
-
-  // ── Back buttons ──
-  document.getElementById('btn-back-finance')?.addEventListener('click', () => navigateTo('dashboard'));
-  document.getElementById('btn-back-finance-banks')?.addEventListener('click', () => navigateTo(state.financeBackTo || 'finance'));
-  document.getElementById('btn-back-finance-bank')?.addEventListener('click',  () => navigateTo('finance-banks'));
-  document.getElementById('btn-back-finance-envelopes')?.addEventListener('click', () => navigateTo(state.financeBackTo || 'finance'));
-  document.getElementById('btn-back-finance-env')?.addEventListener('click',   () => navigateTo(state.financeEnvBackTo || 'finance-envelopes'));
-  document.getElementById('btn-back-finance-gold')?.addEventListener('click',  () => navigateTo(state.financeBackTo || 'finance'));
-  document.getElementById('btn-back-finance-summary')?.addEventListener('click', () => navigateTo('dashboard'));
-  document.getElementById('btn-back-finance-liabilities')?.addEventListener('click', () => navigateTo('finance'));
-  document.getElementById('btn-liability-add')?.addEventListener('click', () => openLiabilityModal());
-
-  // ── Manage modal: restore all tabs on close ──
-  const restoreManageTabs = () => {
-    document.querySelectorAll('.fin-manage-tab').forEach(t => { t.style.display = ''; });
-  };
-  document.getElementById('close-manage-modal-btn')?.addEventListener('click', restoreManageTabs, true);
-
-  // ── Banks page: add bank (show only banks tab) ──
-  document.getElementById('btn-banks-add')?.addEventListener('click', () => {
-    finManageTab = 'banks';
-    document.querySelectorAll('.fin-manage-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.kind === 'banks');
-      t.style.display = t.dataset.kind === 'envelopes' ? 'none' : '';
-    });
-    resetManageForm();
-    renderManageList();
-    finShow('manage-modal-overlay');
-  });
-
-  // ── Envelopes page: add envelope (show only envelopes tab) ──
-  document.getElementById('btn-envelopes-add')?.addEventListener('click', () => {
-    finManageTab = 'envelopes';
-    document.querySelectorAll('.fin-manage-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.kind === 'envelopes');
-      t.style.display = t.dataset.kind === 'banks' ? 'none' : '';
-    });
-    resetManageForm();
-    renderManageList();
-    finShow('manage-modal-overlay');
-  });
-  document.getElementById('btn-envelopes-rules')?.addEventListener('click', openRulesModal);
-
-  // ── Privacy toggles (all fin sub-view privacy btns) ──
-  document.querySelectorAll('.fin-priv-toggle').forEach(btn => btn.addEventListener('click', toggleFinPrivacy));
-
-  // ── Bank detail feed filter pills ──
-  document.getElementById('fin-bank-feed-filters')?.addEventListener('click', e => {
-    const pill = e.target.closest('.fin-filter-pill');
-    if (!pill) return;
-    state.finBankFilter.type = pill.dataset.filterType || 'all';
-    debounceRender(renderBankFeed);
-  });
-  document.getElementById('fin-bank-filter-from')?.addEventListener('change', e => {
-    state.finBankFilter.from = e.target.value ? new Date(e.target.value).getTime() : null;
-    debounceRender(renderBankFeed);
-  });
-  document.getElementById('fin-bank-filter-to')?.addEventListener('change', e => {
-    state.finBankFilter.to = e.target.value ? new Date(e.target.value).getTime() : null;
-    debounceRender(renderBankFeed);
-  });
-  document.getElementById('fin-bank-filter-clear')?.addEventListener('click', () => {
-    state.finBankFilter = { type: 'all', from: null, to: null };
-    const f = document.getElementById('fin-bank-filter-from');
-    const t = document.getElementById('fin-bank-filter-to');
-    if (f) f.value = '';
-    if (t) t.value = '';
-    debounceRender(renderBankFeed);
-  });
-
-  // ── Envelope detail: feed filter pills ──
-  document.getElementById('fin-env-filter-pills')?.addEventListener('click', e => {
-    const pill = e.target.closest('.fin-filter-pill');
-    if (!pill) return;
-    state.finEnvFilter.type = pill.dataset.filterType || 'all';
-    if (state.envelope) renderEnvFeed(state.envelope);
-  });
-
-  // ── Envelope detail: add item button → modal ──
-  document.getElementById('btn-add-env-item')?.addEventListener('click', () => openEnvItemModal(null));
-
-  // ── Add/Edit env item modal ──
-  const closeEnvItemModal = () => document.getElementById('env-item-modal-overlay').classList.add('hidden');
-  document.getElementById('close-env-item-modal-btn')?.addEventListener('click', closeEnvItemModal);
-  document.getElementById('cancel-env-item-modal-btn')?.addEventListener('click', closeEnvItemModal);
-  document.getElementById('env-item-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEnvItemModal(); });
-
-  document.getElementById('env-item-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!state.envelope) return;
-    const name   = document.getElementById('env-item-name-inp').value.trim();
-    const amount = Number(document.getElementById('env-item-amount-inp').value) || 0;
-    const editId = document.getElementById('env-item-edit-id').value;
-    if (!name) return;
-    const btn = document.getElementById('submit-env-item-btn');
-    btn.disabled = true;
-    try {
-      const existing = Array.isArray(state.envelope.items) ? [...state.envelope.items] : [];
-      if (editId) {
-        const idx = existing.findIndex(i => i.id === editId);
-        if (idx >= 0) existing[idx] = { ...existing[idx], name, amount };
-      } else {
-        existing.push({ id: Date.now().toString(36), name, amount });
+  const content = document.getElementById('content');
+  if (content) {
+    content.addEventListener('click', (e) => {
+      const nav = e.target.closest('[data-fin-nav]');
+      if (nav) { navigateTo(nav.dataset.finNav); return; }
+      const act = e.target.closest('[data-fin-act]');
+      if (act) { finHandleAction(act.dataset.finAct); return; }
+      const per = e.target.closest('[data-fin-period]');
+      if (per) {
+        state.finPeriod = finShiftPeriod(state.finPeriod || finThisPeriod(), per.dataset.finPeriod === 'next' ? 1 : -1);
+        renderFinHub(); return;
       }
-      await updateDoc(envelopeDoc(state.envelope.id), { items: existing });
-      closeEnvItemModal();
-      toast(editId ? 'تم تعديل البند' : 'تم إضافة البند', 'success');
-    } catch (err) { toast('فشلت العملية', 'error'); console.error(err); }
-    btn.disabled = false;
+    });
+  }
+  // Dynamic modal wiring
+  const ov = document.getElementById('fin-modal-overlay');
+  document.getElementById('fin-modal-close')?.addEventListener('click', finCloseModal);
+  ov?.addEventListener('click', (e) => {
+    if (e.target === ov) finCloseModal();
+    if (e.target.closest('[data-fin-modal-close]')) finCloseModal();
   });
-
-  // ── Edit transaction modal ──
-  const closeEditTxModal = () => document.getElementById('edit-tx-modal-overlay').classList.add('hidden');
-  document.getElementById('close-edit-tx-modal-btn')?.addEventListener('click', closeEditTxModal);
-  document.getElementById('cancel-edit-tx-modal-btn')?.addEventListener('click', closeEditTxModal);
-  document.getElementById('edit-tx-modal-overlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeEditTxModal(); });
-  document.getElementById('edit-tx-form')?.addEventListener('submit', submitEditTx);
-  document.getElementById('liability-form')?.addEventListener('submit', submitLiability);
-  document.getElementById('liability-pay-form')?.addEventListener('submit', submitLiabilityPay);
-
+  document.getElementById('fin-modal-form')?.addEventListener('submit', (e) => {
+    if (typeof finModalSubmit === 'function') finModalSubmit(e);
+    else e.preventDefault();
+  });
+  // live sums for plan sliders
+  document.getElementById('fin-modal-body')?.addEventListener('input', (e) => {
+    if (e.target.dataset.planKey) {
+      const num = document.querySelector(`[data-plan-num="${e.target.dataset.planKey}"]`);
+      if (num) num.value = e.target.value;
+      updatePlanSum();
+    } else if (e.target.dataset.planNum) {
+      const rng = document.querySelector(`[data-plan-key="${e.target.dataset.planNum}"]`);
+      if (rng) rng.value = e.target.value;
+      updatePlanSum();
+    }
+  });
 })();
