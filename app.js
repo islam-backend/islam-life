@@ -4641,7 +4641,7 @@ function openAccountModal(id) {
 async function deleteAccount(id) {
   const a = (state.accounts || []).find(x => x.id === id);
   if (!a) return;
-  if (!confirm(`حذف حساب "${a.name}"؟`)) return;
+  if (!await confirmDialog({ title: 'حذف حساب', message: `هتحذف حساب "${a.name}" — متأكد؟`, icon: '🗑️' })) return;
   try { await deleteDoc(accountDoc(id)); toast('تم الحذف', 'success'); }
   catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
@@ -4673,7 +4673,8 @@ function openCategoryModal(id) {
 }
 async function deleteCategory(id) {
   const c = (state.categories || []).find(x => x.id === id);
-  if (!c || !confirm(`حذف بند "${c.name}"؟`)) return;
+  if (!c) return;
+  if (!await confirmDialog({ title: 'حذف بند', message: `هتحذف بند "${c.name}" — متأكد؟`, icon: '🗑️' })) return;
   try { await deleteDoc(categoryDoc(id)); toast('تم الحذف', 'success'); }
   catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
@@ -4807,7 +4808,7 @@ function openPayDebtModal(id) {
       const acc = (state.accounts || []).find(a => a.id === accountId);
       if (!(amount > 0) || !acc) { toast('راجع البيانات', 'error'); return; }
       if (amount > (Number(acc.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
-      if (acc.isEmergency && !confirm('بتدفع من صندوق الطوارئ — متأكد؟ ده مش مُفضّل.')) return;
+      if (acc.isEmergency && !await confirmDialog({ title: 'دفع من الطوارئ', message: 'بتدفع من صندوق الطوارئ — ده مش مُفضّل. تكمّل؟', icon: '🛟', confirmText: 'أكمل الدفع' })) return;
       try {
         const newRem = Math.max(0, (Number(d.remaining) || 0) - amount);
         const batch = writeBatch(db);
@@ -4822,7 +4823,8 @@ function openPayDebtModal(id) {
 }
 async function deleteDebt(id) {
   const d = (state.debts || []).find(x => x.id === id);
-  if (!d || !confirm(`حذف دين "${d.creditor}"؟`)) return;
+  if (!d) return;
+  if (!await confirmDialog({ title: 'حذف دين', message: `هتحذف دين "${d.creditor}" — متأكد؟`, icon: '🗑️' })) return;
   try { await deleteDoc(debtDoc(id)); toast('تم الحذف', 'success'); }
   catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
@@ -4897,7 +4899,8 @@ function openContributeModal(id) {
 }
 async function deleteGoal(id) {
   const g = (state.goals || []).find(x => x.id === id);
-  if (!g || !confirm(`حذف هدف "${g.name}"؟`)) return;
+  if (!g) return;
+  if (!await confirmDialog({ title: 'حذف هدف', message: `هتحذف هدف "${g.name}" — متأكد؟`, icon: '🗑️' })) return;
   try { await deleteDoc(goalDoc(id)); toast('تم الحذف', 'success'); }
   catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
@@ -4937,7 +4940,8 @@ function openAssetModal(id) {
 }
 async function deleteAsset(id) {
   const a = (state.assets || []).find(x => x.id === id);
-  if (!a || !confirm(`حذف "${a.name}"؟`)) return;
+  if (!a) return;
+  if (!await confirmDialog({ title: 'حذف استثمار', message: `هتحذف "${a.name}" — متأكد؟`, icon: '🗑️' })) return;
   try { await deleteDoc(assetDoc(id)); toast('تم الحذف', 'success'); }
   catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
