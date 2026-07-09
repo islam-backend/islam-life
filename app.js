@@ -865,6 +865,11 @@ function navigateTo(view, payload = {}, fromPop = false) {
     document.getElementById('view-finance-zakat').classList.add('active');
     subscribeFinance();
 
+  } else if (view === 'finance-emergency') {
+    state.client = null; state.project = null;
+    document.getElementById('view-finance-emergency').classList.add('active');
+    subscribeFinance();
+
   } else if (view === 'calendar') {
     state.client  = null;
     state.project = null;
@@ -2836,7 +2841,7 @@ function updateHeader() {
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
 
-  } else if (['finance','finance-budget','finance-debts','finance-goals','finance-assets','finance-zakat'].includes(state.view)) {
+  } else if (['finance','finance-budget','finance-debts','finance-goals','finance-assets','finance-zakat','finance-emergency'].includes(state.view)) {
     titleEl.textContent = '💰 المركز المالي';
     statsEl.innerHTML   = '';
     actionsEl.innerHTML = '';
@@ -2866,7 +2871,8 @@ function updateBreadcrumb() {
     'finance-debts':  '💳 الديون والالتزامات',
     'finance-goals':  '🎯 الأهداف',
     'finance-assets': '🥇 الأصول والذهب',
-    'finance-zakat':  '🕌 الزكاة',
+    'finance-zakat':  '🕌 الزكاة والصدقة',
+    'finance-emergency': '🛟 صندوق الطوارئ',
   };
   if (finCrumbs[state.view]) {
     html += `<span class="breadcrumb-sep">›</span>
@@ -4133,6 +4139,7 @@ function renderFinHub() {
   else if (v === 'finance-debts')   renderFinanceDebts();
   else if (v === 'finance-goals')   renderFinanceGoals();
   else if (v === 'finance-assets')  renderFinanceAssets();
+  else if (v === 'finance-emergency') renderFinanceEmergency();
   else if (v === 'finance-zakat')   renderFinanceZakat();
 }
 function updateDashFinancePortal() {
@@ -4272,7 +4279,7 @@ function finHomeEmergencyCard() {
   const target = Number(state.finSettings?.targetMonths) || 3;
   const pct = (cov / target) * 100;
   const color = cov >= target ? '#3DB981' : cov >= 1 ? '#F0A835' : '#E05C5C';
-  return finHomeCard('finance-budget', '🛟', 'صندوق الطوارئ',
+  return finHomeCard('finance-emergency', '🛟', 'صندوق الطوارئ',
     finPriv(finFmt(finEmergencyBalance())) + ` <em>${FIN_CUR}</em>`,
     `تغطية ${cov.toFixed(1)} / ${target} شهور`, finBar(pct, color));
 }
@@ -4502,8 +4509,9 @@ function renderFinanceZakat() {
   const due = finZakatDue();
   const hawl = finHawlPassed();
   const above = nisab > 0 && total >= nisab;
+  const income = finIncome();
 
-  root.innerHTML = finToolbar('🕌 الزكاة', finBtn('zakat-settings', '⚙️ إعدادات', 'fin-btn-ghost'), 'finance') +
+  root.innerHTML = finToolbar('🕌 الزكاة والصدقة', finBtn('zakat-settings', '⚙️ إعدادات', 'fin-btn-ghost'), 'finance') +
     `<div class="fin-page">
       <div class="fin-section fin-total-hero"><span>الزكاة المستحقّة (2.5%)</span><strong>${finPriv(finFmt(due))} ${FIN_CUR}</strong></div>
       <div class="fin-section">
@@ -4515,9 +4523,119 @@ function renderFinanceZakat() {
       </div>
       ${above && hawl ? `<div class="fin-page-actions">${finBtn('pay-zakat', '💸 سجّل إخراج الزكاة', 'fin-btn-primary')}</div>` : ''}
       <div class="fin-note">💡 الزكاة 2.5% على (الذهب + النقد + الاستثمارات السائلة) بعد مرور عام هجري كامل فوق النِّصاب. العقار للسكن الشخصي لا زكاة عليه.</div>
+
+      <div class="fin-section"><div class="fin-section-head"><h3>🤲 الصدقة</h3>
+        <button class="fin-link" data-fin-act="sadaqah" type="button">＋ سجّل صدقة</button></div>
+        <div class="fin-kv"><span>صدقة الشهر الحالي</span><strong>${finPriv(finFmt(finSadaqahGiven(finThisPeriod())))} ${FIN_CUR}</strong></div>
+        <div class="fin-kv"><span>المقترح شهرياً (من خطتك)</span><strong>${income > 0 ? finFmt(finPlanAmount('sadaqah')) + ' ' + FIN_CUR : '—'}</strong></div>
+        <div class="fin-kv"><span>إجمالي صدقاتك</span><strong>${finPriv(finFmt(finSadaqahGiven(null)))} ${FIN_CUR}</strong></div>
+      </div>
+      <div class="fin-note">🤲 الصدقة تطوّع مستمر (غير الزكاة الواجبة). خطتك بتخصّص نسبة للصدقة والزكاة — سجّل صدقاتك هنا عشان تتابعها.</div>
     </div>`;
 }
 function finNisavGuard() { return finNisabValue(); }
+function finSadaqahGiven(period) {
+  return (state.transactions || [])
+    .filter(t => t.type === 'sadaqah' && (!period || finTxPeriod(t) === period))
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER — EMERGENCY FUND (its own page)
+// ════════════════════════════════════════════════════════════════
+function renderFinanceEmergency() {
+  const root = document.getElementById('fin-emergency-root');
+  if (!root) return;
+  const acc = finEmergencyAccount();
+  const bal = finEmergencyBalance();
+  const ess = finMonthlyEssential();
+  const target = Number(state.finSettings?.targetMonths) || 3;
+  const cov = finEmergencyCoverage();
+  const targetAmt = finEmergencyTarget();
+  const pct = targetAmt > 0 ? (bal / targetAmt) * 100 : 0;
+  const color = cov >= target ? '#3DB981' : cov >= 1 ? '#F0A835' : '#E05C5C';
+
+  const body = acc ? `
+    <div class="fin-section fin-total-hero"><span>رصيد الطوارئ</span><strong>${finPriv(finFmt(bal))} ${FIN_CUR}</strong></div>
+    <div class="fin-section">
+      <div class="fin-kv"><span>التغطية</span><strong>${cov.toFixed(1)} / ${target} شهور</strong></div>
+      ${finBar(pct, color)}
+      <div class="fin-kv"><span>الهدف (${target} شهور معيشة)</span><strong>${finFmt(targetAmt)} ${FIN_CUR}</strong></div>
+      <div class="fin-kv"><span>مصروف المعيشة الشهري</span><strong>${finFmt(ess)} ${FIN_CUR}</strong></div>
+      <div class="fin-kv"><span>الحساب المخصّص</span><strong>${escapeHtml(acc.icon || '🛟')} ${escapeHtml(acc.name)}</strong></div>
+    </div>
+    <div class="fin-page-actions">${finBtn('emergency-deposit', '＋ إيداع في الطوارئ', 'fin-btn-success')}${finBtn('emergency-target', '🎯 تعديل الهدف', 'fin-btn-ghost')}</div>`
+    : finEmpty('🛟', 'لسه مفيش حساب مخصّص لصندوق الطوارئ. اعمل حساب وعلّم عليه علامة «صندوق الطوارئ».',
+        finBtn('add-account', '＋ اعمل حساب طوارئ', 'fin-btn-primary') + finBtn('emergency-target', '🎯 حدّد الهدف', 'fin-btn-ghost'));
+
+  root.innerHTML = finToolbar('🛟 صندوق الطوارئ', '', 'finance') + `<div class="fin-page">${body}
+    <div class="fin-note">💡 صندوق الطوارئ = كاش سائل مقفول لحالات الطوارئ (مرض / فقدان دخل). الهدف 3–6 شهور معيشة. متصرفش منه على المصاريف العادية.</div>
+  </div>`;
+}
+function openEmergencyDepositModal() {
+  const acc = finEmergencyAccount();
+  if (!acc) { toast('اعمل حساب طوارئ الأول', 'error'); return openAccountModal(null); }
+  const sources = (state.accounts || []).filter(a => a.id !== acc.id);
+  if (!sources.length) { toast('محتاج حساب تاني تحوّل منه', 'error'); return; }
+  const opts = sources.map(a => `<option value="${a.id}">${escapeHtml(a.icon || '')} ${escapeHtml(a.name)} (${finFmt(a.balance)})</option>`).join('');
+  finModal('＋ إيداع في صندوق الطوارئ',
+    finFieldNum('em-amount', 'المبلغ', '', 'min="0" required') +
+    `<div class="form-group"><label class="form-label">من حساب</label><select id="em-from" class="form-input">${opts}</select></div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('em-amount').value) || 0;
+      const from = document.getElementById('em-from').value;
+      const accFrom = (state.accounts || []).find(a => a.id === from);
+      if (!(amount > 0) || !accFrom) { toast('راجع البيانات', 'error'); return; }
+      if (amount > (Number(accFrom.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(from), { balance: increment(-amount) });
+        batch.update(accountDoc(acc.id), { balance: increment(amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'transfer', amount, accountId: from, toAccountId: acc.id, period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast('تم الإيداع في الطوارئ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+function openEmergencyTargetModal() {
+  finModal('🎯 هدف صندوق الطوارئ',
+    finFieldNum('em-months', 'عدد شهور المعيشة المستهدفة', Number(state.finSettings?.targetMonths) || 3, 'min="1" max="12"') +
+    `<div class="fin-note">المُوصى به 3–6 شهور من مصاريف معيشتك.</div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const m = Math.max(1, Number(document.getElementById('em-months').value) || 3);
+      try { await setDoc(finSettingsDoc(), { targetMonths: m }, { merge: true }); toast('تم الحفظ', 'success'); finCloseModal(); }
+      catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+function openSadaqahModal() {
+  if (finNeedAccount()) return;
+  finModal('🤲 تسجيل صدقة',
+    finFieldNum('sd-amount', 'المبلغ', '', 'min="0" required') +
+    finFieldAccount('sd-account', 'من حساب') +
+    finFieldText('sd-note', 'ملاحظة (اختياري)', '', 'لمين / على إيه'),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('sd-amount').value) || 0;
+      const accountId = document.getElementById('sd-account').value;
+      const acc = (state.accounts || []).find(a => a.id === accountId);
+      if (!(amount > 0) || !acc) { toast('راجع البيانات', 'error'); return; }
+      if (amount > (Number(acc.balance) || 0) + 0.005) { toast('الرصيد مش كفاية', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        batch.update(accountDoc(accountId), { balance: increment(-amount) });
+        const txRef = doc(transactionsRef());
+        batch.set(txRef, { type: 'sadaqah', amount, accountId, note: document.getElementById('sd-note').value.trim(), period: finThisPeriod(), createdAt: serverTimestamp() });
+        await batch.commit();
+        toast('جزاك الله خيراً 🤲', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
 
 // ════════════════════════════════════════════════════════════════
 //  DYNAMIC MODAL
@@ -4552,7 +4670,8 @@ function finFieldAccount(id, label, selId) {
 }
 function finNeedAccount() {
   if ((state.accounts || []).length) return false;
-  toast('ضيف حساب الأول من الميزانية الشهرية', 'error');
+  toast('محتاج حساب/محفظة الأول — بيتفتحلك دلوقتي', 'info');
+  openAccountModal(null);
   return true;
 }
 
@@ -5120,6 +5239,9 @@ function finHandleAction(act) {
     case 'gold-prices': return openGoldPricesModal();
     case 'zakat-settings': return openZakatSettingsModal();
     case 'pay-zakat': return openPayZakatModal();
+    case 'sadaqah': return openSadaqahModal();
+    case 'emergency-deposit': return openEmergencyDepositModal();
+    case 'emergency-target': return openEmergencyTargetModal();
   }
 }
 function toggleFinPrivacy() {
