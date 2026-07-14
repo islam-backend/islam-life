@@ -26,6 +26,7 @@ import {
   serverTimestamp,
   query,
   orderBy,
+  limit,
   getDocs,
   getDoc,
   setDoc,
@@ -524,6 +525,7 @@ const state = {
     restored:         false, // guards restoreActiveFocusSessionOnLoad from re-running its Firestore read
     projectId:        null,  // project this session's time is logged against
     clientId:         null,
+    recentSessions:   [],    // last few completed sessions, for the visible log
   },
   // Calendar state (v9.2)
   calendarCursor:       null,     // Date pointing at the displayed month
@@ -859,6 +861,7 @@ function navigateTo(view, payload = {}, fromPop = false) {
     subscribeDashboard();
     renderFocusOrb();
     restoreActiveFocusSessionOnLoad();
+    subscribeFocusLog();
 
   } else if (view === 'clients') {
     state.client  = null;
@@ -1503,7 +1506,8 @@ function renderFocusOrb() {
           <button class="premium-ide-btn is-primary" type="button" data-preset="quick">⚡ 25/5</button>
           <button class="premium-ide-btn is-primary" type="button" data-preset="deep">🎯 50/10</button>
         </div>
-      </div>`;
+      </div>
+      <div class="focus-log" id="focus-log"></div>`;
 
     const select = document.getElementById('focus-project-select');
     const note   = document.getElementById('focus-orb-time-note');
@@ -1513,6 +1517,7 @@ function renderFocusOrb() {
     };
     select?.addEventListener('change', paintNote);
     paintNote();
+    renderFocusLog();
     return;
   }
 
@@ -1536,7 +1541,47 @@ function renderFocusOrb() {
     <div class="focus-orb-controls">
       <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️' : '⏸️'}</button>
       <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">■</button>
-    </div>`;
+    </div>
+    <div class="focus-log" id="focus-log"></div>`;
+  renderFocusLog();
+}
+
+// Last few completed sessions — always visible under the widget (idle or
+// running) so "did this get logged, and to which project" is answered
+// right here instead of needing to dig through the Kanban page.
+function renderFocusLog() {
+  const wrap = document.getElementById('focus-log');
+  if (!wrap) return;
+  const sessions = state.focus.recentSessions || [];
+  if (!sessions.length) {
+    wrap.innerHTML = `<div class="focus-log-empty">لسه مفيش جلسات مسجلة</div>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="focus-log-title">آخر الجلسات</div>
+    ${sessions.map(s => {
+      const project = s.projectId ? state.allProjects.find(p => p.id === s.projectId) : null;
+      const label = project ? project.name : 'بدون مشروع';
+      return `
+        <div class="focus-log-row">
+          <span class="focus-log-project" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+          <span class="focus-log-duration">${s.workMinutes} د</span>
+        </div>`;
+    }).join('')}`;
+}
+
+// One-time listener for the last 5 completed sessions — kept in state so
+// both the idle and running renders of the orb can show it without each
+// re-subscribing.
+let focusLogSubscribed = false;
+function subscribeFocusLog() {
+  if (focusLogSubscribed) return;
+  focusLogSubscribed = true;
+  const q = query(focusSessionsRef(), orderBy('completedAt', 'desc'), limit(5));
+  onSnapshot(q, snap => {
+    state.focus.recentSessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderFocusLog();
+  }, err => console.error('focus log listener:', err));
 }
 
 // One delegated listener handles both the idle picker's presets and the
