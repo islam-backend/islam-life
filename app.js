@@ -1329,8 +1329,8 @@ function focusStartTick() {
 
 // Cheap per-tick DOM update — no full re-render of the widget.
 function focusPaintRunning() {
-  const countdownEl = document.getElementById('focus-countdown');
-  const fillEl = document.getElementById('focus-progress-fill');
+  const countdownEl = document.getElementById('focus-banner-countdown');
+  const fillEl = document.getElementById('focus-banner-fill');
   if (!countdownEl) return;
   const remaining = Math.max(0, focusRemainingSec());
   countdownEl.textContent = focusFmtClock(remaining);
@@ -1445,6 +1445,9 @@ async function focusCompleteSession() {
   renderPomodoroWidget();
 }
 
+// Sidebar mini-card: matches the plain, button-less look of the prayer/
+// rings cards. Idle → two quiet text rows (tap to start). Running → a
+// single "already running, look up ↑" status line, no duplicate controls.
 function renderPomodoroWidget() {
   const body = document.getElementById('focus-body');
   const sub  = document.getElementById('focus-sub');
@@ -1456,37 +1459,68 @@ function renderPomodoroWidget() {
     if (sub) sub.textContent = '';
     body.innerHTML = `
       <div class="focus-preset-row">
-        <button class="premium-ide-btn is-primary" type="button" data-preset="quick">${FOCUS_PRESETS.quick.label}</button>
-        <button class="premium-ide-btn is-primary" type="button" data-preset="deep">${FOCUS_PRESETS.deep.label}</button>
+        <div class="focus-preset-row-item" data-preset="quick">
+          <span class="focus-preset-name">⚡ سريع</span>
+          <span class="focus-preset-time">25 / 5</span>
+        </div>
+        <div class="focus-preset-row-item" data-preset="deep">
+          <span class="focus-preset-name">🎯 عميق</span>
+          <span class="focus-preset-time">50 / 10</span>
+        </div>
       </div>`;
+  } else {
+    const cfg = FOCUS_PRESETS[f.preset];
+    if (sub) sub.textContent = f.phase === 'work' ? 'شغل' : 'استراحة';
+    body.innerHTML = `
+      <div class="focus-running-note">
+        ${f.phase === 'work' ? '🎯' : '☕'} ${cfg.label} شغالة — شوف الشريط فوق ⬆️
+      </div>`;
+  }
+
+  renderFocusBanner();
+}
+
+// Prominent full-width bar pinned above the hub tiles — this is the "I
+// actually see it running in front of me" surface the sidebar card is too
+// small and too easy to miss for.
+function renderFocusBanner() {
+  const banner = document.getElementById('focus-banner');
+  if (!banner) return;
+  const f = state.focus;
+
+  if (!f.active) {
+    banner.hidden = true;
+    banner.innerHTML = '';
     return;
   }
 
   const cfg = FOCUS_PRESETS[f.preset];
-  if (sub) sub.textContent = f.phase === 'work' ? 'شغل' : 'استراحة';
   const remaining = Math.max(0, focusRemainingSec());
   const pct = f.phaseDurationSec ? Math.min(100, Math.max(0, 100 - (remaining / f.phaseDurationSec) * 100)) : 0;
+  const isWork = f.phase === 'work';
 
-  body.innerHTML = `
-    <div class="focus-phase-label">${f.phase === 'work' ? '🎯 وقت التركيز' : '☕ وقت الراحة'} — ${cfg.label}</div>
-    <div class="focus-countdown" id="focus-countdown">${focusFmtClock(remaining)}</div>
-    <div class="progress-bar-wrap">
-      <div class="progress-bar-track"><div class="progress-bar-fill" id="focus-progress-fill" style="width:${pct}%; background:var(--accent);"></div></div>
+  banner.hidden = false;
+  banner.classList.toggle('is-break', !isWork);
+  banner.innerHTML = `
+    <div class="focus-banner-info">
+      <span class="focus-banner-phase">${isWork ? '🎯 وقت التركيز' : '☕ وقت الراحة'}</span>
+      <span class="focus-banner-preset">${cfg.label}</span>
     </div>
-    <div class="focus-controls-row">
+    <div class="focus-banner-countdown" id="focus-banner-countdown">${focusFmtClock(remaining)}</div>
+    <div class="focus-banner-controls">
       <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️ استكمال' : '⏸️ إيقاف مؤقت'}</button>
       <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">إعادة تعيين</button>
-    </div>`;
+    </div>
+    <div class="focus-banner-track"><div class="focus-banner-fill" id="focus-banner-fill" style="width:${pct}%"></div></div>`;
 }
 
-// One delegated listener handles both idle presets and running controls.
+// One delegated listener (on the document) handles the sidebar's start
+// rows and the banner's pause/resume/reset — both surfaces, one place.
 (function initFocusWidgetEvents() {
-  const body = document.getElementById('focus-body');
-  if (!body) return;
-  body.addEventListener('click', (e) => {
-    const presetBtn = e.target.closest('[data-preset]');
+  document.addEventListener('click', (e) => {
+    const presetBtn = e.target.closest('#focus-body [data-preset]');
     if (presetBtn) { startFocusSession(presetBtn.dataset.preset); return; }
-    const actionBtn = e.target.closest('[data-focus-action]');
+    const actionBtn = e.target.closest('#focus-banner [data-focus-action]');
     if (!actionBtn) return;
     const action = actionBtn.dataset.focusAction;
     if (action === 'pause') pauseFocusSession();
