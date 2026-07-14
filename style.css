@@ -6128,21 +6128,18 @@ svg {
 /* ════════════════════════════════════════════════════════════════
    FINANCE CENTER (المركز المالي) — v4.0
 ════════════════════════════════════════════════════════════════ */
-/* Scroll happens on the full-width root, so the scrollbar sits at the window
-   edge (not floating in the middle of the centered content). */
-.fin-root { height: 100%; display: flex; flex-direction: column; padding: 0 24px; overflow-y: auto; }
-/* Centered container so the finance content doesn't stretch edge-to-edge */
+/* Same container as the hub (#view-dashboard): full-width, padded, no centering. */
+.fin-root { height: 100%; display: flex; flex-direction: column; gap: 18px; padding: 16px 32px 48px; overflow-y: auto; }
 .fin-page {
-  padding: 18px 0 56px;
   display: flex; flex-direction: column; gap: 18px;
-  width: 100%; max-width: 1080px; margin: 0 auto;
+  width: 100%;
 }
 
 /* ── Toolbar (sticky on top of the scrolling content) ── */
 .fin-toolbar {
   display: flex; align-items: center; gap: 8px;
-  padding: 14px 0 12px; flex-wrap: wrap;
-  margin: 0 auto; width: 100%; max-width: 1080px;
+  padding: 0 0 12px; flex-wrap: wrap;
+  width: 100%;
   position: sticky; top: 0; z-index: 6;
   background: var(--bg-app);
   border-bottom: 1px solid var(--border-light);
@@ -6181,6 +6178,17 @@ svg {
 .fin-link:hover { color: var(--accent-hover); text-decoration: underline; }
 .fin-inline-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
+/* ── Dashboard layout: main cards grid + side panel (net worth + plan) ── */
+.fin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 18px;
+  align-items: start;
+  width: 100%;
+}
+.fin-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.fin-side { display: flex; flex-direction: column; gap: 16px; }
+
 /* ── Hero (net worth + health) ── */
 .fin-hero {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
@@ -6197,12 +6205,20 @@ svg {
 .fin-hero-breakdown .is-neg { color: var(--danger); }
 
 /* ── Health ring ── */
+.fin-health-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.fin-health-title { font-size: 12px; font-weight: 700; color: var(--text-secondary); display: flex; align-items: center; gap: 5px; }
+.fin-health-hint {
+  width: 15px; height: 15px; border-radius: 50%; background: var(--bg-input); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+  cursor: help; flex: 0 0 auto;
+}
 .fin-health { position: relative; width: 110px; height: 110px; flex: 0 0 auto; }
 .fin-health-svg { width: 110px; height: 110px; transform: rotate(-90deg); }
 .fin-health-track { fill: none; stroke: var(--border); stroke-width: 9; }
 .fin-health-arc { fill: none; stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset .6s ease; }
 .fin-health-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .fin-health-center strong { font-size: 26px; font-weight: 800; color: var(--text-primary); }
+.fin-health-center strong small { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .fin-health-center span { font-size: 11px; color: var(--text-secondary); }
 
 /* ── Month strip ── */
@@ -6223,6 +6239,16 @@ svg {
 
 /* ── Section ── */
 .fin-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; }
+
+/* ── Net-worth side card (side-panel variant of the hero, like the hub's prayer card) ── */
+.fin-net-card {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+  background: linear-gradient(135deg, var(--accent-dim), transparent);
+}
+.fin-net-card .fin-hero-net { align-items: center; min-width: 0; }
+.fin-net-card .fin-hero-value { font-size: 26px; }
+.fin-net-card .fin-hero-breakdown { justify-content: center; margin-top: 0; }
+
 .fin-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .fin-section-head h3 { font-size: 14px; font-weight: 700; color: var(--text-primary); }
 .fin-section-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-light); font-size: 13px; color: var(--text-secondary); text-align: left; }
@@ -6233,45 +6259,65 @@ svg {
 .fin-plan-head strong { color: var(--text-primary); }
 .fin-plan-bar { display: flex; height: 14px; border-radius: 99px; overflow: hidden; background: var(--bg-input); margin-bottom: 12px; }
 .fin-plan-seg { min-width: 2px; transition: flex .4s ease; }
-.fin-plan-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 16px; }
-.fin-plan-leg { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-.fin-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
-.fin-plan-leg-name { flex: 1 1 auto; color: var(--text-secondary); }
-.fin-plan-leg-pct { font-weight: 700; color: var(--text-primary); }
-.fin-plan-leg-amt { color: var(--text-muted); min-width: 78px; text-align: left; }
+.fin-plan-legend { display: flex; flex-direction: column; gap: 10px; }
+.fin-plan-leg {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  grid-template-areas: "dot name pct" ". amt amt";
+  column-gap: 8px; row-gap: 2px;
+  font-size: 12.5px; align-items: center;
+}
+.fin-dot { grid-area: dot; width: 10px; height: 10px; border-radius: 3px; align-self: start; margin-top: 4px; }
+.fin-plan-leg-name { grid-area: name; min-width: 0; white-space: normal; word-break: break-word; color: var(--text-secondary); }
+.fin-plan-leg-pct { grid-area: pct; font-weight: 700; color: var(--text-primary); }
+.fin-plan-leg-amt { grid-area: amt; color: var(--text-muted); text-align: right; font-size: 11.5px; }
 .fin-plan-warn { color: var(--status-doing); font-weight: 600; margin-inline-start: 8px; }
 
 /* ── Status cards grid ── */
-.fin-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.fin-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; grid-auto-rows: 1fr; }
+/* Bounded track (not 1fr) so cards stay a bit bigger than a hub-tile without
+   stretching edge-to-edge now that the page is full-width like the hub. */
+.fin-cards-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 280px)); max-width: calc(280px * 3 + 12px * 2); justify-content: start; }
+/* Same visual grammar as .hub-tile (icon-in-a-box + bold title + hover lift) */
 .fin-card {
   text-align: right; background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 14px 16px; cursor: pointer;
-  display: flex; flex-direction: column; gap: 8px; transition: var(--transition); font-family: inherit;
+  border-radius: 14px; padding: 14px 16px; cursor: pointer; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 8px; justify-content: space-between;
+  width: 100%; height: 100%; min-height: 132px;
+  transition: var(--transition); font-family: inherit;
 }
-.fin-card:hover { background: var(--bg-card-hover); border-color: var(--accent); }
-.fin-card-top { display: flex; align-items: center; gap: 8px; }
-.fin-card-icon { font-size: 18px; }
-.fin-card-title { flex: 1 1 auto; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-.fin-card-arrow { color: var(--text-muted); font-size: 18px; }
-.fin-card-value { font-size: 22px; font-weight: 800; color: var(--text-primary); }
-.fin-card-value em { font-size: 13px; font-weight: 600; color: var(--text-secondary); font-style: normal; }
-.fin-card-sub { font-size: 12px; color: var(--text-muted); }
+.fin-card:hover { background: var(--bg-card-hover); border-color: var(--accent); transform: translateY(-2px); }
+.fin-sum-card-draggable { cursor: grab; height: 100%; }
+.fin-card-top { display: flex; align-items: center; gap: 10px; }
+.fin-card-icon {
+  flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  font-size: 18px; background: var(--accent-dim); border-radius: 10px;
+}
+.fin-card-title { flex: 1 1 auto; font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
+.fin-card-arrow { flex-shrink: 0; width: 18px; height: 18px; color: var(--text-muted); transition: transform 0.18s ease, color 0.18s ease; }
+.fin-card:hover .fin-card-arrow { color: var(--accent); transform: translateX(-4px); }
+.fin-card-value { font-size: 19px; font-weight: 800; color: var(--text-primary); }
+.fin-card-value em { font-size: 12px; font-weight: 600; color: var(--text-secondary); font-style: normal; }
+.fin-card-sub { font-size: 11.5px; color: var(--text-muted); }
 
 /* ── Progress bar ── */
 .fin-bar { height: 7px; border-radius: 99px; background: var(--bg-input); overflow: hidden; margin-top: 2px; }
 .fin-bar-fill { height: 100%; border-radius: 99px; transition: width .4s ease; }
 
+/* ── Budget page: accounts / categories / transactions side-by-side ── */
+.fin-budget-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+
 /* ── Lists / rows ── */
 .fin-list { display: flex; flex-direction: column; gap: 8px; }
-.fin-row { background: var(--bg-input); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 12px; }
+.fin-row { background: var(--bg-input); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 12px; min-width: 0; }
 .fin-row-col { display: flex; flex-direction: column; gap: 8px; }
-.fin-row-line, .fin-row:not(.fin-row-col) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.fin-row-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fin-row-line, .fin-row:not(.fin-row-col) { display: flex; align-items: center; justify-content: space-between; gap: 10px 6px; flex-wrap: wrap; }
+.fin-row-main { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 160px; }
 .fin-row-icon { font-size: 18px; flex: 0 0 auto; }
-.fin-row-name { font-weight: 600; color: var(--text-primary); font-size: 13.5px; }
+.fin-row-name { font-weight: 600; color: var(--text-primary); font-size: 13.5px; min-width: 0; overflow-wrap: break-word; }
 .fin-row-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
-.fin-row-side { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.fin-row-amt { font-weight: 700; color: var(--text-primary); font-size: 13px; }
+.fin-row-side { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin-inline-start: auto; }
+.fin-row-amt { font-weight: 700; color: var(--text-primary); font-size: 13px; white-space: nowrap; }
 .fin-icon-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 4px; border-radius: var(--radius-sm); opacity: .7; }
 .fin-icon-btn:hover { opacity: 1; background: var(--bg-card-hover); }
 
@@ -6284,8 +6330,14 @@ svg {
 .fin-note-warn { border-color: var(--status-doing); color: var(--status-doing); }
 .fin-empty { text-align: center; padding: 30px 16px; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .fin-empty-icon { font-size: 34px; }
-.fin-total-hero { display: flex; align-items: center; justify-content: space-between; }
-.fin-total-hero strong { font-size: 22px; font-weight: 800; }
+/* Same "hero stat" treatment as the net-worth card, for the one headline
+   number each finance sub-page leads with. */
+.fin-total-hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
+  background: linear-gradient(135deg, var(--accent-dim), transparent);
+}
+.fin-total-hero span { font-size: 13px; color: var(--text-secondary); }
+.fin-total-hero strong { font-size: 26px; font-weight: 800; color: var(--text-primary); line-height: 1.3; }
 .fin-total-hero .is-neg { color: var(--danger); }
 .fin-kv { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-light); font-size: 13px; }
 .fin-kv:last-child { border-bottom: none; }
@@ -6311,11 +6363,20 @@ svg {
 #content.fin-privacy-on .privacy-sensitive:hover { filter: none; }
 
 /* ── Responsive ── */
+@media (max-width: 900px) {
+  .fin-layout { grid-template-columns: 1fr; }
+  .fin-side { flex-direction: row; flex-wrap: wrap; }
+  .fin-side > * { flex: 1 1 260px; }
+  .fin-cards-grid { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 640px) {
+  .fin-root { padding: 18px 16px 28px; }
   .fin-hero { justify-content: center; text-align: center; }
   .fin-hero-net { align-items: center; }
   .fin-cards { grid-template-columns: 1fr; }
+  .fin-cards-grid { grid-template-columns: 1fr; }
   .fin-hero-value { font-size: 28px; }
+  .fin-side { flex-direction: column; }
 }
 
 /* ===== RESTORED non-finance sections (FOOD & HEALTH + HUB) — were removed during finance rebuild ===== */
@@ -7052,7 +7113,7 @@ svg {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  cursor: pointer;
 }
 .hub-card-title {
   font-size: 15px;
@@ -7062,6 +7123,26 @@ svg {
 .hub-card-sub {
   font-size: 12px;
   color: var(--text-muted);
+}
+.hub-card-collapse-btn {
+  flex: 0 0 auto; margin-inline-start: auto; background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 2px; border-radius: 6px; display: flex; align-items: center;
+  transition: transform .2s ease, color .15s ease, background .15s ease;
+}
+.hub-card-collapse-btn:hover { color: var(--text-primary); background: var(--bg-input); }
+.hub-card-collapse-btn svg { width: 16px; height: 16px; }
+.hub-card.is-collapsed .hub-card-collapse-btn { transform: rotate(-90deg); }
+.hub-card-body {
+  overflow: hidden;
+  max-height: 600px;
+  transition: max-height .25s ease, opacity .2s ease, margin-top .25s ease;
+  margin-top: 12px;
+  opacity: 1;
+}
+.hub-card.is-collapsed .hub-card-body {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
 }
 
 /* ── Prayer times ── */

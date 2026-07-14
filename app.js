@@ -745,6 +745,29 @@ function renderHub() {
   });
 }
 
+// ── Hub side-cards (prayer times / today's clients): collapsible, remembered ──
+const HUB_COLLAPSE_KEY = 'hubCardCollapsed';
+function hubLoadCollapsedSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(HUB_COLLAPSE_KEY)) || []); }
+  catch (e) { return new Set(); }
+}
+(function initHubCardCollapse() {
+  const collapsed = hubLoadCollapsedSet();
+  document.querySelectorAll('.hub-card[id]').forEach(card => {
+    if (collapsed.has(card.id)) card.classList.add('is-collapsed');
+  });
+  document.querySelectorAll('.hub-card-head').forEach(head => {
+    head.addEventListener('click', () => {
+      const card = head.closest('.hub-card[id]');
+      if (!card) return;
+      card.classList.toggle('is-collapsed');
+      const set = hubLoadCollapsedSet();
+      if (card.classList.contains('is-collapsed')) set.add(card.id); else set.delete(card.id);
+      localStorage.setItem(HUB_COLLAPSE_KEY, JSON.stringify([...set]));
+    });
+  });
+})();
+
 // ════════════════════════════════════════════════════════════════
 //  NAVIGATION
 // ════════════════════════════════════════════════════════════════
@@ -2243,6 +2266,7 @@ function renderClients() {
       state.draggedEntityType = 'client';
       card.classList.add('dragging-card');
       e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setDragImage(FIN_DRAG_BLANK_IMG, 0, 0);
     });
 
     card.addEventListener('dragend', () => {
@@ -2423,6 +2447,7 @@ function renderProjects() {
       state.draggedEntityType = 'project';
       card.classList.add('dragging-card');
       e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setDragImage(FIN_DRAG_BLANK_IMG, 0, 0);
     });
 
     card.addEventListener('dragend', () => {
@@ -2750,6 +2775,17 @@ function setupColumnDnD() {
 }
 
 // ── Drag & Drop Reordering for Clients & Projects ──────────────────
+// Swap the dragged card and the drop target in place — every other card
+// keeps its position, only the two involved cards trade spots.
+function reorderIdsForDrop(ids, draggedId, targetId) {
+  const fromIdx = ids.indexOf(draggedId);
+  const toIdx = ids.indexOf(targetId);
+  if (fromIdx === -1 || toIdx === -1) return ids;
+  const next = ids.slice();
+  [next[fromIdx], next[toIdx]] = [next[toIdx], next[fromIdx]];
+  return next;
+}
+
 async function handleEntityReorder(type, draggedId, targetId, scopeClientId = null) {
   let list;
   if (type === 'client') {
@@ -2770,15 +2806,23 @@ async function handleEntityReorder(type, draggedId, targetId, scopeClientId = nu
     return bTime - aTime;
   });
 
-  const draggedIdx = sorted.findIndex(item => item.id === draggedId);
-  const targetIdx = sorted.findIndex(item => item.id === targetId);
-  if (draggedIdx === -1 || targetIdx === -1) return;
+  const ids = sorted.map(item => item.id);
+  if (!ids.includes(draggedId) || !ids.includes(targetId)) return;
+  const byId = new Map(sorted.map(item => [item.id, item]));
+  const orderedIds = reorderIdsForDrop(ids, draggedId, targetId);
+  const reordered = orderedIds.map(id => byId.get(id));
 
-  const [removed] = sorted.splice(draggedIdx, 1);
-  sorted.splice(targetIdx, 0, removed);
+  // Optimistic local update so the cards animate into place immediately,
+  // the same instant feel as the finance-home card reorder.
+  reordered.forEach((item, idx) => { item.order = idx; });
+  if (type === 'client') {
+    renderClients();
+  } else {
+    renderProjects();
+  }
 
   const batch = writeBatch(db);
-  sorted.forEach((item, idx) => {
+  reordered.forEach((item, idx) => {
     const docRef = type === 'client'
       ? clientDoc(item.id)
       : projectDoc(item._clientId || scopeClientId || state.client.id, item.id);
@@ -4159,6 +4203,12 @@ function finBar(pct, color) {
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   return `<div class="fin-bar"><div class="fin-bar-fill" style="width:${p}%;background:${color || 'var(--accent)'}"></div></div>`;
 }
+// Main content + a narrow side card for the page's one headline stat — same
+// grammar as the finance-home layout (net-worth card in the side rail).
+function finSideLayout(mainHtml, sideHtml) {
+  if (!sideHtml) return mainHtml;
+  return `<div class="fin-layout"><div class="fin-main">${mainHtml}</div><aside class="fin-side">${sideHtml}</aside></div>`;
+}
 function finEmpty(icon, msg, actHtml) {
   return `<div class="fin-empty"><div class="fin-empty-icon">${icon}</div><p>${msg}</p>${actHtml || ''}</div>`;
 }
@@ -4170,13 +4220,16 @@ function finBtn(act, label, cls) {
 function finHealthRing(score) {
   const { txt, color } = finHealthLabel(score);
   const r = 44, c = 2 * Math.PI * r, off = c * (1 - score / 100);
-  return `<div class="fin-health">
-    <svg viewBox="0 0 110 110" class="fin-health-svg">
-      <circle cx="55" cy="55" r="${r}" class="fin-health-track"/>
-      <circle cx="55" cy="55" r="${r}" class="fin-health-arc" stroke="${color}"
-        stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
-    </svg>
-    <div class="fin-health-center"><strong>${score}</strong><span>${txt}</span></div>
+  return `<div class="fin-health-wrap">
+    <span class="fin-health-title">الصحة المالية <span class="fin-health-hint" title="مقياس من 100 يجمع بين تغطية الطوارئ، نسبة الديون، نسبة الادخار، ومدى تقدّمك في أهدافك">؟</span></span>
+    <div class="fin-health">
+      <svg viewBox="0 0 110 110" class="fin-health-svg">
+        <circle cx="55" cy="55" r="${r}" class="fin-health-track"/>
+        <circle cx="55" cy="55" r="${r}" class="fin-health-arc" stroke="${color}"
+          stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
+      </svg>
+      <div class="fin-health-center"><strong>${score}<small>/100</small></strong><span>${txt}</span></div>
+    </div>
   </div>`;
 }
 
@@ -4196,36 +4249,34 @@ function renderFinanceHome() {
                 + finBtn('plan', '⚙️ الخطة', 'fin-btn-ghost')
                 + `<button class="fin-btn fin-btn-ghost fin-btn-icon" data-fin-act="privacy" type="button" title="إظهار/إخفاء">👁️</button>`;
 
-  // Hero
-  const hero = `<div class="fin-hero">
+  // Net worth card — side panel, like the hub's prayer-times card
+  const netCard = `<div class="fin-section fin-net-card">
     <div class="fin-hero-net">
       <span class="fin-hero-label">صافي الثروة</span>
       <span class="fin-hero-value ${net < 0 ? 'is-neg' : ''}">${finPriv(finFmt(net))} <em>${FIN_CUR}</em></span>
-      <div class="fin-hero-breakdown">
-        <span>💧 سيولة ${finPriv(finFmt(finAccountsTotal()))}</span>
-        <span>🥇 ذهب ${finPriv(finFmt(finGoldValue()))}</span>
-        <span>📈 استثمار ${finPriv(finFmt(finAssetsValue()))}</span>
-        <span class="is-neg">💳 ديون ${finPriv(finFmt(finDebtsRemaining()))}</span>
-      </div>
     </div>
     ${finHealthRing(score)}
+    <div class="fin-hero-breakdown">
+      <span>💧 سيولة ${finPriv(finFmt(finAccountsTotal()))}</span>
+      <span>🥇 ذهب ${finPriv(finFmt(finGoldValue()))}</span>
+      <span>📈 استثمار ${finPriv(finFmt(finAssetsValue()))}</span>
+      <span class="is-neg">💳 ديون ${finPriv(finFmt(finDebtsRemaining()))}</span>
+    </div>
   </div>`;
 
-  // Plan breakdown bar
+  // Plan breakdown bar — sits under the net-worth card in the side column
   const plan = renderPlanBreakdown();
 
-  // Status cards
-  const cards = `<div class="fin-cards">
-    ${finHomeDebtCard()}
-    ${finHomeEmergencyCard()}
-    ${finHomeGoalsCard()}
-    ${finHomeAssetsCard()}
-    ${finHomeBudgetCard(period)}
-    ${finHomeZakatCard()}
-  </div>`;
+  // Status cards — 3-column grid, drag-reorderable (order saved per-user)
+  const cards = `<div class="fin-cards fin-cards-grid">${finHomeCardsHtml(period)}</div>`;
 
   root.innerHTML = finToolbar('', actions, 'dashboard') +
-    `<div class="fin-page">${hero}${plan}${cards}</div>`;
+    `<div class="fin-page">
+      <div class="fin-layout">
+        <div class="fin-main">${cards}</div>
+        <aside class="fin-side">${netCard}${plan}</aside>
+      </div>
+    </div>`;
 }
 
 function renderPlanBreakdown() {
@@ -4242,8 +4293,8 @@ function renderPlanBreakdown() {
     return `<div class="fin-plan-leg">
       <span class="fin-dot" style="background:${b.color}"></span>
       <span class="fin-plan-leg-name">${b.icon} ${b.label}</span>
-      <span class="fin-plan-leg-pct">${pct}%</span>
       <span class="fin-plan-leg-amt">${income > 0 ? finPriv(finFmt(amt)) + ' ' + FIN_CUR : ''}</span>
+      <span class="fin-plan-leg-pct">${pct}%</span>
     </div>`;
   }).join('');
   const warn = sum !== 100 ? `<span class="fin-plan-warn">⚠️ مجموع النِّسب ${sum}% (المفروض 100%)</span>` : '';
@@ -4259,20 +4310,30 @@ function renderPlanBreakdown() {
   </div>`;
 }
 
-function finHomeCard(nav, icon, title, valueHtml, subHtml, barHtml) {
-  return `<button class="fin-card" data-fin-nav="${nav}" type="button">
-    <div class="fin-card-top"><span class="fin-card-icon">${icon}</span><span class="fin-card-title">${title}</span><span class="fin-card-arrow">›</span></div>
+function finHomeCard(nav, icon, title, valueHtml, subHtml, barHtml, dragKey) {
+  // A native <button> is an unreliable HTML5 drag source in some browsers
+  // (mousedown gets eaten by the control's own press state), so — same as
+  // the client/project cards — draggable ones render as a div with
+  // role="button" instead.
+  const dragAttrs = dragKey ? ` draggable="true" data-card-key="${dragKey}"` : '';
+  const tag = dragKey ? 'div' : 'button';
+  const typeAttr = dragKey ? ' role="button" tabindex="0"' : ' type="button"';
+  return `<${tag} class="fin-card${dragKey ? ' fin-sum-card-draggable' : ''}" data-fin-nav="${nav}"${typeAttr}${dragAttrs}>
+    <div class="fin-card-top"><span class="fin-card-icon">${icon}</span><span class="fin-card-title">${title}</span>
+      <svg class="fin-card-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </div>
     <div class="fin-card-value">${valueHtml}</div>
     ${barHtml || ''}
     <div class="fin-card-sub">${subHtml || ''}</div>
-  </button>`;
+  </${tag}>`;
 }
 function finHomeDebtCard() {
   const rem = finDebtsRemaining();
   const n = (state.debts || []).length;
   const sub = n ? `${n} ${n === 1 ? 'التزام' : 'التزامات'} • الحد الأدنى ${finFmt(finDebtsMonthlyMin())}/شهر` : 'لا ديون — ممتاز 👏';
   return finHomeCard('finance-debts', '💳', 'الديون والالتزامات',
-    finPriv(finFmt(rem)) + ` <em>${FIN_CUR}</em>`, sub, '');
+    finPriv(finFmt(rem)) + ` <em>${FIN_CUR}</em>`, sub, '', 'debts');
 }
 function finHomeEmergencyCard() {
   const cov = finEmergencyCoverage();
@@ -4281,14 +4342,14 @@ function finHomeEmergencyCard() {
   const color = cov >= target ? '#3DB981' : cov >= 1 ? '#F0A835' : '#E05C5C';
   return finHomeCard('finance-emergency', '🛟', 'صندوق الطوارئ',
     finPriv(finFmt(finEmergencyBalance())) + ` <em>${FIN_CUR}</em>`,
-    `تغطية ${cov.toFixed(1)} / ${target} شهور`, finBar(pct, color));
+    `تغطية ${cov.toFixed(1)} / ${target} شهور`, finBar(pct, color), 'emergency');
 }
 function finHomeGoalsCard() {
   const goals = state.goals || [];
   const onTrack = goals.filter(g => { const need = finGoalMonthlyNeed(g); return need === null || need <= finPlanAmount('invest') + 1; }).length;
   const sub = goals.length ? `${onTrack} في المسار من ${goals.length}` : 'مفيش أهداف بعد';
   return finHomeCard('finance-goals', '🎯', 'الأهداف',
-    goals.length ? `${goals.length}` : '—', sub, '');
+    goals.length ? `${goals.length}` : '—', sub, '', 'goals');
 }
 function finHomeAssetsCard() {
   const gold = finGoldValue();
@@ -4297,7 +4358,7 @@ function finHomeAssetsCard() {
   const goldPct = totalA > 0 ? (gold / totalA) * 100 : 0;
   return finHomeCard('finance-assets', '🥇', 'الأصول والذهب',
     finPriv(finFmt(gold + inv)) + ` <em>${FIN_CUR}</em>`,
-    `الذهب ${goldPct.toFixed(0)}% من أصولك` + (goldPct > 10 ? ' ⚠️ فوق 10%' : ''), '');
+    `الذهب ${goldPct.toFixed(0)}% من أصولك` + (goldPct > 10 ? ' ⚠️ فوق 10%' : ''), '', 'assets');
 }
 function finHomeBudgetCard(period) {
   const target = (state.categories || []).reduce((s, c) => s + (Number(c.target) || 0), 0);
@@ -4306,14 +4367,42 @@ function finHomeBudgetCard(period) {
   const color = pct > 100 ? '#E05C5C' : pct > 80 ? '#F0A835' : '#3DB981';
   return finHomeCard('finance-budget', '🗂️', 'الميزانية الشهرية',
     finPriv(finFmt(spent)) + ` / ${finFmt(target)}`,
-    target > 0 ? `صُرف ${pct.toFixed(0)}% من ميزانية الشهر` : 'حدّد بنود مصاريفك', target > 0 ? finBar(pct, color) : '');
+    target > 0 ? `صُرف ${pct.toFixed(0)}% من ميزانية الشهر` : 'حدّد بنود مصاريفك', target > 0 ? finBar(pct, color) : '', 'budget');
 }
 function finHomeZakatCard() {
   const due = finZakatDue();
   const hawl = finHawlPassed();
   const sub = hawl ? '🔔 حان موعد الزكاة' : (state.finSettings?.zakatDueDate ? `الحول: ${state.finSettings.zakatDueDate}` : 'حدّد تاريخ حَوَلان الحول');
   return finHomeCard('finance-zakat', '🕌', 'الزكاة',
-    finPriv(finFmt(due)) + ` <em>${FIN_CUR}</em>`, sub, '');
+    finPriv(finFmt(due)) + ` <em>${FIN_CUR}</em>`, sub, '', 'zakat');
+}
+
+// ── Drag-reorderable status cards — order saved to finSettings.cardOrder ──
+const FIN_HOME_CARD_BUILDERS = {
+  debts:     () => finHomeDebtCard(),
+  emergency: () => finHomeEmergencyCard(),
+  goals:     () => finHomeGoalsCard(),
+  assets:    () => finHomeAssetsCard(),
+  budget:    (period) => finHomeBudgetCard(period),
+  zakat:     () => finHomeZakatCard(),
+};
+const FIN_HOME_CARD_DEFAULT_ORDER = ['debts', 'emergency', 'goals', 'assets', 'budget', 'zakat'];
+function finHomeCardOrder() {
+  const saved = state.finSettings?.cardOrder;
+  if (Array.isArray(saved) && saved.length) {
+    const known = saved.filter(k => FIN_HOME_CARD_BUILDERS[k]);
+    const missing = FIN_HOME_CARD_DEFAULT_ORDER.filter(k => !known.includes(k));
+    return [...known, ...missing];
+  }
+  return FIN_HOME_CARD_DEFAULT_ORDER;
+}
+function finHomeCardsHtml(period) {
+  return finHomeCardOrder().map(key => FIN_HOME_CARD_BUILDERS[key](period)).join('');
+}
+async function finSaveCardOrder(order) {
+  state.finSettings = { ...(state.finSettings || {}), cardOrder: order };
+  try { await setDoc(finSettingsDoc(), { cardOrder: order }, { merge: true }); }
+  catch (e) { console.error('save card order:', e); }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4358,15 +4447,155 @@ function renderFinanceBudget() {
     </div>`;
   }).join('') : finEmpty('🗂️', 'حدّد بنود مصاريفك الشهرية (إيجار، أكل، فواتير...).', finBtn('add-category', '＋ ضيف بند', 'fin-btn-primary'));
 
+  const txRows = finTxRowsHtml(finRecentTx(20));
+
   root.innerHTML = finToolbar('🗂️ الميزانية الشهرية', '', 'finance') + `<div class="fin-page">
-    <div class="fin-section"><div class="fin-section-head"><h3>💧 الحسابات والسيولة</h3><div class="fin-inline-actions">${accActions}</div></div>
-      <div class="fin-list">${accRows}</div>
-      <div class="fin-section-foot">الإجمالي: <strong>${finPriv(finFmt(finAccountsTotal()))} ${FIN_CUR}</strong></div>
-    </div>
-    <div class="fin-section"><div class="fin-section-head"><h3>🗂️ بنود المصاريف — ${finPeriodLabel(period)}</h3><div class="fin-inline-actions">${catActions}</div></div>
-      <div class="fin-list">${catRows}</div>
+    <div class="fin-budget-grid">
+      <div class="fin-section"><div class="fin-section-head"><h3>💧 الحسابات والسيولة</h3><div class="fin-inline-actions">${accActions}</div></div>
+        <div class="fin-list">${accRows}</div>
+        <div class="fin-section-foot">الإجمالي: <strong>${finPriv(finFmt(finAccountsTotal()))} ${FIN_CUR}</strong></div>
+      </div>
+      <div class="fin-section"><div class="fin-section-head"><h3>🗂️ بنود المصاريف — ${finPeriodLabel(period)}</h3><div class="fin-inline-actions">${catActions}</div></div>
+        <div class="fin-list">${catRows}</div>
+      </div>
+      <div class="fin-section"><div class="fin-section-head"><h3>🧾 آخر العمليات</h3></div>
+        <div class="fin-list">${txRows}</div>
+      </div>
     </div>
   </div>`;
+}
+
+// ── Transaction history: shared meta + row rendering + edit/delete ──
+function finRecentTx(n) {
+  const time = (t) => (t.createdAt && t.createdAt.toDate) ? t.createdAt.toDate().getTime() : 0;
+  return [...(state.transactions || [])].sort((a, b) => time(b) - time(a)).slice(0, n || 20);
+}
+const FIN_TX_EDITABLE = new Set(['income', 'expense', 'sadaqah']);
+function finTxMeta(t) {
+  const acc = (state.accounts || []).find(a => a.id === t.accountId);
+  const accName = acc ? escapeHtml(acc.name) : '—';
+  switch (t.type) {
+    case 'income':
+      return { icon: '💰', sign: '+', color: '#3DB981', title: 'دخل' + (t.note ? ' — ' + escapeHtml(t.note) : ''), sub: accName };
+    case 'expense': {
+      const cat = (state.categories || []).find(c => c.id === t.categoryId);
+      return { icon: '🧾', sign: '－', color: 'var(--danger)', title: (cat ? escapeHtml(cat.name) : 'مصروف') + (t.note ? ' — ' + escapeHtml(t.note) : ''), sub: accName };
+    }
+    case 'sadaqah':
+      return { icon: '🤲', sign: '－', color: 'var(--danger)', title: 'صدقة' + (t.note ? ' — ' + escapeHtml(t.note) : ''), sub: accName };
+    case 'transfer': {
+      const to = (state.accounts || []).find(a => a.id === t.toAccountId);
+      return { icon: '↔️', sign: '', color: 'var(--text-secondary)', title: 'تحويل', sub: `${accName} ← ${to ? escapeHtml(to.name) : '—'}` };
+    }
+    case 'debtPayment': {
+      const d = (state.debts || []).find(x => x.id === t.debtId);
+      return { icon: '💳', sign: '－', color: 'var(--danger)', title: 'دفعة دين' + (d ? ' — ' + escapeHtml(d.creditor) : ''), sub: accName };
+    }
+    case 'goalContribution': {
+      const g = (state.goals || []).find(x => x.id === t.goalId);
+      return { icon: '🎯', sign: '－', color: 'var(--text-secondary)', title: 'ادخار لهدف' + (g ? ' — ' + escapeHtml(g.name) : ''), sub: accName };
+    }
+    case 'zakat':
+      return { icon: '🕌', sign: '－', color: 'var(--danger)', title: 'دفع زكاة', sub: accName };
+    default:
+      return { icon: '•', sign: '', color: 'var(--text-secondary)', title: t.type || '—', sub: accName };
+  }
+}
+function finTxRowsHtml(list) {
+  if (!list.length) return finEmpty('🧾', 'لسه مفيش عمليات مسجّلة.');
+  return list.map(t => {
+    const m = finTxMeta(t);
+    const editBtn = FIN_TX_EDITABLE.has(t.type) ? `<button class="fin-icon-btn" data-fin-act="edit-tx:${t.id}" title="تعديل">✏️</button>` : '';
+    return `<div class="fin-row">
+      <div class="fin-row-main">
+        <span class="fin-row-icon">${m.icon}</span>
+        <div><div class="fin-row-name">${m.title}</div>
+        <div class="fin-row-meta">${m.sub} • ${formatDate(t.createdAt)}</div></div>
+      </div>
+      <div class="fin-row-side">
+        <span class="fin-row-amt" style="color:${m.color}">${m.sign}${finPriv(finFmt(t.amount))} ${FIN_CUR}</span>
+        ${editBtn}
+        <button class="fin-icon-btn" data-fin-act="del-tx:${t.id}" title="حذف">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function openTxEditModal(id) {
+  const t = (state.transactions || []).find(x => x.id === id);
+  if (!t || !FIN_TX_EDITABLE.has(t.type)) return;
+  const isIncome = t.type === 'income';
+  const isExpense = t.type === 'expense';
+  const title = isIncome ? '✏️ تعديل دخل' : isExpense ? '✏️ تعديل مصروف' : '✏️ تعديل صدقة';
+  finModal(title,
+    finFieldNum('tx-amount', 'المبلغ', t.amount, 'min="0" required') +
+    finFieldAccount('tx-account', isIncome ? 'الحساب المستلِم' : 'من حساب', t.accountId) +
+    (isExpense ? `<div class="form-group"><label class="form-label">بند المصروف</label><select id="tx-category" class="form-input">${(state.categories || []).map(c => `<option value="${c.id}" ${c.id === t.categoryId ? 'selected' : ''}>${escapeHtml(c.icon || '')} ${escapeHtml(c.name)}</option>`).join('') || '<option value="">— بدون بند —</option>'}</select></div>` : '') +
+    finFieldText('tx-note', 'ملاحظة (اختياري)', t.note || '', ''),
+    null,
+    async (e) => {
+      e.preventDefault();
+      const amount = Number(document.getElementById('tx-amount').value) || 0;
+      const accountId = document.getElementById('tx-account').value;
+      const acc = (state.accounts || []).find(a => a.id === accountId);
+      if (!(amount > 0) || !acc) { toast('راجع البيانات', 'error'); return; }
+      const oldAmount = Number(t.amount) || 0;
+      const oldAccountId = t.accountId;
+      const outflow = !isIncome;
+      if (outflow) {
+        const availableOnAcc = oldAccountId === accountId ? (Number(acc.balance) || 0) + oldAmount : (Number(acc.balance) || 0);
+        if (amount > availableOnAcc + 0.005) { toast(`🚫 رصيد "${acc.name}" مش كفاية`, 'error'); return; }
+      }
+      try {
+        const batch = writeBatch(db);
+        if (outflow) {
+          batch.update(accountDoc(oldAccountId), { balance: increment(oldAmount) });
+          batch.update(accountDoc(accountId), { balance: increment(-amount) });
+        } else {
+          batch.update(accountDoc(oldAccountId), { balance: increment(-oldAmount) });
+          batch.update(accountDoc(accountId), { balance: increment(amount) });
+        }
+        const data = { amount, accountId, note: document.getElementById('tx-note').value.trim() };
+        if (isExpense) data.categoryId = document.getElementById('tx-category').value || null;
+        batch.update(doc(transactionsRef(), id), data);
+        await batch.commit();
+        toast('تم التعديل', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+async function deleteTx(id) {
+  const t = (state.transactions || []).find(x => x.id === id);
+  if (!t) return;
+  const m = finTxMeta(t);
+  if (!await confirmDialog({ title: 'حذف عملية', message: `هتحذف "${m.title}" بمبلغ ${finFmt(t.amount)} ${FIN_CUR} — الأثر على الأرصدة هيتراجع. متأكد؟`, icon: '🗑️' })) return;
+  try {
+    const batch = writeBatch(db);
+    const amt = Number(t.amount) || 0;
+    switch (t.type) {
+      case 'income':
+        batch.update(accountDoc(t.accountId), { balance: increment(-amt) });
+        break;
+      case 'expense':
+      case 'sadaqah':
+      case 'zakat':
+        batch.update(accountDoc(t.accountId), { balance: increment(amt) });
+        break;
+      case 'transfer':
+        batch.update(accountDoc(t.accountId), { balance: increment(amt) });
+        batch.update(accountDoc(t.toAccountId), { balance: increment(-amt) });
+        break;
+      case 'debtPayment':
+        batch.update(accountDoc(t.accountId), { balance: increment(amt) });
+        if (t.debtId) batch.update(debtDoc(t.debtId), { remaining: increment(amt) });
+        break;
+      case 'goalContribution':
+        batch.update(accountDoc(t.accountId), { balance: increment(amt) });
+        if (t.goalId) batch.update(goalDoc(t.goalId), { savedAmount: increment(-amt) });
+        break;
+    }
+    batch.delete(doc(transactionsRef(), id));
+    await batch.commit();
+    toast('تم الحذف', 'success');
+  } catch (err) { console.error(err); toast('فشل الحذف', 'error'); }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4404,11 +4633,10 @@ function renderFinanceDebts() {
     : '';
 
   root.innerHTML = finToolbar('💳 الديون والالتزامات', finBtn('add-debt', '＋ دين', 'fin-btn-ghost'), 'finance') +
-    `<div class="fin-page">
-      <div class="fin-section fin-total-hero"><span>إجمالي المتبقّي</span><strong class="is-neg">${finPriv(finFmt(totalRem))} ${FIN_CUR}</strong></div>
-      ${advice}
-      <div class="fin-list">${rows}</div>
-    </div>`;
+    `<div class="fin-page">${finSideLayout(
+      `${advice}<div class="fin-list">${rows}</div>`,
+      `<div class="fin-section fin-total-hero"><span>إجمالي المتبقّي</span><strong class="is-neg">${finPriv(finFmt(totalRem))} ${FIN_CUR}</strong></div>`
+    )}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4479,9 +4707,8 @@ function renderFinanceAssets() {
 
   root.innerHTML = finToolbar('🥇 الأصول والذهب',
     finBtn('gold-add', '＋ ذهب', 'fin-btn-ghost') + finBtn('gold-prices', '🔄 الأسعار', 'fin-btn-ghost') + finBtn('add-asset', '＋ استثمار', 'fin-btn-ghost'),
-    'finance') + `<div class="fin-page">
-      <div class="fin-section fin-total-hero"><span>إجمالي الأصول</span><strong>${finPriv(finFmt(totalA))} ${FIN_CUR}</strong></div>
-      ${advice}
+    'finance') + `<div class="fin-page">${finSideLayout(
+      `${advice}
       <div class="fin-section"><div class="fin-section-head"><h3>🥇 الذهب</h3>
         <div class="fin-inline-actions">${finBtn('gold-add', '＋ إضافة', 'fin-btn-xs fin-btn-ghost')}${finBtn('gold-sub', '－ سحب', 'fin-btn-xs fin-btn-ghost')}</div></div>
         <div class="fin-note">${priceNote}</div>
@@ -4491,8 +4718,9 @@ function renderFinanceAssets() {
       <div class="fin-section"><div class="fin-section-head"><h3>📈 استثمارات حلال</h3><div class="fin-inline-actions">${finBtn('add-asset', '＋ استثمار', 'fin-btn-xs fin-btn-ghost')}</div></div>
         <div class="fin-list">${invRows}</div>
       </div>
-      <div class="fin-note">💡 اشترِ الذهب بالتدريج، احتفظ به سنة على الأقل، وبِع عند القمم أو لتحقيق هدف. سبائك 24 مغلّفة = مصنعية أقل.</div>
-    </div>`;
+      <div class="fin-note">💡 اشترِ الذهب بالتدريج، احتفظ به سنة على الأقل، وبِع عند القمم أو لتحقيق هدف. سبائك 24 مغلّفة = مصنعية أقل.</div>`,
+      `<div class="fin-section fin-total-hero"><span>إجمالي الأصول</span><strong>${finPriv(finFmt(totalA))} ${FIN_CUR}</strong></div>`
+    )}</div>`;
 }
 function finAssetTypeLabel(t) {
   return ({ gold: 'ذهب', thndr_gold: 'ذهب (ثاندر)', thndr_fund: 'صندوق إسلامي (ثاندر)', realestate: 'عقار', other: 'أخرى' })[t] || 'استثمار';
@@ -4512,9 +4740,8 @@ function renderFinanceZakat() {
   const income = finIncome();
 
   root.innerHTML = finToolbar('🕌 الزكاة والصدقة', finBtn('zakat-settings', '⚙️ إعدادات', 'fin-btn-ghost'), 'finance') +
-    `<div class="fin-page">
-      <div class="fin-section fin-total-hero"><span>الزكاة المستحقّة (2.5%)</span><strong>${finPriv(finFmt(due))} ${FIN_CUR}</strong></div>
-      <div class="fin-section">
+    `<div class="fin-page">${finSideLayout(
+      `<div class="fin-section">
         <div class="fin-kv"><span>الأموال الخاضعة للزكاة</span><strong>${finPriv(finFmt(total))} ${FIN_CUR}</strong></div>
         <div class="fin-kv"><span>النِّصاب (${state.finSettings?.nisabGrams || 85}جم ذهب)</span><strong>${finFmt(nisab)} ${FIN_CUR}</strong></div>
         <div class="fin-kv"><span>فوق النِّصاب؟</span><strong>${above ? 'نعم ✅' : 'لا'}</strong></div>
@@ -4530,8 +4757,12 @@ function renderFinanceZakat() {
         <div class="fin-kv"><span>المقترح شهرياً (من خطتك)</span><strong>${income > 0 ? finFmt(finPlanAmount('sadaqah')) + ' ' + FIN_CUR : '—'}</strong></div>
         <div class="fin-kv"><span>إجمالي صدقاتك</span><strong>${finPriv(finFmt(finSadaqahGiven(null)))} ${FIN_CUR}</strong></div>
       </div>
-      <div class="fin-note">🤲 الصدقة تطوّع مستمر (غير الزكاة الواجبة). خطتك بتخصّص نسبة للصدقة والزكاة — سجّل صدقاتك هنا عشان تتابعها.</div>
-    </div>`;
+      <div class="fin-section"><div class="fin-section-head"><h3>🧾 سجل الصدقات</h3></div>
+        <div class="fin-list">${finTxRowsHtml((state.transactions || []).filter(t => t.type === 'sadaqah').sort((a, b) => (b.createdAt?.toDate?.().getTime() || 0) - (a.createdAt?.toDate?.().getTime() || 0)))}</div>
+      </div>
+      <div class="fin-note">🤲 الصدقة تطوّع مستمر (غير الزكاة الواجبة). خطتك بتخصّص نسبة للصدقة والزكاة — سجّل صدقاتك هنا عشان تتابعها.</div>`,
+      `<div class="fin-section fin-total-hero"><span>الزكاة المستحقّة (2.5%)</span><strong>${finPriv(finFmt(due))} ${FIN_CUR}</strong></div>`
+    )}</div>`;
 }
 function finNisavGuard() { return finNisabValue(); }
 function finSadaqahGiven(period) {
@@ -4555,18 +4786,21 @@ function renderFinanceEmergency() {
   const pct = targetAmt > 0 ? (bal / targetAmt) * 100 : 0;
   const color = cov >= target ? '#3DB981' : cov >= 1 ? '#F0A835' : '#E05C5C';
 
-  const body = acc ? `
-    <div class="fin-section fin-total-hero"><span>رصيد الطوارئ</span><strong>${finPriv(finFmt(bal))} ${FIN_CUR}</strong></div>
-    <div class="fin-section">
+  const body = acc ? finSideLayout(
+    `<div class="fin-section">
       <div class="fin-kv"><span>التغطية</span><strong>${cov.toFixed(1)} / ${target} شهور</strong></div>
       ${finBar(pct, color)}
       <div class="fin-kv"><span>الهدف (${target} شهور معيشة)</span><strong>${finFmt(targetAmt)} ${FIN_CUR}</strong></div>
       <div class="fin-kv"><span>مصروف المعيشة الشهري</span><strong>${finFmt(ess)} ${FIN_CUR}</strong></div>
       <div class="fin-kv"><span>الحساب المخصّص</span><strong>${escapeHtml(acc.icon || '🛟')} ${escapeHtml(acc.name)}</strong></div>
     </div>
-    <div class="fin-page-actions">${finBtn('emergency-deposit', '＋ إيداع في الطوارئ', 'fin-btn-success')}${finBtn('emergency-target', '🎯 تعديل الهدف', 'fin-btn-ghost')}</div>`
-    : finEmpty('🛟', 'لسه مفيش حساب مخصّص لصندوق الطوارئ. اعمل حساب وعلّم عليه علامة «صندوق الطوارئ».',
-        finBtn('add-account', '＋ اعمل حساب طوارئ', 'fin-btn-primary') + finBtn('emergency-target', '🎯 حدّد الهدف', 'fin-btn-ghost'));
+    <div class="fin-page-actions">${finBtn('emergency-deposit', '＋ إيداع في الطوارئ', 'fin-btn-success')}${finBtn('emergency-target', '🎯 تعديل الهدف', 'fin-btn-ghost')}</div>`,
+    `<div class="fin-section fin-total-hero"><span>رصيد الطوارئ</span><strong>${finPriv(finFmt(bal))} ${FIN_CUR}</strong></div>`
+  ) : (state.accounts || []).length
+      ? finEmpty('🛟', 'لسه محدّدتش حساب لصندوق الطوارئ. اختار واحد من حساباتك الموجودة وهيبقى هو صندوق الطوارئ.',
+          finBtn('emergency-pick', '🛟 اختار حساب موجود', 'fin-btn-primary') + finBtn('emergency-target', '🎯 حدّد الهدف', 'fin-btn-ghost'))
+      : finEmpty('🛟', 'لسه مفيش حسابات. اعمل حساب الأول وعلّم عليه علامة «صندوق الطوارئ».',
+          finBtn('add-account', '＋ اعمل حساب', 'fin-btn-primary') + finBtn('emergency-target', '🎯 حدّد الهدف', 'fin-btn-ghost'));
 
   root.innerHTML = finToolbar('🛟 صندوق الطوارئ', '', 'finance') + `<div class="fin-page">${body}
     <div class="fin-note">💡 صندوق الطوارئ = كاش سائل مقفول لحالات الطوارئ (مرض / فقدان دخل). الهدف 3–6 شهور معيشة. متصرفش منه على المصاريف العادية.</div>
@@ -4597,6 +4831,29 @@ function openEmergencyDepositModal() {
         batch.set(txRef, { type: 'transfer', amount, accountId: from, toAccountId: acc.id, period: finThisPeriod(), createdAt: serverTimestamp() });
         await batch.commit();
         toast('تم الإيداع في الطوارئ', 'success'); finCloseModal();
+      } catch (err) { console.error(err); toast('فشل', 'error'); }
+    });
+}
+function openEmergencyPickModal() {
+  const accounts = state.accounts || [];
+  if (!accounts.length) { toast('اعمل حساب الأول', 'error'); return openAccountModal(null); }
+  finModal('🛟 تعيين حساب الطوارئ',
+    `<div class="form-group"><label class="form-label">اختَر حساب من حساباتك الموجودة</label>
+      <select id="em-pick-account" class="form-input">${finAccountOptions()}</select></div>
+     <div class="fin-note">هيتحدد كصندوق الطوارئ ورصيده الحالي هيبقى هو رصيد الصندوق — من غير ما تفتح حساب جديد.</div>`,
+    null,
+    async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('em-pick-account').value;
+      const acc = accounts.find(a => a.id === id);
+      if (!acc) { toast('اختَر حساب', 'error'); return; }
+      try {
+        const batch = writeBatch(db);
+        const other = accounts.find(x => x.isEmergency && x.id !== id);
+        if (other) batch.update(accountDoc(other.id), { isEmergency: false });
+        batch.update(accountDoc(id), { isEmergency: true });
+        await batch.commit();
+        toast('تم تحديد حساب الطوارئ', 'success'); finCloseModal();
       } catch (err) { console.error(err); toast('فشل', 'error'); }
     });
 }
@@ -5242,11 +5499,21 @@ function finHandleAction(act) {
     case 'sadaqah': return openSadaqahModal();
     case 'emergency-deposit': return openEmergencyDepositModal();
     case 'emergency-target': return openEmergencyTargetModal();
+    case 'emergency-pick': return openEmergencyPickModal();
+    case 'edit-tx': return openTxEditModal(arg);
+    case 'del-tx': return deleteTx(arg);
   }
 }
 function toggleFinPrivacy() {
   document.querySelectorAll('#content').forEach(c => c.classList.toggle('fin-privacy-on'));
 }
+
+// A blank <canvas> is ready synchronously (unlike an <img>, which may not have
+// decoded yet on first drag), so it reliably suppresses the browser's default
+// drag-ghost screenshot every time.
+const FIN_DRAG_BLANK_IMG = document.createElement('canvas');
+FIN_DRAG_BLANK_IMG.width = 1;
+FIN_DRAG_BLANK_IMG.height = 1;
 
 (function bindFinanceUI() {
   const content = document.getElementById('content');
@@ -5261,6 +5528,49 @@ function toggleFinPrivacy() {
         state.finPeriod = finShiftPeriod(state.finPeriod || finThisPeriod(), per.dataset.finPeriod === 'next' ? 1 : -1);
         renderFinHub(); return;
       }
+    });
+    content.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const nav = e.target.closest('.fin-sum-card-draggable[data-fin-nav]');
+      if (nav) navigateTo(nav.dataset.finNav);
+    });
+
+    // Drag-reorder for the finance-home status cards — same grammar as the
+    // client/project card reordering (dragging-card / drag-over-card classes).
+    let dragKey = null;
+    content.addEventListener('dragstart', (e) => {
+      const card = e.target.closest('.fin-sum-card-draggable');
+      if (!card) return;
+      dragKey = card.dataset.cardKey;
+      card.classList.add('dragging-card');
+      e.dataTransfer.effectAllowed = 'move';
+      // Suppress the browser's default drag-ghost screenshot; the dashed/faded
+      // .dragging-card style on the real card is feedback enough.
+      e.dataTransfer.setDragImage(FIN_DRAG_BLANK_IMG, 0, 0);
+    });
+    content.addEventListener('dragend', () => {
+      content.querySelectorAll('.fin-sum-card-draggable').forEach(c => c.classList.remove('dragging-card', 'drag-over-card'));
+      dragKey = null;
+    });
+    content.addEventListener('dragover', (e) => {
+      const card = e.target.closest('.fin-sum-card-draggable');
+      if (!card || !dragKey || card.dataset.cardKey === dragKey) return;
+      e.preventDefault();
+      card.classList.add('drag-over-card');
+    });
+    content.addEventListener('dragleave', (e) => {
+      const card = e.target.closest('.fin-sum-card-draggable');
+      if (card && !card.contains(e.relatedTarget)) card.classList.remove('drag-over-card');
+    });
+    content.addEventListener('drop', (e) => {
+      const target = e.target.closest('.fin-sum-card-draggable');
+      content.querySelectorAll('.fin-sum-card-draggable.drag-over-card').forEach(c => c.classList.remove('drag-over-card'));
+      if (!target || !dragKey || target.dataset.cardKey === dragKey) return;
+      e.preventDefault();
+      const order = reorderIdsForDrop(finHomeCardOrder(), dragKey, target.dataset.cardKey);
+      dragKey = null;
+      finSaveCardOrder(order);
+      renderFinHub();
     });
   }
   // Dynamic modal wiring
