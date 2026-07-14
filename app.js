@@ -1515,9 +1515,13 @@ function renderFocusOrb() {
           </div>
           <div class="focus-orb-time-note" id="focus-orb-time-note"></div>
         </div>
-        <div class="focus-idle-presets">
-          <button class="premium-ide-btn is-primary" type="button" data-preset="quick">⚡ سريع 25/5</button>
-          <button class="premium-ide-btn is-primary" type="button" data-preset="deep">🎯 عميق 50/10</button>
+        <div class="focus-pills focus-idle-presets">
+          <button class="focus-pill" type="button" data-preset="quick">
+            <span class="pill-emoji">⚡</span><span class="pill-label">سريع</span><span class="pill-time">25/5</span>
+          </button>
+          <button class="focus-pill" type="button" data-preset="deep">
+            <span class="pill-emoji">🎯</span><span class="pill-label">عميق</span><span class="pill-time">50/10</span>
+          </button>
         </div>
         <div class="focus-log" id="focus-log"></div>
       </div>`;
