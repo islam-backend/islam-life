@@ -108,9 +108,11 @@
           <div class="hub-layout">
             <!-- Left: section tiles -->
             <div class="hub-main">
-              <div class="focus-banner" id="focus-banner" hidden></div>
               <div class="hub-grid" id="hub-grid"></div>
             </div>
+
+            <!-- Middle: focus timer orb — sits between the tiles and the side panel -->
+            <div class="focus-orb-col" id="focus-orb-col"></div>
 
             <!-- Right: big side panel (prayer times + today's client rings) -->
             <aside class="hub-side">
@@ -140,19 +142,6 @@
                 </div>
                 <div class="hub-card-body">
                   <div class="today-rings" id="today-rings"></div>
-                </div>
-              </div>
-
-              <div class="hub-card" id="focus-card">
-                <div class="hub-card-head">
-                  <span class="hub-card-title">🍅 فوكس تايمر</span>
-                  <span class="hub-card-sub" id="focus-sub"></span>
-                  <button class="hub-card-collapse-btn" data-collapse-card="focus-card" type="button" title="طي/فتح" aria-label="طي/فتح">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
-                </div>
-                <div class="hub-card-body">
-                  <div class="focus-widget" id="focus-body"></div>
                 </div>
               </div>
             </aside>

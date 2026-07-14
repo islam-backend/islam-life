@@ -511,7 +511,7 @@ const state = {
   editTarget:   null,
   unsubscribe: null,
   pendingHighlightTaskId: null,   // v23.0 — scroll-to-task after kanban opens
-  // Focus timer (Pomodoro v1)
+  // Focus timer (Pomodoro v2)
   focus: {
     active:      false,
     preset:      null,   // 'quick' | 'deep'
@@ -522,6 +522,8 @@ const state = {
     accumulatedPauseSec: 0,
     tickInterval:     null,
     restored:         false, // guards restoreActiveFocusSessionOnLoad from re-running its Firestore read
+    projectId:        null,  // project this session's time is logged against
+    clientId:         null,
   },
   // Calendar state (v9.2)
   calendarCursor:       null,     // Date pointing at the displayed month
@@ -855,7 +857,7 @@ function navigateTo(view, payload = {}, fromPop = false) {
     renderHub();
     loadPrayerTimes();
     subscribeDashboard();
-    renderPomodoroWidget();
+    renderFocusOrb();
     restoreActiveFocusSessionOnLoad();
 
   } else if (view === 'clients') {
@@ -1113,6 +1115,10 @@ function renderDashboard() {
 
   // ── Today's client status rings (same visual as the monthly calendar) ──
   renderTodayRings();
+
+  // Refresh the focus orb's project list as projects/clients stream in —
+  // skip while a session is running so the live ring never gets clobbered.
+  if (!state.focus.active) renderFocusOrb();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1286,13 +1292,16 @@ function renderPrayerTimes(timings) {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  FOCUS TIMER — Pomodoro v1 (hub side-card)
+//  FOCUS TIMER — Pomodoro v2 (orb between the tiles and side panel)
 // ════════════════════════════════════════════════════════════════
 
 const FOCUS_PRESETS = {
   quick: { label: '⚡ سريع 25/5', workMinutes: 25, breakMinutes: 5 },
   deep:  { label: '🎯 عميق 50/10', workMinutes: 50, breakMinutes: 10 },
 };
+
+const FOCUS_RING_R = 46;
+const FOCUS_RING_CIRC = 2 * Math.PI * FOCUS_RING_R;
 
 function focusFmtClock(sec) {
   const s = Math.max(0, Math.ceil(sec));
@@ -1312,6 +1321,13 @@ function focusRemainingSec() {
   return f.phaseDurationSec - elapsed;
 }
 
+// Project the current session is logged against, joined with its client —
+// used for the "which project is this time going to" label + gauge lookup.
+function focusLinkedProject() {
+  if (!state.focus.projectId) return null;
+  return state.allProjects.find(p => p.id === state.focus.projectId) || null;
+}
+
 function focusStopTick() {
   if (state.focus.tickInterval) { clearInterval(state.focus.tickInterval); state.focus.tickInterval = null; }
 }
@@ -1329,16 +1345,14 @@ function focusStartTick() {
 
 // Cheap per-tick DOM update — no full re-render of the widget.
 function focusPaintRunning() {
-  const countdownEl = document.getElementById('focus-banner-countdown');
-  const fillEl = document.getElementById('focus-banner-fill');
-  if (!countdownEl) return;
+  const countEl = document.getElementById('focus-ring-count');
+  const ringEl  = document.getElementById('focus-ring-progress');
+  if (!countEl) return;
   const remaining = Math.max(0, focusRemainingSec());
-  countdownEl.textContent = focusFmtClock(remaining);
-  if (fillEl) {
-    const pct = state.focus.phaseDurationSec
-      ? Math.min(100, Math.max(0, 100 - (remaining / state.focus.phaseDurationSec) * 100))
-      : 0;
-    fillEl.style.width = `${pct}%`;
+  countEl.textContent = focusFmtClock(remaining);
+  if (ringEl && state.focus.phaseDurationSec) {
+    const elapsedFrac = 1 - Math.max(0, Math.min(1, remaining / state.focus.phaseDurationSec));
+    ringEl.setAttribute('stroke-dashoffset', String(FOCUS_RING_CIRC * elapsedFrac));
   }
 }
 
@@ -1352,12 +1366,18 @@ async function focusWriteActiveDoc() {
     phaseDurationSec: f.phaseDurationSec,
     pausedAt: f.pausedAt,
     accumulatedPauseSec: f.accumulatedPauseSec,
+    projectId: f.projectId,
+    clientId: f.clientId,
   });
 }
 
 async function startFocusSession(preset) {
   const cfg = FOCUS_PRESETS[preset];
   if (!cfg) return;
+  const select = document.getElementById('focus-project-select');
+  const projectId = select?.value || null;
+  const project = projectId ? state.allProjects.find(p => p.id === projectId) : null;
+  const clientId = project?._ref ? project._ref.parent.parent.id : null;
   Object.assign(state.focus, {
     active: true,
     preset,
@@ -1366,8 +1386,10 @@ async function startFocusSession(preset) {
     phaseDurationSec: cfg.workMinutes * 60,
     pausedAt: null,
     accumulatedPauseSec: 0,
+    projectId,
+    clientId,
   });
-  renderPomodoroWidget();
+  renderFocusOrb();
   focusStartTick();
   try { await focusWriteActiveDoc(); } catch (e) { console.error('focus start:', e); }
 }
@@ -1376,7 +1398,7 @@ async function pauseFocusSession() {
   const f = state.focus;
   if (!f.active || f.pausedAt) return;
   f.pausedAt = Date.now();
-  renderPomodoroWidget();
+  renderFocusOrb();
   try { await focusWriteActiveDoc(); } catch (e) { console.error('focus pause:', e); }
 }
 
@@ -1385,7 +1407,7 @@ async function resumeFocusSession() {
   if (!f.active || !f.pausedAt) return;
   f.accumulatedPauseSec += (Date.now() - f.pausedAt) / 1000;
   f.pausedAt = null;
-  renderPomodoroWidget();
+  renderFocusOrb();
   try { await focusWriteActiveDoc(); } catch (e) { console.error('focus resume:', e); }
 }
 
@@ -1394,9 +1416,10 @@ async function resetFocusSession() {
     active: false, preset: null, phase: null,
     phaseStartedAt: 0, phaseDurationSec: 0,
     pausedAt: null, accumulatedPauseSec: 0,
+    projectId: null, clientId: null,
   });
   focusStopTick();
-  renderPomodoroWidget();
+  renderFocusOrb();
   try { await setDoc(activeFocusSessionDoc(), { active: false }); } catch (e) { console.error('focus reset:', e); }
 }
 
@@ -1405,6 +1428,13 @@ async function focusCompletePhase() {
   if (f.phase === 'work') {
     const cfg = FOCUS_PRESETS[f.preset];
     toast('انتهت فترة التركيز! خد استراحة ☕', 'success');
+    // Log the work minutes onto the linked project's running total as soon
+    // as the work phase itself is done — the break shouldn't gate this.
+    if (f.projectId && f.clientId) {
+      try {
+        await updateDoc(projectDoc(f.clientId, f.projectId), { totalProjectHours: increment(cfg.workMinutes / 60) });
+      } catch (e) { console.error('focus project hours log:', e); }
+    }
     Object.assign(f, {
       phase: 'break',
       phaseStartedAt: Date.now(),
@@ -1412,7 +1442,7 @@ async function focusCompletePhase() {
       pausedAt: null,
       accumulatedPauseSec: 0,
     });
-    renderPomodoroWidget();
+    renderFocusOrb();
     try { await focusWriteActiveDoc(); } catch (e) { console.error('focus phase advance:', e); }
   } else {
     await focusCompleteSession();
@@ -1432,7 +1462,8 @@ async function focusCompleteSession() {
       startedAt: new Date(f.phaseStartedAt - cfg.breakMinutes * 60000),
       completedAt: serverTimestamp(),
       phasesCompleted: 2,
-      projectId: null,
+      projectId: f.projectId,
+      clientId: f.clientId,
       createdAt: serverTimestamp(),
     });
     await setDoc(activeFocusSessionDoc(), { active: false });
@@ -1441,86 +1472,80 @@ async function focusCompleteSession() {
     active: false, preset: null, phase: null,
     phaseStartedAt: 0, phaseDurationSec: 0,
     pausedAt: null, accumulatedPauseSec: 0,
+    projectId: null, clientId: null,
   });
-  renderPomodoroWidget();
+  renderFocusOrb();
 }
 
-// Sidebar mini-card: matches the plain, button-less look of the prayer/
-// rings cards. Idle → two quiet text rows (tap to start). Running → a
-// single "already running, look up ↑" status line, no duplicate controls.
-function renderPomodoroWidget() {
-  const body = document.getElementById('focus-body');
-  const sub  = document.getElementById('focus-sub');
-  if (!body) return;
-
+// Renders the whole orb column: idle → project picker + two presets;
+// running → an animated ring that drains as the phase counts down.
+function renderFocusOrb() {
+  const col = document.getElementById('focus-orb-col');
+  if (!col) return;
   const f = state.focus;
 
   if (!f.active) {
-    if (sub) sub.textContent = '';
-    body.innerHTML = `
-      <div class="focus-preset-row">
-        <div class="focus-preset-row-item" data-preset="quick">
-          <span class="focus-preset-name">⚡ سريع</span>
-          <span class="focus-preset-time">25 / 5</span>
-        </div>
-        <div class="focus-preset-row-item" data-preset="deep">
-          <span class="focus-preset-name">🎯 عميق</span>
-          <span class="focus-preset-time">50 / 10</span>
+    const options = state.allProjects
+      .map(p => {
+        const client = state.clients.find(c => c.id === (p._ref ? p._ref.parent.parent.id : null));
+        return { id: p.id, label: `${p.name || 'مشروع'} — ${client?.name || ''}`, hours: Number(p.totalProjectHours) || 0 };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, 'ar'));
+
+    col.innerHTML = `
+      <div class="focus-orb-idle">
+        <select class="focus-orb-select" id="focus-project-select">
+          <option value="">بدون مشروع</option>
+          ${options.map(o => `<option value="${o.id}">${escapeHtml(o.label)}</option>`).join('')}
+        </select>
+        <div class="focus-orb-time-note" id="focus-orb-time-note"></div>
+        <div class="focus-orb-presets">
+          <button class="premium-ide-btn is-primary" type="button" data-preset="quick">⚡ 25/5</button>
+          <button class="premium-ide-btn is-primary" type="button" data-preset="deep">🎯 50/10</button>
         </div>
       </div>`;
-  } else {
-    const cfg = FOCUS_PRESETS[f.preset];
-    if (sub) sub.textContent = f.phase === 'work' ? 'شغل' : 'استراحة';
-    body.innerHTML = `
-      <div class="focus-running-note">
-        ${f.phase === 'work' ? '🎯' : '☕'} ${cfg.label} شغالة — شوف الشريط فوق ⬆️
-      </div>`;
-  }
 
-  renderFocusBanner();
-}
-
-// Prominent full-width bar pinned above the hub tiles — this is the "I
-// actually see it running in front of me" surface the sidebar card is too
-// small and too easy to miss for.
-function renderFocusBanner() {
-  const banner = document.getElementById('focus-banner');
-  if (!banner) return;
-  const f = state.focus;
-
-  if (!f.active) {
-    banner.hidden = true;
-    banner.innerHTML = '';
+    const select = document.getElementById('focus-project-select');
+    const note   = document.getElementById('focus-orb-time-note');
+    const paintNote = () => {
+      const opt = options.find(o => o.id === select.value);
+      note.textContent = opt ? `مسجل عليه: ${formatHours(opt.hours)}` : '';
+    };
+    select?.addEventListener('change', paintNote);
+    paintNote();
     return;
   }
 
   const cfg = FOCUS_PRESETS[f.preset];
   const remaining = Math.max(0, focusRemainingSec());
-  const pct = f.phaseDurationSec ? Math.min(100, Math.max(0, 100 - (remaining / f.phaseDurationSec) * 100)) : 0;
+  const elapsedFrac = f.phaseDurationSec ? 1 - Math.max(0, Math.min(1, remaining / f.phaseDurationSec)) : 0;
   const isWork = f.phase === 'work';
+  const project = focusLinkedProject();
 
-  banner.hidden = false;
-  banner.classList.toggle('is-break', !isWork);
-  banner.innerHTML = `
-    <div class="focus-banner-info">
-      <span class="focus-banner-phase">${isWork ? '🎯 وقت التركيز' : '☕ وقت الراحة'}</span>
-      <span class="focus-banner-preset">${cfg.label}</span>
+  col.innerHTML = `
+    <div class="focus-ring-wrap ${isWork ? '' : 'is-break'}">
+      <svg class="focus-ring-svg" viewBox="0 0 100 100">
+        <circle class="focus-ring-track" cx="50" cy="50" r="${FOCUS_RING_R}"></circle>
+        <circle class="focus-ring-progress" id="focus-ring-progress" cx="50" cy="50" r="${FOCUS_RING_R}"
+          stroke-dasharray="${FOCUS_RING_CIRC}" stroke-dashoffset="${FOCUS_RING_CIRC * elapsedFrac}"></circle>
+      </svg>
+      <div class="focus-ring-count" id="focus-ring-count">${focusFmtClock(remaining)}</div>
     </div>
-    <div class="focus-banner-countdown" id="focus-banner-countdown">${focusFmtClock(remaining)}</div>
-    <div class="focus-banner-controls">
-      <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️ استكمال' : '⏸️ إيقاف مؤقت'}</button>
-      <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">إعادة تعيين</button>
-    </div>
-    <div class="focus-banner-track"><div class="focus-banner-fill" id="focus-banner-fill" style="width:${pct}%"></div></div>`;
+    <div class="focus-orb-phase">${isWork ? '🎯 تركيز' : '☕ راحة'} — ${cfg.label}</div>
+    ${project ? `<div class="focus-orb-project" title="${escapeHtml(project.name || '')}">📁 ${escapeHtml(project.name || '')}</div>` : ''}
+    <div class="focus-orb-controls">
+      <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️' : '⏸️'}</button>
+      <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">■</button>
+    </div>`;
 }
 
-// One delegated listener (on the document) handles the sidebar's start
-// rows and the banner's pause/resume/reset — both surfaces, one place.
+// One delegated listener handles both the idle picker's presets and the
+// running ring's pause/resume/reset.
 (function initFocusWidgetEvents() {
   document.addEventListener('click', (e) => {
-    const presetBtn = e.target.closest('#focus-body [data-preset]');
+    const presetBtn = e.target.closest('#focus-orb-col [data-preset]');
     if (presetBtn) { startFocusSession(presetBtn.dataset.preset); return; }
-    const actionBtn = e.target.closest('#focus-banner [data-focus-action]');
+    const actionBtn = e.target.closest('#focus-orb-col [data-focus-action]');
     if (!actionBtn) return;
     const action = actionBtn.dataset.focusAction;
     if (action === 'pause') pauseFocusSession();
@@ -1547,10 +1572,12 @@ async function restoreActiveFocusSessionOnLoad() {
       phaseDurationSec: data.phaseDurationSec,
       pausedAt: data.pausedAt || null,
       accumulatedPauseSec: data.accumulatedPauseSec || 0,
+      projectId: data.projectId || null,
+      clientId: data.clientId || null,
     });
     const remaining = focusRemainingSec();
     if (remaining <= 0) { await focusCompletePhase(); return; }
-    renderPomodoroWidget();
+    renderFocusOrb();
     focusStartTick();
   } catch (e) { console.error('focus restore:', e); }
 }

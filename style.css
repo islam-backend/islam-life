@@ -7085,17 +7085,19 @@ svg {
   border-color: var(--danger);
 }
 
-/* ── Hub 2-column layout: tiles + big side panel ── */
+/* ── Hub 3-column layout: tiles + focus orb + big side panel ── */
 .hub-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 130px 340px;
   gap: 22px;
-  align-items: start;
+  align-items: center;
   width: 100%;
   /* Preserve the vertical offset the removed welcome row used to give, so
      the tiles + prayer card stay at their original lower position. */
   margin-top: 20px;
 }
+.hub-main { align-self: start; }
+.hub-side { align-self: start; }
 .hub-main .hub-grid { max-width: none; }
 .hub-side {
   display: flex;
@@ -7248,75 +7250,79 @@ svg {
   flex-shrink: 0;
 }
 
-/* ── Focus timer sidebar card (Pomodoro v1) — same quiet, button-less
-   look as the prayer/rings cards above it: rows, not buttons. ── */
-.focus-preset-row { display: flex; flex-direction: column; gap: 2px; }
-.focus-preset-row-item {
+/* ── Focus timer orb (Pomodoro v2) — sits in its own narrow column
+   between the hub tiles and the side panel, vertically centered so it
+   lands roughly between the prayer card and the today's-clients card. ── */
+.focus-orb-col {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 9px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.focus-preset-row-item:hover { background: var(--bg-card-hover); }
-.focus-preset-name { color: var(--text-secondary); font-weight: 500; font-size: 13.5px; }
-.focus-preset-time { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 12.5px; }
-.focus-running-note {
-  font-size: 12.5px;
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-radius: 9px;
-  padding: 8px 12px;
+  gap: 10px;
+  text-align: center;
 }
 
-/* ── Focus banner — prominent, pinned above the hub tiles while a
-   session is running. This is the actually-visible-in-front-of-you
-   timer; the sidebar card only ever shows a quiet status line. ── */
-.focus-banner {
+/* Idle: pick a project, then a preset — quiet, no big buttons */
+.focus-orb-idle { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; }
+.focus-orb-select {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-family: inherit;
+  padding: 6px 8px;
+}
+.focus-orb-presets { display: flex; flex-direction: column; gap: 6px; }
+.focus-orb-presets .premium-ide-btn { justify-content: center; font-size: 11.5px; padding: 7px 8px; }
+.focus-orb-time-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Running: an animated ring, moving as the phase counts down */
+.focus-ring-wrap {
   position: relative;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  animation: focus-ring-pulse 2.4s ease-in-out infinite;
+}
+.focus-ring-wrap.is-break { animation-name: focus-ring-pulse-break; }
+@keyframes focus-ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(53, 116, 240, 0.16); }
+  50%      { box-shadow: 0 0 0 7px rgba(53, 116, 240, 0); }
+}
+@keyframes focus-ring-pulse-break {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(61, 185, 129, 0.16); }
+  50%      { box-shadow: 0 0 0 7px rgba(61, 185, 129, 0); }
+}
+.focus-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.focus-ring-track { fill: none; stroke: var(--bg-app); stroke-width: 8; }
+.focus-ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s linear;
+}
+.focus-ring-wrap.is-break .focus-ring-progress { stroke: var(--status-done); }
+.focus-ring-count {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--accent);
-  box-shadow: 0 0 0 1px rgba(53, 116, 240, 0.12), 0 4px 18px rgba(53, 116, 240, 0.08);
-  border-radius: 14px;
-  padding: 14px 20px;
-  margin-bottom: 16px;
-  overflow: hidden;
-}
-.focus-banner.is-break { border-color: var(--status-done); box-shadow: 0 0 0 1px rgba(61, 185, 129, 0.12); }
-.focus-banner-info { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
-.focus-banner-phase { font-size: 14px; font-weight: 700; color: var(--text-primary); }
-.focus-banner-preset { font-size: 12px; color: var(--text-muted); }
-.focus-banner-countdown {
-  font-size: 2.2rem;
+  justify-content: center;
+  font-size: 1.2rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  line-height: 1;
-  flex: 0 0 auto;
+  color: var(--text-primary);
 }
-.focus-banner.is-break .focus-banner-countdown { color: var(--status-done); }
-.focus-banner-controls { display: flex; gap: 8px; flex: 0 0 auto; }
-.focus-banner-track {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 3px;
-  background: var(--bg-app);
-}
-.focus-banner-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.focus-banner.is-break .focus-banner-fill { background: var(--status-done); }
-@media (max-width: 720px) {
-  .focus-banner { flex-wrap: wrap; }
-  .focus-banner-countdown { order: 3; flex: 1 1 100%; text-align: center; }
-}
+.focus-orb-phase { font-size: 11px; color: var(--text-secondary); }
+.focus-orb-project { font-size: 10.5px; color: var(--text-muted); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-orb-controls { display: flex; gap: 6px; }
+.focus-orb-controls .premium-ide-btn { font-size: 11px; padding: 5px 8px; }
 .today-rings-empty {
   font-size: 12.5px;
   color: var(--text-muted);
