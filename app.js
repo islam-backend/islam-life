@@ -458,6 +458,10 @@ const projectDoc  = (cId, pId)                 => doc(db, 'clients', cId, 'proje
 const taskDoc     = (cId, pId, tId)            => doc(db, 'clients', cId, 'projects', pId, 'tasks', tId);
 const userStatsDoc = ()                        => doc(db, 'meta', 'userStats');
 
+// ── Focus Timer Refs ───────────────────────────────────────────
+const focusSessionsRef     = ()                => collection(db, 'focusSessions');
+const activeFocusSessionDoc = ()               => doc(db, 'meta', 'activeFocusSession');
+
 // ── Finance Center Refs (المركز المالي) ───────────────────────
 const accountsRef      = ()      => collection(db, 'accounts');
 const categoriesRef    = ()      => collection(db, 'budgetCategories');
@@ -507,6 +511,18 @@ const state = {
   editTarget:   null,
   unsubscribe: null,
   pendingHighlightTaskId: null,   // v23.0 — scroll-to-task after kanban opens
+  // Focus timer (Pomodoro v1)
+  focus: {
+    active:      false,
+    preset:      null,   // 'quick' | 'deep'
+    phase:       null,   // 'work' | 'break'
+    phaseStartedAt:   0, // ms epoch
+    phaseDurationSec: 0,
+    pausedAt:         null, // ms epoch or null when running
+    accumulatedPauseSec: 0,
+    tickInterval:     null,
+    restored:         false, // guards restoreActiveFocusSessionOnLoad from re-running its Firestore read
+  },
   // Calendar state (v9.2)
   calendarCursor:       null,     // Date pointing at the displayed month
   dayDate:              null,     // Date selected for day-details view
@@ -839,6 +855,8 @@ function navigateTo(view, payload = {}, fromPop = false) {
     renderHub();
     loadPrayerTimes();
     subscribeDashboard();
+    renderPomodoroWidget();
+    restoreActiveFocusSessionOnLoad();
 
   } else if (view === 'clients') {
     state.client  = null;
@@ -1266,6 +1284,243 @@ function renderPrayerTimes(timings) {
   tick();
   prayerTick = setInterval(tick, 30000);
 }
+
+// ════════════════════════════════════════════════════════════════
+//  FOCUS TIMER — Pomodoro v1 (hub side-card)
+// ════════════════════════════════════════════════════════════════
+
+const FOCUS_PRESETS = {
+  quick: { label: '⚡ سريع 25/5', workMinutes: 25, breakMinutes: 5 },
+  deep:  { label: '🎯 عميق 50/10', workMinutes: 50, breakMinutes: 10 },
+};
+
+function focusFmtClock(sec) {
+  const s = Math.max(0, Math.ceil(sec));
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+// Remaining seconds in the current phase, computed from wall-clock
+// timestamps (not a decremented counter) so background tabs / reloads
+// never drift — the whole point of this being reload-safe.
+function focusRemainingSec() {
+  const f = state.focus;
+  if (!f.active) return 0;
+  const pausedExtra = f.pausedAt ? (Date.now() - f.pausedAt) / 1000 : 0;
+  const elapsed = (Date.now() - f.phaseStartedAt) / 1000 - f.accumulatedPauseSec - pausedExtra;
+  return f.phaseDurationSec - elapsed;
+}
+
+function focusStopTick() {
+  if (state.focus.tickInterval) { clearInterval(state.focus.tickInterval); state.focus.tickInterval = null; }
+}
+
+function focusStartTick() {
+  focusStopTick();
+  state.focus.tickInterval = setInterval(() => {
+    if (state.view !== 'dashboard') return;
+    if (!state.focus.active || state.focus.pausedAt) { focusPaintRunning(); return; }
+    const remaining = focusRemainingSec();
+    if (remaining <= 0) { focusCompletePhase(); return; }
+    focusPaintRunning();
+  }, 250);
+}
+
+// Cheap per-tick DOM update — no full re-render of the widget.
+function focusPaintRunning() {
+  const countdownEl = document.getElementById('focus-countdown');
+  const fillEl = document.getElementById('focus-progress-fill');
+  if (!countdownEl) return;
+  const remaining = Math.max(0, focusRemainingSec());
+  countdownEl.textContent = focusFmtClock(remaining);
+  if (fillEl) {
+    const pct = state.focus.phaseDurationSec
+      ? Math.min(100, Math.max(0, 100 - (remaining / state.focus.phaseDurationSec) * 100))
+      : 0;
+    fillEl.style.width = `${pct}%`;
+  }
+}
+
+async function focusWriteActiveDoc() {
+  const f = state.focus;
+  await setDoc(activeFocusSessionDoc(), {
+    active: f.active,
+    preset: f.preset,
+    phase: f.phase,
+    phaseStartedAt: f.phaseStartedAt,
+    phaseDurationSec: f.phaseDurationSec,
+    pausedAt: f.pausedAt,
+    accumulatedPauseSec: f.accumulatedPauseSec,
+  });
+}
+
+async function startFocusSession(preset) {
+  const cfg = FOCUS_PRESETS[preset];
+  if (!cfg) return;
+  Object.assign(state.focus, {
+    active: true,
+    preset,
+    phase: 'work',
+    phaseStartedAt: Date.now(),
+    phaseDurationSec: cfg.workMinutes * 60,
+    pausedAt: null,
+    accumulatedPauseSec: 0,
+  });
+  renderPomodoroWidget();
+  focusStartTick();
+  try { await focusWriteActiveDoc(); } catch (e) { console.error('focus start:', e); }
+}
+
+async function pauseFocusSession() {
+  const f = state.focus;
+  if (!f.active || f.pausedAt) return;
+  f.pausedAt = Date.now();
+  renderPomodoroWidget();
+  try { await focusWriteActiveDoc(); } catch (e) { console.error('focus pause:', e); }
+}
+
+async function resumeFocusSession() {
+  const f = state.focus;
+  if (!f.active || !f.pausedAt) return;
+  f.accumulatedPauseSec += (Date.now() - f.pausedAt) / 1000;
+  f.pausedAt = null;
+  renderPomodoroWidget();
+  try { await focusWriteActiveDoc(); } catch (e) { console.error('focus resume:', e); }
+}
+
+async function resetFocusSession() {
+  Object.assign(state.focus, {
+    active: false, preset: null, phase: null,
+    phaseStartedAt: 0, phaseDurationSec: 0,
+    pausedAt: null, accumulatedPauseSec: 0,
+  });
+  focusStopTick();
+  renderPomodoroWidget();
+  try { await setDoc(activeFocusSessionDoc(), { active: false }); } catch (e) { console.error('focus reset:', e); }
+}
+
+async function focusCompletePhase() {
+  const f = state.focus;
+  if (f.phase === 'work') {
+    const cfg = FOCUS_PRESETS[f.preset];
+    toast('انتهت فترة التركيز! خد استراحة ☕', 'success');
+    Object.assign(f, {
+      phase: 'break',
+      phaseStartedAt: Date.now(),
+      phaseDurationSec: cfg.breakMinutes * 60,
+      pausedAt: null,
+      accumulatedPauseSec: 0,
+    });
+    renderPomodoroWidget();
+    try { await focusWriteActiveDoc(); } catch (e) { console.error('focus phase advance:', e); }
+  } else {
+    await focusCompleteSession();
+  }
+}
+
+async function focusCompleteSession() {
+  const f = state.focus;
+  const cfg = FOCUS_PRESETS[f.preset];
+  toast('جلسة تركيز خلصت 🎉', 'success');
+  focusStopTick();
+  try {
+    await addDoc(focusSessionsRef(), {
+      preset: f.preset,
+      workMinutes: cfg.workMinutes,
+      breakMinutes: cfg.breakMinutes,
+      startedAt: new Date(f.phaseStartedAt - cfg.breakMinutes * 60000),
+      completedAt: serverTimestamp(),
+      phasesCompleted: 2,
+      projectId: null,
+      createdAt: serverTimestamp(),
+    });
+    await setDoc(activeFocusSessionDoc(), { active: false });
+  } catch (e) { console.error('focus complete:', e); }
+  Object.assign(f, {
+    active: false, preset: null, phase: null,
+    phaseStartedAt: 0, phaseDurationSec: 0,
+    pausedAt: null, accumulatedPauseSec: 0,
+  });
+  renderPomodoroWidget();
+}
+
+function renderPomodoroWidget() {
+  const body = document.getElementById('focus-body');
+  const sub  = document.getElementById('focus-sub');
+  if (!body) return;
+
+  const f = state.focus;
+
+  if (!f.active) {
+    if (sub) sub.textContent = '';
+    body.innerHTML = `
+      <div class="focus-preset-row">
+        <button class="premium-ide-btn is-primary" type="button" data-preset="quick">${FOCUS_PRESETS.quick.label}</button>
+        <button class="premium-ide-btn is-primary" type="button" data-preset="deep">${FOCUS_PRESETS.deep.label}</button>
+      </div>`;
+    return;
+  }
+
+  const cfg = FOCUS_PRESETS[f.preset];
+  if (sub) sub.textContent = f.phase === 'work' ? 'شغل' : 'استراحة';
+  const remaining = Math.max(0, focusRemainingSec());
+  const pct = f.phaseDurationSec ? Math.min(100, Math.max(0, 100 - (remaining / f.phaseDurationSec) * 100)) : 0;
+
+  body.innerHTML = `
+    <div class="focus-phase-label">${f.phase === 'work' ? '🎯 وقت التركيز' : '☕ وقت الراحة'} — ${cfg.label}</div>
+    <div class="focus-countdown" id="focus-countdown">${focusFmtClock(remaining)}</div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="focus-progress-fill" style="width:${pct}%; background:var(--accent);"></div></div>
+    </div>
+    <div class="focus-controls-row">
+      <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️ استكمال' : '⏸️ إيقاف مؤقت'}</button>
+      <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">إعادة تعيين</button>
+    </div>`;
+}
+
+// One delegated listener handles both idle presets and running controls.
+(function initFocusWidgetEvents() {
+  const body = document.getElementById('focus-body');
+  if (!body) return;
+  body.addEventListener('click', (e) => {
+    const presetBtn = e.target.closest('[data-preset]');
+    if (presetBtn) { startFocusSession(presetBtn.dataset.preset); return; }
+    const actionBtn = e.target.closest('[data-focus-action]');
+    if (!actionBtn) return;
+    const action = actionBtn.dataset.focusAction;
+    if (action === 'pause') pauseFocusSession();
+    else if (action === 'resume') resumeFocusSession();
+    else if (action === 'reset') resetFocusSession();
+  });
+})();
+
+// Runs once at app boot: if a session was left running (e.g. the page was
+// reloaded mid-timer), reconstruct it from Firestore instead of losing it.
+async function restoreActiveFocusSessionOnLoad() {
+  if (state.focus.restored) return;
+  state.focus.restored = true;
+  try {
+    const snap = await getDoc(activeFocusSessionDoc());
+    if (!snap.exists()) return;
+    const data = snap.data();
+    if (!data.active) return;
+    Object.assign(state.focus, {
+      active: true,
+      preset: data.preset,
+      phase: data.phase,
+      phaseStartedAt: data.phaseStartedAt,
+      phaseDurationSec: data.phaseDurationSec,
+      pausedAt: data.pausedAt || null,
+      accumulatedPauseSec: data.accumulatedPauseSec || 0,
+    });
+    const remaining = focusRemainingSec();
+    if (remaining <= 0) { await focusCompletePhase(); return; }
+    renderPomodoroWidget();
+    focusStartTick();
+  } catch (e) { console.error('focus restore:', e); }
+}
+
 // ════════════════════════════════════════════════════════════════
 //  RENDER — DAILY SUMMARY WIDGET (v23.0)
 // ════════════════════════════════════════════════════════════════

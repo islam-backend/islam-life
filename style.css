@@ -7247,6 +7247,26 @@ svg {
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
+
+/* ── Focus timer (Pomodoro v1) ── */
+.focus-widget { display: flex; flex-direction: column; gap: 10px; }
+.focus-preset-row { display: flex; gap: 8px; }
+.focus-preset-row .premium-ide-btn { flex: 1 1 0; justify-content: center; }
+.focus-phase-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.focus-countdown {
+  font-size: 2.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+.focus-controls-row { display: flex; gap: 8px; }
+.focus-controls-row .premium-ide-btn { flex: 1 1 0; justify-content: center; }
 .today-rings-empty {
   font-size: 12.5px;
   color: var(--text-muted);
