@@ -1379,8 +1379,7 @@ async function focusWriteActiveDoc() {
 async function startFocusSession(preset) {
   const cfg = FOCUS_PRESETS[preset];
   if (!cfg) return;
-  const select = document.getElementById('focus-project-select');
-  const projectId = select?.value || null;
+  const projectId = state.focus.projectId || null;
   const project = projectId ? state.allProjects.find(p => p.id === projectId) : null;
   const clientId = project?._ref ? project._ref.parent.parent.id : null;
   Object.assign(state.focus, {
@@ -1490,20 +1489,30 @@ function renderFocusOrb() {
   const f = state.focus;
 
   if (!f.active) {
+    // Project name only — no client suffix, the user names their own
+    // projects and already knows which client each one belongs to.
     const options = state.allProjects
-      .map(p => {
-        const client = state.clients.find(c => c.id === (p._ref ? p._ref.parent.parent.id : null));
-        return { id: p.id, label: `${p.name || 'مشروع'} — ${client?.name || ''}`, hours: Number(p.totalProjectHours) || 0 };
-      })
+      .map(p => ({ id: p.id, label: p.name || 'مشروع', hours: Number(p.totalProjectHours) || 0 }))
       .sort((a, b) => a.label.localeCompare(b.label, 'ar'));
+    state.focus.projectOptions = options;
+    if (!state.focus.projectId) state.focus.projectId = null;
 
     col.innerHTML = `
       <div class="focus-idle-row">
         <div class="focus-idle-picker">
-          <select class="focus-orb-select" id="focus-project-select">
-            <option value="">بدون مشروع</option>
-            ${options.map(o => `<option value="${o.id}">${escapeHtml(o.label)}</option>`).join('')}
-          </select>
+          <div class="focus-dd" id="focus-project-dd">
+            <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="focus-dd-icon">📁</span>
+              <span class="focus-dd-text placeholder" id="focus-dd-text">بدون مشروع</span>
+              <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="focus-dd-menu" id="focus-dd-menu" role="listbox">
+              <div class="focus-dd-item selected" data-value="" role="option">بدون مشروع</div>
+              ${options.length
+                ? options.map(o => `<div class="focus-dd-item" data-value="${o.id}" role="option">${escapeHtml(o.label)}</div>`).join('')
+                : `<div class="focus-dd-empty">مفيش مشاريع</div>`}
+            </div>
+          </div>
           <div class="focus-orb-time-note" id="focus-orb-time-note"></div>
         </div>
         <div class="focus-idle-presets">
@@ -1513,14 +1522,7 @@ function renderFocusOrb() {
         <div class="focus-log" id="focus-log"></div>
       </div>`;
 
-    const select = document.getElementById('focus-project-select');
-    const note   = document.getElementById('focus-orb-time-note');
-    const paintNote = () => {
-      const opt = options.find(o => o.id === select.value);
-      note.textContent = opt ? `مسجل عليه: ${formatHours(opt.hours)}` : '';
-    };
-    select?.addEventListener('change', paintNote);
-    paintNote();
+    focusPaintDropdown();
     renderFocusLog();
     return;
   }
@@ -1592,10 +1594,50 @@ function subscribeFocusLog() {
   }, err => console.error('focus log listener:', err));
 }
 
-// One delegated listener handles both the idle picker's presets and the
-// running ring's pause/resume/reset.
+// Reflects state.focus.projectId onto the custom dropdown's trigger label
+// and selected-item marker, and paints the "already logged" time note.
+function focusPaintDropdown() {
+  const text = document.getElementById('focus-dd-text');
+  const note = document.getElementById('focus-orb-time-note');
+  if (!text) return;
+  const options = state.focus.projectOptions || [];
+  const opt = options.find(o => o.id === state.focus.projectId);
+  text.textContent = opt ? opt.label : 'بدون مشروع';
+  text.classList.toggle('placeholder', !opt);
+  if (note) note.textContent = opt ? `مسجل عليه: ${formatHours(opt.hours)}` : '';
+  document.querySelectorAll('#focus-dd-menu .focus-dd-item').forEach(item => {
+    item.classList.toggle('selected', item.dataset.value === (state.focus.projectId || ''));
+  });
+}
+
+function focusCloseDropdown() {
+  const menu = document.getElementById('focus-dd-menu');
+  const trigger = document.querySelector('#focus-project-dd .focus-dd-trigger');
+  menu?.classList.remove('open');
+  trigger?.setAttribute('aria-expanded', 'false');
+}
+
+// One delegated listener handles the idle picker's custom dropdown +
+// presets, and the running ring's pause/resume/reset.
 (function initFocusWidgetEvents() {
   document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('#focus-project-dd .focus-dd-trigger');
+    if (trigger) {
+      const menu = document.getElementById('focus-dd-menu');
+      const willOpen = !menu.classList.contains('open');
+      menu.classList.toggle('open', willOpen);
+      trigger.setAttribute('aria-expanded', String(willOpen));
+      return;
+    }
+    const ddItem = e.target.closest('#focus-dd-menu .focus-dd-item');
+    if (ddItem) {
+      state.focus.projectId = ddItem.dataset.value || null;
+      focusPaintDropdown();
+      focusCloseDropdown();
+      return;
+    }
+    if (!e.target.closest('#focus-project-dd')) focusCloseDropdown();
+
     const presetBtn = e.target.closest('#focus-orb-col [data-preset]');
     if (presetBtn) { startFocusSession(presetBtn.dataset.preset); return; }
     const actionBtn = e.target.closest('#focus-orb-col [data-focus-action]');
