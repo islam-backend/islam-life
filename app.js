@@ -1303,7 +1303,9 @@ const FOCUS_PRESETS = {
   deep:  { label: '🎯 عميق 50/10', workMinutes: 50, breakMinutes: 10 },
 };
 
-const FOCUS_RING_R = 46;
+// r + half the stroke-width must stay inside the 0-100 viewBox or the SVG's
+// default clip cuts the outer edge of the stroke off — keep a safe margin.
+const FOCUS_RING_R = 42;
 const FOCUS_RING_CIRC = 2 * Math.PI * FOCUS_RING_R;
 
 function focusFmtClock(sec) {
@@ -1496,18 +1498,20 @@ function renderFocusOrb() {
       .sort((a, b) => a.label.localeCompare(b.label, 'ar'));
 
     col.innerHTML = `
-      <div class="focus-orb-idle">
-        <select class="focus-orb-select" id="focus-project-select">
-          <option value="">بدون مشروع</option>
-          ${options.map(o => `<option value="${o.id}">${escapeHtml(o.label)}</option>`).join('')}
-        </select>
-        <div class="focus-orb-time-note" id="focus-orb-time-note"></div>
-        <div class="focus-orb-presets">
-          <button class="premium-ide-btn is-primary" type="button" data-preset="quick">⚡ 25/5</button>
-          <button class="premium-ide-btn is-primary" type="button" data-preset="deep">🎯 50/10</button>
+      <div class="focus-idle-row">
+        <div class="focus-idle-picker">
+          <select class="focus-orb-select" id="focus-project-select">
+            <option value="">بدون مشروع</option>
+            ${options.map(o => `<option value="${o.id}">${escapeHtml(o.label)}</option>`).join('')}
+          </select>
+          <div class="focus-orb-time-note" id="focus-orb-time-note"></div>
         </div>
-      </div>
-      <div class="focus-log" id="focus-log"></div>`;
+        <div class="focus-idle-presets">
+          <button class="premium-ide-btn is-primary" type="button" data-preset="quick">⚡ سريع 25/5</button>
+          <button class="premium-ide-btn is-primary" type="button" data-preset="deep">🎯 عميق 50/10</button>
+        </div>
+        <div class="focus-log" id="focus-log"></div>
+      </div>`;
 
     const select = document.getElementById('focus-project-select');
     const note   = document.getElementById('focus-orb-time-note');
@@ -1528,21 +1532,25 @@ function renderFocusOrb() {
   const project = focusLinkedProject();
 
   col.innerHTML = `
-    <div class="focus-ring-wrap ${isWork ? '' : 'is-break'}">
-      <svg class="focus-ring-svg" viewBox="0 0 100 100">
-        <circle class="focus-ring-track" cx="50" cy="50" r="${FOCUS_RING_R}"></circle>
-        <circle class="focus-ring-progress" id="focus-ring-progress" cx="50" cy="50" r="${FOCUS_RING_R}"
-          stroke-dasharray="${FOCUS_RING_CIRC}" stroke-dashoffset="${FOCUS_RING_CIRC * elapsedFrac}"></circle>
-      </svg>
-      <div class="focus-ring-count" id="focus-ring-count">${focusFmtClock(remaining)}</div>
-    </div>
-    <div class="focus-orb-phase">${isWork ? '🎯 تركيز' : '☕ راحة'} — ${cfg.label}</div>
-    ${project ? `<div class="focus-orb-project" title="${escapeHtml(project.name || '')}">📁 ${escapeHtml(project.name || '')}</div>` : ''}
-    <div class="focus-orb-controls">
-      <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️' : '⏸️'}</button>
-      <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">■</button>
-    </div>
-    <div class="focus-log" id="focus-log"></div>`;
+    <div class="focus-running-row">
+      <div class="focus-ring-wrap ${isWork ? '' : 'is-break'}">
+        <svg class="focus-ring-svg" viewBox="0 0 100 100">
+          <circle class="focus-ring-track" cx="50" cy="50" r="${FOCUS_RING_R}"></circle>
+          <circle class="focus-ring-progress" id="focus-ring-progress" cx="50" cy="50" r="${FOCUS_RING_R}"
+            stroke-dasharray="${FOCUS_RING_CIRC}" stroke-dashoffset="${FOCUS_RING_CIRC * elapsedFrac}"></circle>
+        </svg>
+        <div class="focus-ring-count" id="focus-ring-count">${focusFmtClock(remaining)}</div>
+      </div>
+      <div class="focus-running-info">
+        <div class="focus-orb-phase">${isWork ? '🎯 تركيز' : '☕ راحة'} — ${cfg.label}</div>
+        ${project ? `<div class="focus-orb-project" title="${escapeHtml(project.name || '')}">📁 ${escapeHtml(project.name || '')}</div>` : ''}
+      </div>
+      <div class="focus-orb-controls">
+        <button class="premium-ide-btn" type="button" data-focus-action="${f.pausedAt ? 'resume' : 'pause'}">${f.pausedAt ? '▶️ استكمال' : '⏸️ إيقاف'}</button>
+        <button class="premium-ide-btn is-danger" type="button" data-focus-action="reset">■ إعادة</button>
+      </div>
+      <div class="focus-log" id="focus-log"></div>
+    </div>`;
   renderFocusLog();
 }
 
