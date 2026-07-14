@@ -7,6 +7,20 @@
   <meta name="theme-color" content="#1E1F22" />
   <meta name="description" content="islam.walied — لوحة تحكم شخصية لإدارة العملاء والمشاريع والمهام" />
   <title>islam.walied — لوحة التحكم</title>
+
+  <!-- Warm up Google/Firebase auth connections so the Google sign-in popup
+       opens fast (DNS + TLS handshakes happen up front, not on click). -->
+  <link rel="preconnect" href="https://accounts.google.com" crossorigin />
+  <link rel="preconnect" href="https://apis.google.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://islam-life-e126e.firebaseapp.com" crossorigin />
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+  <link rel="dns-prefetch" href="https://accounts.google.com" />
+  <link rel="dns-prefetch" href="https://apis.google.com" />
+  <link rel="dns-prefetch" href="https://islam-life-e126e.firebaseapp.com" />
+
   <link rel="stylesheet" href="style.css" />
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
@@ -56,100 +70,12 @@
 ══════════════════════════════════ -->
   <div id="app">
 
-    <!-- ── MOBILE SIDEBAR BACKDROP ── -->
-    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
-
-    <!-- ── SIDEBAR ── -->
-    <aside id="sidebar">
-      <div class="sidebar-logo">
-        <div class="logo-icon">🚀</div>
-        <div class="logo-text">
-          <div class="user-row">
-            <span>islam.walied</span>
-          </div>
-          <small>Work Dashboard</small>
-        </div>
-        <button class="sidebar-toggle" id="sidebar-toggle-btn" title="طي القائمة" aria-label="طي القائمة">
-          <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-      </div>
-
-      <span class="nav-label">لوحة التحكم</span>
-
-      <div class="nav-item active" id="nav-dashboard" title="الرئيسية">
-        <span class="nav-icon">📊</span>
-        <span>الرئيسية</span>
-      </div>
-
-      <span class="nav-label">العمل</span>
-
-      <div class="nav-item" id="nav-clients" title="العملاء">
-        <span class="nav-icon">👥</span>
-        <span>العملاء</span>
-        <span class="nav-badge" id="total-badge">0</span>
-      </div>
-
-      <span class="nav-label">التركيز</span>
-
-      <div class="nav-item" id="nav-focus" title="جلسة التركيز">
-        <span class="nav-icon">⏱️</span>
-        <span>جلسة التركيز</span>
-      </div>
-
-      <span class="nav-label">المالية</span>
-
-      <div class="nav-item" id="nav-finance" title="المصروفات">
-        <span class="nav-icon">💰</span>
-        <span>المصروفات</span>
-      </div>
-
-      <span class="nav-label">الصحة</span>
-
-      <div class="nav-item" id="nav-food" title="التغذية والصحة">
-        <span class="nav-icon">🥗</span>
-        <span>التغذية</span>
-      </div>
-
-      <!-- ── SIDEBAR FOOTER ── -->
-      <div class="sidebar-footer">
-        <div class="sidebar-status-row">
-          <div class="status-left" style="display: flex; align-items: center; gap: 6px;">
-            <span class="db-dot offline" id="db-dot" title="حالة الاتصال"></span>
-            <span id="db-status-text" style="font-size: 11px; color: var(--text-muted);">غير متصل</span>
-          </div>
-          <span class="version-tag">v21.0</span>
-        </div>
-        <button class="btn-settings" id="btn-open-settings" title="الإعدادات" aria-label="الإعدادات">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>الإعدادات</span>
-        </button>
-        <button class="btn-signout" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-            stroke-linejoin="round" class="signout-icon">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-          <span class="signout-text">تسجيل الخروج</span>
-        </button>
-      </div>
-    </aside>
 
     <!-- ── MAIN ── -->
     <main id="main">
 
       <!-- Header (dynamic) -->
       <header id="header">
-        <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="فتح القائمة" aria-controls="sidebar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="3" y1="6" x2="21" y2="6"/>
-            <line x1="3" y1="12" x2="21" y2="12"/>
-            <line x1="3" y1="18" x2="21" y2="18"/>
-          </svg>
-        </button>
         <div class="header-left">
           <nav class="breadcrumb" id="breadcrumb"></nav>
           <div class="header-title-row">
@@ -157,82 +83,80 @@
             <div id="header-stats"></div>
           </div>
         </div>
+        <span id="dash-greeting" class="header-greeting"></span>
         <div class="header-right-side">
           <p id="header-date"></p>
           <div id="header-actions"></div>
+          <div class="header-tools">
+            <button class="header-tool-btn danger" id="signout-btn" title="تسجيل الخروج" aria-label="تسجيل الخروج">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
       <!-- Views Container -->
       <div id="content">
 
-        <!-- ── VIEW: DASHBOARD (v9.2 Ultra-Minimal) ── -->
+        <!-- ── VIEW: HUB (Home launcher — tiles from MODULES registry) ── -->
         <div class="view active" id="view-dashboard">
 
-          <!-- Welcome Row -->
-          <div class="dash-welcome-row" style="margin-bottom: 20px;">
-            <h2 id="dash-greeting" class="dash-welcome-title"
-              style="font-size: 16px; font-weight: 700; color: var(--text-primary);"></h2>
+          <div class="hub-layout">
+            <!-- Left: section tiles -->
+            <div class="hub-main">
+              <div class="hub-grid" id="hub-grid"></div>
+            </div>
+
+            <!-- Right: big side panel (prayer times + today's client rings) -->
+            <aside class="hub-side">
+              <div class="hub-card" id="prayer-card">
+                <div class="hub-card-head">
+                  <span class="hub-card-title">🕌 مواقيت الصلاة</span>
+                  <span class="hub-card-sub" id="prayer-city">المنصورة</span>
+                  <button class="hub-card-collapse-btn" data-collapse-card="prayer-card" type="button" title="طي/فتح" aria-label="طي/فتح">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+                <div class="hub-card-body">
+                  <div class="prayer-next" id="prayer-next"></div>
+                  <div class="prayer-list" id="prayer-list">
+                    <div class="prayer-loading">جاري تحميل المواقيت…</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="hub-card" id="today-rings-card">
+                <div class="hub-card-head">
+                  <span class="hub-card-title">🎯 عملاء النهاردة</span>
+                  <span class="hub-card-sub" id="today-rings-sub"></span>
+                  <button class="hub-card-collapse-btn" data-collapse-card="today-rings-card" type="button" title="طي/فتح" aria-label="طي/فتح">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+                <div class="hub-card-body">
+                  <div class="today-rings" id="today-rings"></div>
+                </div>
+              </div>
+
+              <div class="hub-card" id="focus-card">
+                <div class="hub-card-head">
+                  <span class="hub-card-title">🍅 فوكس تايمر</span>
+                  <span class="hub-card-sub" id="focus-sub"></span>
+                  <button class="hub-card-collapse-btn" data-collapse-card="focus-card" type="button" title="طي/فتح" aria-label="طي/فتح">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+                <div class="hub-card-body">
+                  <div class="focus-widget" id="focus-body"></div>
+                </div>
+              </div>
+            </aside>
           </div>
 
-          <!-- v22.0 — Old work/rest donut removed; project-hours gauge in the
-               kanban toolbar is now the single source of truth for time. -->
-
-          <!-- B. Inline Active Session Widget — hidden when no session running -->
-          <div class="dash-active-session hidden" id="dash-active-session" aria-live="polite">
-            <div class="active-session-left">
-              <span class="active-session-pulse" aria-hidden="true"></span>
-              <span class="active-session-label" id="active-session-label">جاري العمل الآن</span>
-            </div>
-            <div class="active-session-timer">
-              <span id="active-session-minutes">25</span>
-              <span class="active-session-colon">:</span>
-              <span id="active-session-seconds">00</span>
-            </div>
-            <div class="active-session-controls">
-              <button class="active-session-btn" type="button" id="active-session-pause" title="إيقاف مؤقت">⏸️</button>
-              <button class="active-session-btn" type="button" id="active-session-reset" title="إعادة تعيين">🔄</button>
-            </div>
-          </div>
-
-          <!-- C. Calendar Portal Card -->
-          <div class="dash-portal-card" id="dash-portal-calendar" role="button" tabindex="0">
-            <div class="portal-icon">📅</div>
-            <div class="portal-body">
-              <span class="portal-title">تقويم المهام</span>
-              <span class="portal-sub">شاهد كل مهامك مرتبة في عرض شهري شجري</span>
-            </div>
-            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </div>
-
-          <!-- D. Daily Summary Portal -->
-          <div class="dash-portal-card" id="dash-portal-daily" role="button" tabindex="0">
-            <div class="portal-icon">🎯</div>
-            <div class="portal-body">
-              <span class="portal-title">ملخص النهارده</span>
-              <span class="portal-sub" id="dash-daily-subtitle">شوف أهم تاسكاتك وإنتاجيتك اليومية</span>
-            </div>
-            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </div>
-
-          <!-- E. Finance Portal -->
-          <div class="dash-portal-card" id="dash-portal-finance" role="button" tabindex="0">
-            <div class="portal-icon">💰</div>
-            <div class="portal-body">
-              <span class="portal-title">ملخص المصروفات</span>
-              <span class="portal-sub" id="dash-finance-subtitle">بنوك · أظرف · ذهب</span>
-            </div>
-            <svg class="portal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </div>
 
         </div>
 
@@ -298,107 +222,36 @@
           </div>
         </div>
 
-        <!-- ── VIEW: FOCUS (v8.0 — Fluid, borderless) ── -->
-        <div class="view" id="view-focus">
-
-          <!-- Top linear progress rail (3px, spans full width under the header) -->
-          <div class="focus-top-rail" aria-hidden="true">
-            <div class="focus-top-rail-fill" id="focus-progress-fill"></div>
-          </div>
-
-          <div class="focus-fluid">
-
-            <!-- Eyebrow + Status -->
-            <div class="focus-eyebrow-row">
-              <span class="focus-status-badge" id="focus-status-badge">جاهز للبدء 🌱</span>
-            </div>
-
-            <!-- Context selectors — custom dropdowns, fully themed -->
-            <div class="focus-selectors" id="focus-selectors">
-              <div class="focus-question">على أي مشروع هتشتغل دلوقتي؟ 🎯</div>
-              <div class="focus-selects-row">
-
-                <!-- Project dropdown -->
-                <div class="focus-dd" data-fdd="project">
-                  <button class="focus-dd-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                    <span class="focus-dd-icon">📁</span>
-                    <span class="focus-dd-text placeholder" data-placeholder="اختر المشروع">اختر المشروع</span>
-                    <svg class="focus-dd-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </button>
-                  <div class="focus-dd-menu" role="listbox" aria-label="قائمة المشاريع"></div>
-                  <select id="focus-project-select" class="focus-dd-native" aria-hidden="true" tabindex="-1">
-                    <option value="">اختر المشروع</option>
-                  </select>
-                </div>
-
-              </div>
-            </div>
-
-            <!-- Pill-shaped duration toggles -->
-            <div class="focus-pills" id="focus-modes" role="group" aria-label="مدة الجلسة">
-              <button class="focus-pill active" type="button" id="btn-mode-quick" data-work="25" data-break="5">
-                <span class="pill-emoji">🎯</span>
-                <span class="pill-label">جلسة سريعة</span>
-                <span class="pill-time">25 / 5</span>
-              </button>
-              <button class="focus-pill" type="button" id="btn-mode-deep" data-work="50" data-break="15">
-                <span class="pill-emoji">⚡</span>
-                <span class="pill-label">تركيز مكثف</span>
-                <span class="pill-time">50 / 15</span>
-              </button>
-              <button class="focus-pill" type="button" id="btn-mode-flow" data-work="90" data-break="20">
-                <span class="pill-emoji">🧠</span>
-                <span class="pill-label">غوص عميق</span>
-                <span class="pill-time">90 / 20</span>
-              </button>
-            </div>
-
-            <!-- Big timer — minutes LEFT, seconds RIGHT (digital clock standard) -->
-            <div class="focus-bigtimer" id="focus-bigtimer">
-              <div class="focus-bigtimer-digits">
-                <span class="focus-bigtimer-minutes" id="focus-minutes">25</span>
-                <span class="focus-bigtimer-colon">:</span>
-                <span class="focus-bigtimer-seconds" id="focus-seconds">00</span>
-              </div>
-              <div class="focus-bigtimer-sub">
-                <span class="focus-bigtimer-label" id="focus-timer-label">وقت العمل</span>
-              </div>
-            </div>
-
-            <!-- v14.6 — Unified premium controls: Start + Instant-Log share styling,
-                 sit side by side, both with the same accent glow. -->
-            <div class="focus-controls">
-              <button class="focus-btn-reset" type="button" id="btn-focus-reset" title="إعادة تعيين">🔄</button>
-              <button class="focus-btn-start" type="button" id="btn-focus-start">ابدأ الجلسة ▶️</button>
-              <button class="focus-btn-start focus-btn-instant" type="button" id="btn-focus-instant-log"
-                title="إضافة وقت الجلسة المحددة فوراً للمشروع">
-                إضافة الوقت فوراً ⚡
-              </button>
-            </div>
-
-            <!-- v14.6 — Daily Sessions Feed: today's logged sessions as compact tags.
-                 Each tag has an (x) to subtract its hours from totalProjectHours. -->
-            <div class="daily-sessions-feed" id="daily-sessions-feed" aria-live="polite">
-              <!-- Tags rendered dynamically by JS -->
-            </div>
-
-          </div>
-        </div>
-
         <!-- ── VIEW: CLIENTS ── -->
         <div class="view" id="view-clients">
           <div class="view-toolbar">
-            <button class="toolbar-add-btn" id="btn-add-client" aria-label="إضافة عميل جديد">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              <span>عميل جديد</span>
-            </button>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <button class="toolbar-back-btn" id="btn-back-clients" aria-label="رجوع" title="رجوع للرئيسية">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12" />
+                  <polyline points="12 19 5 12 12 5" />
+                </svg>
+              </button>
+              <button class="toolbar-add-btn" id="btn-add-client" aria-label="إضافة عميل جديد">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>عميل جديد</span>
+              </button>
+              <button class="toolbar-add-btn" id="btn-clients-calendar" aria-label="تقويم الشهر" title="تقويم المهام الشهري">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+                <span>تقويم الشهر</span>
+              </button>
+            </div>
             <div class="search-box" id="search-box-clients">
               <button class="search-icon-btn" aria-label="بحث" type="button">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -562,275 +415,15 @@
           </div><!-- /#board-area -->
         </div><!-- /#view-tasks -->
 
-        <!-- ══ VIEW: FINANCE HOME — 3 hub blocks ══ -->
-        <div class="view" id="view-finance">
-          <div class="fin-toolbar">
-            <div class="fin-toolbar-spacer"></div>
-            <button class="fin-btn fin-btn-ghost fin-btn-icon-only" id="btn-fin-privacy" type="button" title="إظهار/إخفاء الأرقام" aria-pressed="false">
-              <span class="fin-eye-show">🙈</span><span class="fin-eye-hide">👁️</span>
-            </button>
-          </div>
-          <div class="fin-page fin-home-page">
-            <div class="cards-grid fin-hub-cards" id="fin-hub-cards"></div>
-          </div>
-        </div><!-- /#view-finance -->
-
-        <!-- ══ VIEW: BANKS LIST ══ -->
-        <div class="view" id="view-finance-banks">
-          <div class="fin-toolbar">
-            <button class="toolbar-back-btn" id="btn-back-finance-banks" type="button" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            </button>
-            <span class="fin-detail-title">🏦 البنوك والسيولة</span>
-            <div class="fin-toolbar-spacer"></div>
-            <span class="fin-section-total privacy-sensitive" id="fin-banks-total" style="margin:0"></span>
-            <button class="fin-btn fin-btn-income" id="btn-banks-add" type="button"><span class="fin-btn-icon">＋</span><span>بنك جديد</span></button>
-          </div>
-          <div class="fin-page">
-            <div class="fin-cards-grid" id="fin-banks-grid"></div>
-          </div>
-        </div><!-- /#view-finance-banks -->
-
-        <!-- ══ VIEW: SINGLE BANK DETAIL ══ -->
-        <div class="view" id="view-finance-bank">
-          <div class="fin-toolbar">
-            <button class="toolbar-back-btn" id="btn-back-finance-bank" type="button" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            </button>
-            <span class="fin-detail-title" id="fin-bank-title"></span>
-            <div class="fin-toolbar-spacer"></div>
-            <button class="fin-btn fin-btn-income" id="btn-fin-income" type="button">
-              <span class="fin-btn-icon">＋</span><span>دخل</span>
-            </button>
-            <button class="fin-btn fin-btn-expense" id="btn-fin-expense" type="button">
-              <span class="fin-btn-icon">－</span><span>مصروف</span>
-            </button>
-            <button class="fin-btn fin-btn-ghost fin-btn-icon-only fin-priv-toggle" type="button" title="إظهار/إخفاء الأرقام" aria-pressed="false">
-              <span class="fin-eye-show">🙈</span><span class="fin-eye-hide">👁️</span>
-            </button>
-          </div>
-          <div class="fin-page">
-            <div class="fin-detail-cols">
-              <div class="fin-detail-col-info">
-                <div class="fin-section" style="padding-top:12px">
-                  <div class="fin-section-header">
-                    <span class="fin-section-icon">📊</span>
-                    <h3 class="fin-section-title">الملخص</h3>
-                  </div>
-                  <div class="fin-stats-grid" id="fin-bank-stats"></div>
-                </div>
-              </div>
-              <div class="fin-detail-col-feed">
-                <div class="fin-section" style="padding-top:12px">
-                  <div class="fin-section-header">
-                    <span class="fin-section-icon">📜</span>
-                    <h3 class="fin-section-title">الحركات</h3>
-                  </div>
-                  <div class="fin-feed-filters" id="fin-bank-feed-filters">
-                    <div class="fin-filter-pills">
-                      <button class="fin-filter-pill active" data-filter-type="all">الكل</button>
-                      <button class="fin-filter-pill" data-filter-type="income">دخل</button>
-                      <button class="fin-filter-pill" data-filter-type="expense">مصروف</button>
-                    </div>
-                  </div>
-                  <div id="fin-bank-feed-list"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div><!-- /#view-finance-bank -->
-
-        <!-- ══ VIEW: ENVELOPES LIST ══ -->
-        <div class="view" id="view-finance-envelopes">
-          <div class="fin-toolbar">
-            <button class="toolbar-back-btn" id="btn-back-finance-envelopes" type="button" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            </button>
-            <span class="fin-detail-title">✉️ الأظرف</span>
-            <div class="fin-toolbar-spacer"></div>
-            <span class="fin-section-total privacy-sensitive" id="fin-envelopes-total" style="margin:0"></span>
-            <button class="fin-btn fin-btn-ghost" id="btn-envelopes-rules" type="button"><span class="fin-btn-icon">⚙️</span><span>القواعد</span></button>
-            <button class="fin-btn fin-btn-income" id="btn-envelopes-add" type="button"><span class="fin-btn-icon">＋</span><span>ظرف جديد</span></button>
-          </div>
-          <div class="fin-page">
-            <div class="fin-cards-grid" id="fin-envelopes-grid"></div>
-          </div>
-        </div><!-- /#view-finance-envelopes -->
-
-        <!-- ══ VIEW: ENVELOPE DETAIL ══ -->
-        <div class="view" id="view-finance-envelope">
-          <div class="fin-toolbar">
-            <button class="toolbar-back-btn" id="btn-back-finance-env" type="button" title="رجوع للأظرف">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            </button>
-            <span class="fin-detail-title" id="fin-env-title"></span>
-            <div class="fin-toolbar-spacer"></div>
-            <button class="fin-btn fin-btn-expense" id="btn-env-expense" type="button">－ مصروف</button>
-            <button class="fin-btn fin-btn-ghost fin-btn-icon-only fin-priv-toggle" type="button" title="إظهار/إخفاء الأرقام" aria-pressed="false">
-              <span class="fin-eye-show">🙈</span><span class="fin-eye-hide">👁️</span>
-            </button>
-          </div>
-          <div class="fin-page fin-env-page">
-            <div class="fin-detail-stats-row" id="fin-env-stats"></div>
-            <div class="fin-env-progress-wrap hidden" id="fin-env-progress-wrap"></div>
-            <div class="fin-env-cols">
-              <div class="fin-env-col-items">
-                <div class="fin-section" style="padding-top:12px">
-                  <div class="fin-section-header">
-                    <span class="fin-section-icon">📋</span>
-                    <h3 class="fin-section-title">البنود التفصيلية</h3>
-                    <span class="fin-section-total" id="fin-env-items-total"></span>
-                    <button type="button" class="fin-btn fin-btn-ghost fin-add-item-btn" id="btn-add-env-item">＋ بند</button>
-                  </div>
-                  <div id="fin-env-items-list"></div>
-                </div>
-              </div>
-              <div class="fin-env-col-feed">
-                <div class="fin-section" style="padding-top:12px">
-                  <div class="fin-section-header">
-                    <span class="fin-section-icon">📜</span>
-                    <h3 class="fin-section-title">حركات هذا الظرف</h3>
-                  </div>
-                  <div class="fin-feed-filters">
-                    <div class="fin-filter-pills" id="fin-env-filter-pills">
-                      <button class="fin-filter-pill active" data-filter-type="all">الكل</button>
-                      <button class="fin-filter-pill" data-filter-type="income">دخل</button>
-                      <button class="fin-filter-pill" data-filter-type="expense">مصروف</button>
-                    </div>
-                  </div>
-                  <div id="fin-env-feed-list"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div><!-- /#view-finance-envelope -->
-
-        <!-- ══ VIEW: FINANCE SUMMARY (from dashboard) ══ -->
-        <div class="view" id="view-finance-summary">
-          <div class="fin-toolbar">
-            <button class="toolbar-back-btn" id="btn-back-finance-summary" type="button" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            </button>
-            <span class="fin-detail-title">مخلص المصروفات</span>
-            <div class="fin-toolbar-spacer"></div>
-            <button class="fin-btn fin-btn-ghost fin-btn-icon-only fin-priv-toggle" type="button" title="إظهار/إخفاء">
-              <span class="fin-eye-show">🙈</span><span class="fin-eye-hide">👁️</span>
-            </button>
-          </div>
-          <div class="fin-page">
-            <div id="fin-summary-content"></div>
-          </div>
-        </div><!-- /#view-finance-summary -->
-
-        <!-- ══ VIEW: GOLD DETAIL ══ -->
-        <div class="view" id="view-finance-gold">
-          <div class="fin-toolbar">
-            <button class="toolbar-back-btn" id="btn-back-finance-gold" type="button" title="رجوع">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            </button>
-            <span class="fin-detail-title">🥇 خزنة الذهب</span>
-            <div class="fin-toolbar-spacer"></div>
-            <button class="fin-link-btn" id="fin-gold-prices-btn" type="button">الأسعار</button>
-          </div>
-          <div class="fin-page">
-            <div class="fin-detail-cols">
-              <div class="fin-detail-col-info">
-                <div id="fin-gold-summary"></div>
-              </div>
-              <div class="fin-detail-col-feed">
-                <div class="fin-section" style="padding-top:12px">
-                  <div class="fin-section-header">
-                    <span class="fin-section-icon">🧱</span>
-                    <h3 class="fin-section-title">القطع المملوكة</h3>
-                  </div>
-                  <div id="fin-gold-assets-list"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div><!-- /#view-finance-gold -->
-
-        <!-- ══ VIEW: FOOD (التغذية والصحة) ══ -->
-        <div class="view" id="view-food">
-
-          <!-- Toolbar -->
-          <div class="food-toolbar">
-            <button class="food-day-nav" id="food-prev-day" type="button" title="اليوم السابق">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-            <div class="food-date-display">
-              <span id="food-date-label">اليوم</span>
-              <span id="food-date-sub"></span>
-            </div>
-            <button class="food-day-nav" id="food-next-day" type="button" title="اليوم التالي">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <div class="food-toolbar-spacer"></div>
-            <div class="food-points-chip" id="food-points-chip">
-              <span>🏆</span>
-              <span id="food-points-val">0</span>
-              <span>نقطة</span>
-            </div>
-          </div>
-
-          <div class="food-page">
-
-            <!-- Fasting type -->
-            <div class="food-block">
-              <div class="food-block-label">🌙 نوع اليوم</div>
-              <div class="food-fast-pills" id="food-fast-pills">
-                <button class="food-fast-pill" data-fast="islamic" type="button">
-                  <span class="food-fast-pill-icon">🕌</span>
-                  <span class="food-fast-pill-label">إسلامي</span>
-                  <span class="food-fast-pill-pts">+15</span>
-                </button>
-                <button class="food-fast-pill" data-fast="intermittent" type="button">
-                  <span class="food-fast-pill-icon">⏱️</span>
-                  <span class="food-fast-pill-label">متقطع</span>
-                  <span class="food-fast-pill-pts">+10</span>
-                </button>
-                <button class="food-fast-pill" data-fast="normal" type="button">
-                  <span class="food-fast-pill-icon">🍽️</span>
-                  <span class="food-fast-pill-label">عادي</span>
-                  <span class="food-fast-pill-pts">+0</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Habits icon grid (JS-rendered) -->
-            <div class="food-block">
-              <div class="food-block-label">✅ العادات</div>
-              <div class="food-habits-grid" id="food-habits-grid"></div>
-            </div>
-
-            <!-- Water drops (JS-rendered) -->
-            <div class="food-block">
-              <div class="food-block-label">💧 الماء <span id="food-water-pts-label" class="food-pts-badge"></span></div>
-              <div class="food-water-drops" id="food-water-drops"></div>
-            </div>
-
-            <!-- Weekly stats (weight average + photo tracking) -->
-            <div class="food-block">
-              <div class="food-block-label">📅 هذا الأسبوع</div>
-              <div id="food-week-stats"></div>
-            </div>
-
-            <!-- Bottom row -->
-            <div class="food-bottom-row">
-              <button class="food-weight-chip" id="food-weight-edit-btn" type="button">
-                ⚖️ <span id="food-weight-val">—</span> <span class="food-wc-unit">كجم</span>
-              </button>
-              <div class="food-week-chips">
-                <div class="food-week-chip">🚶 <span id="food-walk-count">0</span> هذا الأسبوع</div>
-                <div class="food-week-chip">🏋️ <span id="food-gym-count">0</span> هذا الأسبوع</div>
-              </div>
-            </div>
-
-            <!-- Hidden file input for photo -->
-            <input type="file" id="food-photo-input" accept="image/*" capture="environment" class="hidden" />
-
-          </div><!-- /.food-page -->
-        </div><!-- /#view-food -->
+        <!-- ══ VIEW: FINANCE HOME (hub) ══ -->
+        <!-- ══ FINANCE CENTER (المركز المالي) — v4.0 (JS-rendered) ══ -->
+        <div class="view" id="view-finance"><div class="fin-root" id="fin-home-root"></div></div>
+        <div class="view" id="view-finance-budget"><div class="fin-root" id="fin-budget-root"></div></div>
+        <div class="view" id="view-finance-debts"><div class="fin-root" id="fin-debts-root"></div></div>
+        <div class="view" id="view-finance-goals"><div class="fin-root" id="fin-goals-root"></div></div>
+        <div class="view" id="view-finance-assets"><div class="fin-root" id="fin-assets-root"></div></div>
+        <div class="view" id="view-finance-zakat"><div class="fin-root" id="fin-zakat-root"></div></div>
+        <div class="view" id="view-finance-emergency"><div class="fin-root" id="fin-emergency-root"></div></div>
 
       </div><!-- /#content -->
 
@@ -925,34 +518,6 @@
   </div>
 
   <!-- ══════════════════════════════════
-     FOOD — WEIGHT LOG MODAL
-══════════════════════════════════ -->
-  <div id="food-weight-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>⚖️ تسجيل الوزن</h2>
-        <button class="modal-close" id="close-food-weight-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="food-weight-form">
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">الوزن (كيلوجرام)</label>
-            <input type="number" id="food-weight-input" class="form-input" min="30" max="300" step="0.1" inputmode="decimal" placeholder="مثال: 82.5" required />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="cancel-food-weight-modal-btn">إلغاء</button>
-          <button type="submit" class="btn-primary" id="food-weight-submit-btn">💾 حفظ</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Toast Container -->
-  <div id="toast-container"></div>
-
-
-  <!-- ══════════════════════════════════
      GEMINI AI PLAN MODAL
 ══════════════════════════════════ -->
   <div id="ai-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
@@ -999,273 +564,17 @@
   </div>
 
   <!-- ══════════════════════════════════
-     FINANCE MODALS (المصروفات)
+     FINANCE — single dynamic modal (JS-driven)
 ══════════════════════════════════ -->
-
-  <!-- Income Modal -->
-  <div id="income-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+  <div id="fin-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal">
       <div class="modal-header">
-        <h2>＋ إضافة دخل</h2>
-        <button class="modal-close" id="close-income-modal-btn" aria-label="إغلاق">✕</button>
+        <h2 id="fin-modal-title"></h2>
+        <button class="modal-close" id="fin-modal-close" type="button" aria-label="إغلاق">✕</button>
       </div>
-      <form id="income-form">
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">المبلغ</label>
-            <input type="number" id="income-amount" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">البنك المستلم</label>
-            <select id="income-bank" class="form-input" required></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">نوع الدخل</label>
-            <div class="fin-type-pills" id="income-type-pills">
-              <button type="button" class="fin-type-pill active" data-type="salary">💼 مرتب</button>
-              <button type="button" class="fin-type-pill" data-type="freelance">🧑‍💻 فريلانس</button>
-              <button type="button" class="fin-type-pill" data-type="normal">💵 عادي</button>
-            </div>
-            <input type="hidden" id="income-type" value="salary" />
-            <small class="form-hint" id="income-type-hint"></small>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="cancel-income-modal-btn">إلغاء</button>
-          <button type="submit" class="btn-primary" id="submit-income-btn">حفظ الدخل</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Expense Modal -->
-  <div id="expense-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>－ تسجيل مصروف</h2>
-        <button class="modal-close" id="close-expense-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="expense-form">
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">المبلغ</label>
-            <input type="number" id="expense-amount" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">من ظرف (السبب)</label>
-            <select id="expense-envelope" class="form-input" required></select>
-            <small class="form-hint" id="expense-envelope-hint"></small>
-          </div>
-          <div class="form-group" id="expense-item-group" style="display:none">
-            <label class="form-label">البند</label>
-            <select id="expense-item" class="form-input" required></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">من بنك (المصدر)</label>
-            <select id="expense-bank" class="form-input" required></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">ملاحظة (اختياري)</label>
-            <input type="text" id="expense-note" class="form-input" maxlength="120" placeholder="على إيه اتصرفت؟" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="cancel-expense-modal-btn">إلغاء</button>
-          <button type="submit" class="btn-danger" id="submit-expense-btn">تأكيد الصرف</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Manual Allocation Modal (forced for Normal income) -->
-  <div id="alloc-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>🧩 توزيع الدخل (إجباري)</h2>
-      </div>
-      <div class="modal-body">
-        <p class="fin-alloc-intro">لازم توزّع كامل المبلغ (<span class="fin-alloc-total" id="alloc-total-display">0</span>) على الأظرف قبل ما تقدر تصرف منه.</p>
-        <div id="alloc-rows"></div>
-        <div class="fin-alloc-summary">
-          <span>المتبقي للتوزيع:</span>
-          <strong id="alloc-remaining">0</strong>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn-primary" id="submit-alloc-btn" disabled>تأكيد التوزيع</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Allocation Rules Modal -->
-  <div id="rules-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>⚙️ قواعد توزيع الدخل</h2>
-        <button class="modal-close" id="close-rules-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="fin-rules-tabs">
-          <button type="button" class="fin-rules-tab active" data-rule="salary">💼 المرتب</button>
-          <button type="button" class="fin-rules-tab" data-rule="freelance">🧑‍💻 الفريلانس</button>
-        </div>
-        <div id="rules-rows"></div>
-        <div class="fin-alloc-summary">
-          <span>مجموع النسب:</span>
-          <strong id="rules-sum">0%</strong>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn-ghost" id="cancel-rules-modal-btn">إلغاء</button>
-        <button type="button" class="btn-primary" id="save-rules-btn">💾 حفظ القاعدة</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manage Banks & Envelopes Modal -->
-  <div id="manage-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal manage-modal">
-      <div class="modal-header">
-        <h2>🏦 إدارة البنوك والأظرف</h2>
-        <button class="modal-close" id="close-manage-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="fin-rules-tabs">
-          <button type="button" class="fin-manage-tab active" data-kind="banks">🏦 البنوك</button>
-          <button type="button" class="fin-manage-tab" data-kind="envelopes">✉️ الأظرف</button>
-        </div>
-        <form id="manage-form" class="fin-manage-form">
-          <input type="hidden" id="manage-edit-id" value="" />
-          <input type="hidden" id="manage-color" value="" />
-          <div class="fin-manage-form-row">
-            <input type="text" id="manage-icon" class="form-input fin-icon-input" maxlength="2" placeholder="🏦" />
-            <input type="text" id="manage-name" class="form-input" maxlength="40" placeholder="الاسم" required />
-            <button type="submit" class="btn-primary btn-sm" id="manage-submit-btn">إضافة</button>
-          </div>
-          <input type="text" id="manage-desc" class="form-input" maxlength="80" placeholder="وصف مختصر (اختياري)" />
-          <div class="fin-color-swatches" id="manage-colors"></div>
-        </form>
-        <div id="manage-list" class="fin-manage-list"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Gold Prices Modal -->
-  <div id="gold-prices-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>🥇 أسعار الجرام</h2>
-        <button class="modal-close" id="close-gold-prices-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="gold-prices-form">
-        <div class="modal-body">
-          <p class="form-hint" id="gold-prices-source-note"></p>
-          <div class="form-group">
-            <label class="form-label">عيار 24 (جنيه/جرام)</label>
-            <input type="number" id="gold-price-24" class="form-input" min="0" step="0.01" inputmode="decimal" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">عيار 21 (جنيه/جرام)</label>
-            <input type="number" id="gold-price-21" class="form-input" min="0" step="0.01" inputmode="decimal" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">عيار 18 (جنيه/جرام)</label>
-            <input type="number" id="gold-price-18" class="form-input" min="0" step="0.01" inputmode="decimal" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="fin-gold-refresh-btn">🔄 جلب تلقائي</button>
-          <button type="submit" class="btn-primary">💾 حفظ يدوي</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Gold Grams Modal (add / withdraw) -->
-  <div id="gold-grams-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="gold-grams-title">🥇 إضافة ذهب</h2>
-        <button class="modal-close" id="close-gold-grams-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="gold-grams-form">
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">العيار</label>
-            <div class="fin-type-pills" id="gold-karat-pills">
-              <button type="button" class="fin-type-pill active" data-karat="24">عيار 24</button>
-              <button type="button" class="fin-type-pill" data-karat="21">عيار 21</button>
-              <button type="button" class="fin-type-pill" data-karat="18">عيار 18</button>
-            </div>
-            <input type="hidden" id="gold-karat" value="24" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">عدد الجرامات</label>
-            <input type="number" id="gold-grams" class="form-input" min="0" step="0.001" inputmode="decimal" placeholder="0.00" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">ملاحظة (اختياري)</label>
-            <input type="text" id="gold-notes" class="form-input" maxlength="80" placeholder="مثلاً: غويشة / سبيكة" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="cancel-gold-grams-modal-btn">إلغاء</button>
-          <button type="submit" class="btn-primary" id="submit-gold-grams-btn">حفظ</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Add Envelope Item Modal -->
-  <div id="env-item-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>＋ إضافة بند</h2>
-        <button class="modal-close" id="close-env-item-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="env-item-form">
-        <input type="hidden" id="env-item-edit-id" value="" />
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">اسم البند</label>
-            <input type="text" id="env-item-name-inp" class="form-input" maxlength="60" placeholder="مثلاً: فاتورة كهرباء" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">المبلغ</label>
-            <input type="number" id="env-item-amount-inp" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="cancel-env-item-modal-btn">إلغاء</button>
-          <button type="submit" class="btn-primary" id="submit-env-item-btn">حفظ البند</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Edit Transaction Modal -->
-  <div id="edit-tx-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>✏️ تعديل الحركة</h2>
-        <button class="modal-close" id="close-edit-tx-modal-btn" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="edit-tx-form">
-        <input type="hidden" id="edit-tx-id" value="" />
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">ملاحظة</label>
-            <input type="text" id="edit-tx-note" class="form-input" maxlength="80" placeholder="وصف الحركة..." />
-          </div>
-          <div class="form-group" id="edit-tx-envelope-group" style="display:none">
-            <label class="form-label">الظرف</label>
-            <select id="edit-tx-envelope" class="form-input"></select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-ghost" id="cancel-edit-tx-modal-btn">إلغاء</button>
-          <button type="submit" class="btn-primary" id="submit-edit-tx-btn">حفظ التعديل</button>
-        </div>
+      <form id="fin-modal-form">
+        <div class="modal-body" id="fin-modal-body"></div>
+        <div class="modal-footer" id="fin-modal-footer"></div>
       </form>
     </div>
   </div>
