@@ -1784,6 +1784,7 @@ function memberColor(email = '') {
 
 function subscribeMyTasks() {
   if (!currentUser?.email) return;
+  if (state.myTasksUnsub) { renderMyTasksView(); return; } // already live
   const q = query(
     collectionGroup(db, 'tasks'),
     where('assignedTo.email', '==', currentUser.email)
@@ -3603,7 +3604,7 @@ function bindTaskCardEvents(colEl) {
       const members = state.teamMembers || [];
       let html = members.map(m => {
         const col = memberColor(m.email);
-        return `<div class="nl-assign-item" data-email="${m.email}" data-name="${escapeHtml(m.name)}">
+        return `<div class="nl-assign-item" data-email="${m.email}" data-name="${escapeHtml(m.name)}" data-mid="${m.id}">
           <span class="nl-assign-av" style="background:${col}">${getInitials(m.name)}</span>
           ${escapeHtml(m.name)}
         </div>`;
@@ -3626,8 +3627,9 @@ function bindTaskCardEvents(colEl) {
           dd.remove();
           const email = item.dataset.email;
           const name  = item.dataset.name;
+          const memberId = item.dataset.mid || null;
           const ref   = doc(db, 'clients', state.client.id, 'projects', state.project.id, 'tasks', taskId);
-          await updateDoc(ref, { assignedTo: email ? { email, name } : null });
+          await updateDoc(ref, { assignedTo: email ? { email, name, memberId } : null });
         });
       });
 
