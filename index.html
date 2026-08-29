@@ -53,7 +53,7 @@
         <div id="login-error" class="login-error hidden"></div>
       </div>
 
-      <p class="login-footer-note">🔒 وصول مقيّد — islam.walied</p>
+      <p class="login-footer-note">🔒 للفريق فقط — Islam Life</p>
     </div>
   </div>
 
@@ -106,9 +106,8 @@
         <div class="view active" id="view-dashboard">
 
           <div class="hub-layout">
-            <!-- Left: focus timer card, then section tiles -->
+            <!-- Left: module tiles -->
             <div class="hub-main">
-              <div class="hub-card focus-widget-card" id="focus-orb-col"></div>
               <div class="hub-grid" id="hub-grid"></div>
             </div>
 
@@ -403,15 +402,17 @@
           </div><!-- /#board-area -->
         </div><!-- /#view-tasks -->
 
-        <!-- ══ VIEW: FINANCE HOME (hub) ══ -->
-        <!-- ══ FINANCE CENTER (المركز المالي) — v4.0 (JS-rendered) ══ -->
-        <div class="view" id="view-finance"><div class="fin-root" id="fin-home-root"></div></div>
-        <div class="view" id="view-finance-budget"><div class="fin-root" id="fin-budget-root"></div></div>
-        <div class="view" id="view-finance-debts"><div class="fin-root" id="fin-debts-root"></div></div>
-        <div class="view" id="view-finance-goals"><div class="fin-root" id="fin-goals-root"></div></div>
-        <div class="view" id="view-finance-assets"><div class="fin-root" id="fin-assets-root"></div></div>
-        <div class="view" id="view-finance-zakat"><div class="fin-root" id="fin-zakat-root"></div></div>
-        <div class="view" id="view-finance-emergency"><div class="fin-root" id="fin-emergency-root"></div></div>
+        <!-- ══ VIEW: FOCUS TIMER ══ -->
+        <div class="view" id="view-focus"></div>
+
+        <!-- ══ VIEW: TEAM ══ -->
+        <div class="view" id="view-team"></div>
+
+        <!-- ══ VIEW: MY TASKS (member) ══ -->
+        <div class="view" id="view-my-tasks"></div>
+
+        <!-- ══ VIEW: TASK DETAIL (Notion-style) ══ -->
+        <div class="view" id="view-task-detail"></div>
 
       </div><!-- /#content -->
 
@@ -551,21 +552,6 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════
-     FINANCE — single dynamic modal (JS-driven)
-══════════════════════════════════ -->
-  <div id="fin-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="fin-modal-title"></h2>
-        <button class="modal-close" id="fin-modal-close" type="button" aria-label="إغلاق">✕</button>
-      </div>
-      <form id="fin-modal-form">
-        <div class="modal-body" id="fin-modal-body"></div>
-        <div class="modal-footer" id="fin-modal-footer"></div>
-      </form>
-    </div>
-  </div>
 
   <!-- Scripts -->
   <script>

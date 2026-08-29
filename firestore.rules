@@ -7,14 +7,32 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Helper: only the owner is allowed ──
+    // ── Helpers ────────────────────────────────────────────────
     function isOwner() {
       return request.auth != null
           && request.auth.token.email_verified == true
           && request.auth.token.email == 'islam.walied96@gmail.com';
     }
 
-    // ── Direct paths — owner-only across the board ──
+    // A team member: verified Google account whose email exists in teamMembers
+    function isMember() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email != 'islam.walied96@gmail.com';
+    }
+
+    // Task is assigned to the currently-authenticated member
+    function assignedToMe() {
+      return resource.data.get(['assignedTo', 'email'], '') == request.auth.token.email;
+    }
+
+    // ── Team Members ───────────────────────────────────────────
+    match /teamMembers/{memberId} {
+      allow read:  if isOwner() || (isMember() && resource.data.email == request.auth.token.email);
+      allow write: if isOwner();
+    }
+
+    // ── Clients & Projects ─────────────────────────────────────
     match /clients/{clientId} {
       allow read, write: if isOwner();
 
@@ -22,17 +40,34 @@ service cloud.firestore {
         allow read, write: if isOwner();
 
         match /tasks/{taskId} {
-          allow read, write: if isOwner();
+          // Owner: full access. Member: read + status-only update on their tasks.
+          allow read:   if isOwner() || (isMember() && assignedToMe());
+          allow write:  if isOwner();
+          allow update: if isMember() && assignedToMe()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+
+          match /subtasks/{subtaskId} {
+            allow read:   if isOwner() || (isMember() && assignedToMe());
+            allow write:  if isOwner();
+            allow update: if isMember() && assignedToMe()
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done']);
+          }
+
+          match /comments/{commentId} {
+            allow read:   if isOwner() || (isMember() && assignedToMe());
+            allow write:  if isOwner();
+            allow create: if isMember() && assignedToMe()
+                && request.resource.data.authorEmail == request.auth.token.email;
+          }
         }
       }
     }
 
-    // ── App metadata + focus sessions ──
+    // ── App metadata + focus sessions ──────────────────────────
     match /meta/{docId}       { allow read, write: if isOwner(); }
     match /focusSessions/{sessionId} { allow read, write: if isOwner(); }
 
-    // ── Finance Center (المركز المالي) — owner-only ──
-    // meta/{plan,goldPrices,finSettings} are covered by the /meta rule above.
+    // ── Finance (legacy — kept for data safety) ────────────────
     match /accounts/{id}         { allow read, write: if isOwner(); }
     match /budgetCategories/{id} { allow read, write: if isOwner(); }
     match /goals/{id}            { allow read, write: if isOwner(); }
@@ -41,17 +76,21 @@ service cloud.firestore {
     match /gold_assets/{id}      { allow read, write: if isOwner(); }
     match /transactions/{id}     { allow read, write: if isOwner(); }
 
-    // ── Food & Health — owner-only ──
+    // ── Food & Health ──────────────────────────────────────────
     match /users/{userId}/food/{docId} {
       allow read, write: if isOwner();
     }
 
-    // ── collectionGroup queries ──
+    // ── collectionGroup queries ────────────────────────────────
     match /{path=**}/projects/{projectId} {
       allow read: if isOwner();
     }
     match /{path=**}/tasks/{taskId} {
-      allow read: if isOwner();
+      // Owner: all tasks. Member: only their assigned tasks.
+      allow read:   if isOwner() || (isMember() && resource.data.get(['assignedTo', 'email'], '') == request.auth.token.email);
+      allow update: if isMember()
+          && resource.data.get(['assignedTo', 'email'], '') == request.auth.token.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
     }
   }
 }

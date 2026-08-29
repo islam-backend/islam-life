@@ -5,6 +5,10 @@
 export const allowedEmail = 'islam.walied96@gmail.com';
 
 
+// VAPID key: Firebase Console → Project Settings → Cloud Messaging → Web Push certificates → Generate key pair
+// Paste the "Key pair" value here (looks like: BH...)
+export const vapidKey = 'PASTE_YOUR_VAPID_KEY_HERE';
+
 export const firebaseConfig = {
   apiKey: "AIzaSyCHAZg3YjrWe5hIWEDRvCB37-xpVCV8sZE",
   authDomain: "islam-life-e126e.firebaseapp.com",
