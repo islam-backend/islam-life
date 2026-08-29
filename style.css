@@ -3450,12 +3450,6 @@ select.form-input {
    No boxes, no borders — elements float on the page background.
    ============================================================ */
 
-#view-focus {
-  position: relative;
-  overflow-y: auto;
-  padding-top: 0;
-}
-
 /* ── Top linear micro-progress rail (3px, full width under header) ── */
 .focus-top-rail {
   position: sticky;
@@ -6127,12 +6121,13 @@ svg {
    FOCUS TIMER PAGE (view-focus)
 ════════════════════════════════════════════════════════════════ */
 
-#view-focus {
-  height: 100%;
-  overflow-y: auto;
+/* ID selector must not override .view { display:none }.
+   Use .active variant so the view is hidden when not routed to. */
+#view-focus.active {
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
   padding: 32px 16px 64px;
 }
 
