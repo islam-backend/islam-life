@@ -43,7 +43,8 @@ import {
 // ── Init ───────────────────────────────────────────────────────
 const firebaseApp = initializeApp(firebaseConfig);
 const db          = initializeFirestore(firebaseApp, {
-  localCache: persistentLocalCache()
+  localCache: persistentLocalCache(),
+  experimentalAutoDetectLongPolling: true,
 });
 const auth        = getAuth(firebaseApp);
 const provider    = new GoogleAuthProvider();
