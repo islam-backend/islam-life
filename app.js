@@ -927,7 +927,8 @@ function navigateTo(view, payload = {}, fromPop = false) {
   } else if (view === 'team') {
     state.client = null; state.project = null;
     document.getElementById('view-team').classList.add('active');
-    subscribeTeamMembers();
+    renderTeamView();       // paint immediately with cached data
+    subscribeTeamMembers(); // then subscribe for live updates
 
   } else if (view === 'my-tasks') {
     state.client = null; state.project = null;
@@ -1564,7 +1565,7 @@ function renderFocusPage() {
     focusPaintDropdown();
     renderFocusLog();
 
-    document.getElementById('fp-back')?.addEventListener('click', () => navigateTo('hub'));
+    document.getElementById('fp-back')?.addEventListener('click', () => navigateTo('dashboard'));
 
     page.querySelectorAll('[data-fp-preset]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1624,7 +1625,7 @@ function renderFocusPage() {
       </div>
     </div>`;
   renderFocusLog();
-  document.getElementById('fp-back')?.addEventListener('click', () => navigateTo('hub'));
+  document.getElementById('fp-back')?.addEventListener('click', () => navigateTo('dashboard'));
 }
 
 function renderFocusLog() {
@@ -1722,7 +1723,7 @@ function renderTeamView() {
       }
     </div>`;
 
-  document.getElementById('team-back')?.addEventListener('click', () => navigateTo('hub'));
+  document.getElementById('team-back')?.addEventListener('click', () => navigateTo('dashboard'));
 
   // Add member button
   document.getElementById('btn-add-member')?.addEventListener('click', () => {
