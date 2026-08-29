@@ -1510,6 +1510,10 @@ function renderFocusPage() {
 
     page.innerHTML = `
       <div class="fp-wrap">
+        <button class="td-back-btn fp-back-btn" id="fp-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          الرئيسية
+        </button>
         <div class="fp-ring-area">
           <div class="fp-ring-wrap">
             <svg class="fp-ring-svg" viewBox="0 0 200 200">
@@ -1560,6 +1564,8 @@ function renderFocusPage() {
     focusPaintDropdown();
     renderFocusLog();
 
+    document.getElementById('fp-back')?.addEventListener('click', () => navigateTo('hub'));
+
     page.querySelectorAll('[data-fp-preset]').forEach(btn => {
       btn.addEventListener('click', () => {
         state.focus.preset = btn.dataset.fpPreset;
@@ -1583,6 +1589,10 @@ function renderFocusPage() {
 
   page.innerHTML = `
     <div class="fp-wrap fp-running">
+      <button class="td-back-btn fp-back-btn" id="fp-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        الرئيسية
+      </button>
       <div class="fp-phase-badge ${isWork ? '' : 'is-break'}">${isWork ? '🎯 تركيز' : '☕ راحة'} · ${cfg.label}</div>
       ${project ? `<div class="fp-project-badge">📁 ${escapeHtml(project.name || '')}</div>` : ''}
 
@@ -1614,6 +1624,7 @@ function renderFocusPage() {
       </div>
     </div>`;
   renderFocusLog();
+  document.getElementById('fp-back')?.addEventListener('click', () => navigateTo('hub'));
 }
 
 function renderFocusLog() {
@@ -1677,6 +1688,10 @@ function renderTeamView() {
 
   el.innerHTML = `
     <div class="team-page">
+      <button class="td-back-btn" id="team-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        الرئيسية
+      </button>
       <div class="team-header">
         <h2 class="team-title">أعضاء الفريق</h2>
         <button class="btn-primary" id="btn-add-member">＋ إضافة عضو</button>
@@ -1706,6 +1721,8 @@ function renderTeamView() {
           </div>`
       }
     </div>`;
+
+  document.getElementById('team-back')?.addEventListener('click', () => navigateTo('hub'));
 
   // Add member button
   document.getElementById('btn-add-member')?.addEventListener('click', () => {

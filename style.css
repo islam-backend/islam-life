@@ -6139,6 +6139,7 @@ svg {
   align-items: center;
   gap: 28px;
 }
+.fp-back-btn { align-self: flex-start; margin-bottom: -12px; }
 
 /* ── Ring ── */
 .fp-ring-area {
