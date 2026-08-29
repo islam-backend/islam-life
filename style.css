@@ -7333,42 +7333,86 @@ svg {
 .td-title-editable:hover:not(:focus) { background: var(--bg-card); }
 .td-title-editable:focus              { background: var(--bg-card); }
 
-/* ── Properties row — pills under the title ── */
-.td-props-row {
+/* ── Properties table (Notion-style) ── */
+.td-props-table {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-bottom: 24px;
-  margin-bottom: 28px;
-  border-bottom: 1px solid var(--border-card);
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.td-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 36px;
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+.td-prop-row:hover { background: var(--bg-card); }
+.td-prop-key {
+  width: 110px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 0 12px;
+}
+.td-prop-val {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
 }
 
-.td-prop {
+/* Status chip — clickable */
+.td-status-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 13px;
-  border-radius: 7px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.td-status-chip:not([disabled]):hover { opacity: 0.8; transform: scale(0.97); }
+.td-status-chip[disabled] { cursor: default; }
+.td-status-todo  { background: rgba(99,102,241,0.15); color: #818cf8; }
+.td-status-doing { background: rgba(245,158,11,0.15);  color: #f59e0b; }
+.td-status-done  { background: rgba(34,197,94,0.15);   color: #22c55e; }
+.td-status-backlog { background: var(--bg-card); color: var(--text-muted); }
+
+/* Generic chip */
+.td-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
-
-/* Status — coloured bg */
-.td-prop-todo  { background: rgba(99,102,241,0.12); color: #818cf8; }
-.td-prop-doing { background: rgba(245,158,11,0.12);  color: #d97706; }
-.td-prop-done  { background: rgba(34,197,94,0.12);   color: #16a34a; }
-.td-prop[style*="cursor:pointer"]:hover { opacity: 0.8; }
-
-/* Other properties — neutral card */
-.td-prop-neutral {
+.td-chip-neutral {
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   color: var(--text-secondary);
 }
+.td-chip-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
 
-/* Assignee — tinted with member color (set via inline style) */
-.td-prop-assignee { border: none; color: #fff; }
+/* Divider between props and body */
+.td-divider {
+  height: 1px;
+  background: var(--border-card);
+  margin: 20px 0 28px;
+}
 
 /* ── Single-column body ── */
 .td-body {
@@ -7378,17 +7422,17 @@ svg {
 }
 
 /* ── Section ── */
-.td-section { display: flex; flex-direction: column; gap: 10px; }
+.td-section { display: flex; flex-direction: column; gap: 12px; }
 
 .td-section-label {
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-card);
 }
 
 .td-count {
@@ -7453,25 +7497,43 @@ svg {
 .td-subtask-row:hover .td-subtask-del { opacity: 1; }
 .td-subtask-del:hover                  { color: #ef4444; }
 
-.td-subtask-add-row { margin-top: 4px; }
+.td-subtask-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
 .td-subtask-input {
-  width: 100%;
-  background: transparent;
-  border: 1px dashed var(--border-card);
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
   border-radius: 8px;
-  padding: 9px 12px;
+  padding: 9px 13px;
   font-size: 13px;
   color: var(--text-primary);
   font-family: inherit;
   box-sizing: border-box;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s;
 }
 .td-subtask-input:focus {
   outline: none;
-  border-style: solid;
   border-color: var(--accent);
-  background: var(--bg-card);
 }
+.td-subtask-add-btn {
+  padding: 9px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.td-subtask-add-btn:hover { opacity: 0.85; }
 
 /* ── Comments ── */
 .td-comment {
@@ -7523,7 +7585,21 @@ svg {
   transition: border-color 0.15s;
 }
 .td-comment-input:focus { outline: none; border-color: var(--accent); }
-.td-comment-send { padding: 9px 18px; font-size: 13px; white-space: nowrap; }
+.td-send-btn {
+  padding: 9px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.td-send-btn:hover { opacity: 0.85; }
 
 /* ── Empty hint ── */
 .td-empty-hint { font-size: 12px; color: var(--text-muted); padding: 8px 10px; }

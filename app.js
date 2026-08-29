@@ -1913,65 +1913,94 @@ function renderTaskDetail() {
   const endStr   = task.endDate   ? formatDate(task.endDate)   : null;
   const aColor   = task.assignedTo?.email ? memberColor(task.assignedTo.email) : null;
 
+  const priorityLabel2 = task.priority ? priorityLabel(task.priority) : null;
+
   el.innerHTML = `
     <div class="td-page">
 
-      <!-- Breadcrumb back -->
+      <!-- Back -->
       <button class="td-back-btn" data-back="${backView}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="15 18 9 12 15 6"></polyline></svg>
         ${fromMember ? 'مهامي' : escapeHtml(project?.name || 'المهام')}
       </button>
 
-      <!-- Title — big, editable -->
+      <!-- Title -->
       <div class="td-title${isOwner ? ' td-title-editable' : ''}"
         ${isOwner ? 'contenteditable="true" spellcheck="false"' : ''}
         id="td-title-field">${escapeHtml(task.title)}</div>
 
-      <!-- Properties row -->
-      <div class="td-props-row">
-        <span class="td-prop td-prop-${task.status}" id="td-status-pill"
-          ${isOwner ? 'style="cursor:pointer" title="اضغط لتغيير الحالة"' : ''}>
-          ${STATUS_LABEL[task.status] || task.status}
-        </span>
-        ${task.priority ? `<span class="td-prop td-prop-neutral">${priorityLabel(task.priority)}</span>` : ''}
-        ${aColor ? `<span class="td-prop td-prop-assignee" style="background:${aColor}">👤 ${escapeHtml(task.assignedTo.name)}</span>` : ''}
-        ${startStr ? `<span class="td-prop td-prop-neutral">📅 ${startStr}${endStr ? ' ← ' + endStr : ''}</span>` : ''}
-        <span class="td-prop td-prop-neutral" style="font-size:12px">📁 ${escapeHtml(project?.name || '—')}</span>
+      <!-- Properties table (Notion-style) -->
+      <div class="td-props-table">
+        <div class="td-prop-row">
+          <span class="td-prop-key">الحالة</span>
+          <span class="td-prop-val">
+            <button class="td-status-chip td-status-${task.status}" id="td-status-pill"
+              ${isOwner ? 'title="اضغط لتغيير الحالة"' : 'disabled'}>
+              ${STATUS_LABEL[task.status] || task.status}
+            </button>
+          </span>
+        </div>
+        ${priorityLabel2 ? `
+        <div class="td-prop-row">
+          <span class="td-prop-key">الأولوية</span>
+          <span class="td-prop-val"><span class="td-chip td-chip-neutral">${priorityLabel2}</span></span>
+        </div>` : ''}
+        <div class="td-prop-row">
+          <span class="td-prop-key">المُعيَّن</span>
+          <span class="td-prop-val">
+            ${aColor
+              ? `<span class="td-chip" style="background:${aColor};color:#fff">👤 ${escapeHtml(task.assignedTo.name)}</span>`
+              : `<span class="td-chip td-chip-empty">غير مُعيَّن</span>`}
+          </span>
+        </div>
+        <div class="td-prop-row">
+          <span class="td-prop-key">المشروع</span>
+          <span class="td-prop-val"><span class="td-chip td-chip-neutral">📁 ${escapeHtml(project?.name || '—')}</span></span>
+        </div>
+        ${startStr ? `
+        <div class="td-prop-row">
+          <span class="td-prop-key">التاريخ</span>
+          <span class="td-prop-val"><span class="td-chip td-chip-neutral">📅 ${startStr}${endStr ? ' ← ' + endStr : ''}</span></span>
+        </div>` : ''}
       </div>
 
-      <!-- Single-column body -->
+      <div class="td-divider"></div>
+
+      <!-- Body -->
       <div class="td-body">
 
         <!-- Description -->
         <div class="td-section">
-          <div class="td-section-label">📝 الوصف</div>
+          <div class="td-section-label">الوصف</div>
           <textarea class="td-description" id="td-description"
-            placeholder="أضف وصفاً تفصيلياً للمهمة..."
+            placeholder="أضف وصفاً للمهمة..."
             ${!isOwner ? 'readonly' : ''}>${escapeHtml(task.description || '')}</textarea>
         </div>
 
         <!-- Subtasks -->
         <div class="td-section">
-          <div class="td-section-label">✅ المهام الفرعية <span class="td-count" id="td-subtask-count"></span></div>
+          <div class="td-section-label">المهام الفرعية <span class="td-count" id="td-subtask-count"></span></div>
           <div id="td-subtasks-list"></div>
-          ${isOwner ? `<div class="td-subtask-add-row">
-            <input type="text" id="td-new-subtask" class="td-subtask-input" placeholder="＋ أضف مهمة فرعية..." maxlength="120" />
+          ${isOwner ? `
+          <div class="td-subtask-add-row">
+            <input type="text" id="td-new-subtask" class="td-subtask-input" placeholder="اكتب اسم المهمة الفرعية..." maxlength="120" />
+            <button class="td-subtask-add-btn" id="td-add-subtask-btn">+ إضافة</button>
           </div>` : ''}
         </div>
 
         <!-- Comments -->
         <div class="td-section">
-          <div class="td-section-label">💬 التعليقات</div>
+          <div class="td-section-label">التعليقات</div>
           <div id="td-comments-list"></div>
           <div class="td-comment-form">
             <div class="td-comment-av" style="background:${memberColor(currentUser?.email || '')}">${getInitials(currentUser?.name || '?')}</div>
             <input type="text" id="td-new-comment" class="td-comment-input" placeholder="اكتب تعليقاً..." maxlength="300" />
-            <button class="btn-primary td-comment-send" id="td-send-comment">إرسال</button>
+            <button class="td-send-btn" id="td-send-comment">إرسال</button>
           </div>
         </div>
 
-      </div><!-- /.td-body -->
-    </div><!-- /.td-page -->`;
+      </div>
+    </div>`;
 
   // Back button
   el.querySelector('.td-back-btn')?.addEventListener('click', () => {
@@ -2016,17 +2045,20 @@ function renderTaskDetail() {
       } catch (err) { toast('فشل حفظ الوصف', 'error'); }
     });
 
-    // Add subtask on Enter
-    el.querySelector('#td-new-subtask')?.addEventListener('keydown', async e => {
-      if (e.key !== 'Enter') return;
-      const title = e.target.value.trim();
+    // Add subtask on Enter or button click
+    const doAddSubtask = async () => {
+      const inp = el.querySelector('#td-new-subtask');
+      const title = inp?.value.trim();
       if (!title) return;
-      e.target.value = '';
+      inp.value = '';
+      inp.focus();
       const { client: c, project: p, task: t } = state.taskDetail;
       try {
         await addDoc(subtasksRef(c.id, p.id, t.id), { title, done: false, createdAt: serverTimestamp() });
       } catch (err) { toast('فشل إضافة المهمة الفرعية', 'error'); }
-    });
+    };
+    el.querySelector('#td-new-subtask')?.addEventListener('keydown', e => { if (e.key === 'Enter') doAddSubtask(); });
+    el.querySelector('#td-add-subtask-btn')?.addEventListener('click', doAddSubtask);
   }
 
   // Send comment
