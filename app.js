@@ -3176,31 +3176,26 @@ function renderClients() {
     return;
   }
 
-  grid.innerHTML = filtered.map(client => `
-    <div class="entity-card" data-id="${client.id}" role="button" tabindex="0" draggable="true">
-      <div class="card-header-row">
-        <div class="card-avatar" style="background:${client.avatarUrl ? 'transparent' : escapeHtml(client.color || '#3574F0')}; overflow:hidden;">
-          ${client.avatarUrl
-            ? `<img src="${client.avatarUrl}" alt="${escapeHtml(client.name)}" style="width:100%; height:100%; object-fit:cover;" />`
-            : escapeHtml(getInitials(client.name))
-          }
-        </div>
-        <div class="card-top-actions">
-          <button class="card-edit-btn" data-id="${client.id}" title="تعديل العميل">✏️</button>
-          <button class="card-del-btn" data-id="${client.id}" title="حذف العميل">🗑️</button>
-        </div>
+  grid.innerHTML = filtered.map(client => {
+    const avBg = client.avatarUrl ? 'transparent' : escapeHtml(client.color || '#3574F0');
+    const avContent = client.avatarUrl
+      ? `<img src="${client.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/>`
+      : escapeHtml(getInitials(client.name));
+    return `
+    <div class="nl-entity-row" data-id="${client.id}" role="button" tabindex="0" draggable="true">
+      <span class="nl-entity-av" style="background:${avBg}">${avContent}</span>
+      <span class="nl-entity-name">${escapeHtml(client.name)}</span>
+      ${client.description ? `<span class="nl-entity-desc">${escapeHtml(client.description)}</span>` : '<span></span>'}
+      <span class="nl-entity-date">${formatDate(client.createdAt)}</span>
+      <div class="nl-entity-actions">
+        <button class="card-edit-btn" data-id="${client.id}" title="تعديل">✏️</button>
+        <button class="card-del-btn" data-id="${client.id}" title="حذف">🗑️</button>
       </div>
-      <div class="card-name">${escapeHtml(client.name)}</div>
-      ${client.description ? `<div class="card-desc">${escapeHtml(client.description)}</div>` : ''}
-      <div class="card-meta">
-        <span>📅 ${formatDate(client.createdAt)}</span>
-        <span class="card-arrow">المشاريع ←</span>
-      </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   // Events
-  grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
+  grid.querySelectorAll('.nl-entity-row[data-id]').forEach(card => {
     card.addEventListener('click', e => {
       if (e.target.closest('.card-del-btn') || e.target.closest('.card-edit-btn')) return;
       const client = state.clients.find(c => c.id === card.dataset.id);
@@ -3209,8 +3204,8 @@ function renderClients() {
     card.addEventListener('keydown', e => { if (e.key === 'Enter') card.click(); });
   });
 
-  // Drag & Drop Events for Clients
-  grid.querySelectorAll('.entity-card[data-id]').forEach(card => {
+  // Drag & Drop for Clients
+  grid.querySelectorAll('.nl-entity-row[data-id]').forEach(card => {
     card.addEventListener('dragstart', e => {
       state.draggedEntityId = card.dataset.id;
       state.draggedEntityType = 'client';
@@ -3218,31 +3213,24 @@ function renderClients() {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setDragImage(FIN_DRAG_BLANK_IMG, 0, 0);
     });
-
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging-card');
       state.draggedEntityId = null;
       state.draggedEntityType = null;
-      grid.querySelectorAll('.entity-card').forEach(c => c.classList.remove('drag-over-card'));
+      grid.querySelectorAll('.nl-entity-row').forEach(c => c.classList.remove('drag-over-card'));
     });
-
     card.addEventListener('dragover', e => {
       e.preventDefault();
       if (state.draggedEntityType !== 'client' || state.draggedEntityId === card.dataset.id) return;
       card.classList.add('drag-over-card');
     });
-
     card.addEventListener('dragleave', e => {
-      if (!card.contains(e.relatedTarget)) {
-        card.classList.remove('drag-over-card');
-      }
+      if (!card.contains(e.relatedTarget)) card.classList.remove('drag-over-card');
     });
-
     card.addEventListener('drop', async e => {
       e.preventDefault();
       card.classList.remove('drag-over-card');
       if (state.draggedEntityType !== 'client' || !state.draggedEntityId || state.draggedEntityId === card.dataset.id) return;
-
       await handleEntityReorder('client', state.draggedEntityId, card.dataset.id);
     });
   });
@@ -3308,78 +3296,37 @@ function renderProjects() {
 
   grid.innerHTML = filtered.map(project => {
     const st = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
-    
-    // Find client name if available
-    const clientId = project._clientId || state.client?.id;
-    const client = state.clients.find(c => c.id === clientId);
-    const clientName = client ? client.name : '';
-
-    // Calculate progress
+    const clientId   = project._clientId || state.client?.id;
+    const client     = state.clients.find(c => c.id === clientId);
+    const clientName = client?.name || '';
     const projectTasks = state.tasks.filter(t => t._projectId === project.id);
     const doneTasks    = projectTasks.filter(t => t.status === 'done').length;
     const totalTasks   = projectTasks.length;
     const pct          = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-    const progressClass = pct < 30 ? 'progress-low' : pct < 75 ? 'progress-mid' : 'progress-high';
-
-    // v22.0 — Project-card hours tag: compact "Xh Ym" mono format pulled
-    // live from totalProjectHours. Shown even at 0h so the user always sees
-    // the time signal on the external project card before opening it.
-    const projHours = Number(project.totalProjectHours) || 0;
-    const timeBadge = `<div class="project-card-hours-tag" title="إجمالي الوقت المستغرق على المشروع">⏱ ${formatHoursHm(projHours)}</div>`;
+    const projHours    = Number(project.totalProjectHours) || 0;
+    const progressColor = pct < 30 ? 'var(--danger)' : pct < 75 ? '#F0A835' : '#3DB981';
 
     return `
-      <div class="project-compact-card" data-id="${project.id}" role="button" tabindex="0" draggable="true">
-        <div class="proj-compact-header">
-          <div class="proj-compact-title-wrap">
-            <span class="proj-compact-icon">📁</span>
-            <span class="proj-compact-name" title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span>
-          </div>
-          <div class="proj-compact-actions">
-            <span class="status-dot ${st.cls || 'status-active'}" title="${st.label}"></span>
-            <button class="card-edit-btn compact" data-id="${project.id}" title="تعديل المشروع">✏️</button>
-            <button class="card-del-btn compact" data-id="${project.id}" title="حذف المشروع">🗑️</button>
-          </div>
+      <div class="nl-entity-row nl-proj-row" data-id="${project.id}" role="button" tabindex="0" draggable="true">
+        <span class="nl-proj-status-dot ${st.cls || 'status-active'}" title="${st.label}"></span>
+        <span class="nl-entity-name">${escapeHtml(project.name)}</span>
+        ${clientName ? `<span class="nl-proj-client">${escapeHtml(clientName)}</span>` : '<span></span>'}
+        <div class="nl-proj-progress" title="${pct}% مكتمل">
+          <div class="nl-prog-bar"><div class="nl-prog-fill" style="width:${pct}%;background:${progressColor}"></div></div>
+          <span class="nl-prog-label">${doneTasks}/${totalTasks}</span>
         </div>
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-          ${clientName ? `
-          <div class="proj-compact-client">
-            <span class="client-label">العميل:</span>
-            <span class="client-val">${escapeHtml(clientName)}</span>
-          </div>` : '<div></div>'}
-          ${timeBadge}
+        <span class="nl-proj-hours">⏱ ${formatHoursHm(projHours)}</span>
+        <div class="nl-entity-actions">
+          <button class="card-edit-btn" data-id="${project.id}" title="تعديل">✏️</button>
+          <button class="card-del-btn" data-id="${project.id}" title="حذف">🗑️</button>
         </div>
-
-        ${project.description ? `<div class="proj-compact-desc" title="${escapeHtml(project.description)}">${escapeHtml(project.description)}</div>` : ''}
-
-        ${Array.isArray(project.links) && project.links.length ? `
-          <div class="proj-compact-links">
-            ${project.links.map(l => `
-              <a class="proj-link-chip" href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer"
-                 title="${escapeHtml(l.url)}" data-link-chip="1">
-                🔗 ${escapeHtml(l.label)}
-              </a>`).join('')}
-          </div>` : ''}
-
-        <div class="proj-compact-progress-wrap">
-          <div class="proj-compact-progress-bar">
-            <div class="progress-bar-fill ${progressClass}" style="width: ${pct}%"></div>
-          </div>
-          <div class="proj-compact-progress-text">
-            <span style="color: ${pct < 30 ? 'var(--danger)' : pct < 75 ? '#F0A835' : '#3DB981'}; font-weight:600;">${pct}% مكتمل</span>
-            <span>${doneTasks}/${totalTasks} مهام</span>
-          </div>
-        </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 
-  // Click on card: navigate to tasks
-  grid.querySelectorAll('.project-compact-card[data-id]').forEach(card => {
+  // Click: navigate to tasks
+  grid.querySelectorAll('.nl-proj-row[data-id]').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.card-del-btn') ||
-          e.target.closest('.card-edit-btn') ||
-          e.target.closest('[data-link-chip]')) return;
+      if (e.target.closest('.card-del-btn') || e.target.closest('.card-edit-btn')) return;
       const project = state.projects.find(p => p.id === card.dataset.id);
       if (project) {
         const clientId = project._clientId || state.client?.id;
@@ -3390,8 +3337,8 @@ function renderProjects() {
     card.addEventListener('keydown', e => { if (e.key === 'Enter') card.click(); });
   });
 
-  // Drag & Drop Reordering Events for Projects
-  grid.querySelectorAll('.project-compact-card[data-id]').forEach(card => {
+  // Drag & Drop for Projects
+  grid.querySelectorAll('.nl-proj-row[data-id]').forEach(card => {
     card.addEventListener('dragstart', e => {
       state.draggedEntityId = card.dataset.id;
       state.draggedEntityType = 'project';
@@ -3399,42 +3346,30 @@ function renderProjects() {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setDragImage(FIN_DRAG_BLANK_IMG, 0, 0);
     });
-
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging-card');
       state.draggedEntityId = null;
       state.draggedEntityType = null;
-      grid.querySelectorAll('.project-compact-card').forEach(c => c.classList.remove('drag-over-card'));
+      grid.querySelectorAll('.nl-proj-row').forEach(c => c.classList.remove('drag-over-card'));
     });
-
     card.addEventListener('dragover', e => {
       e.preventDefault();
       if (state.draggedEntityType !== 'project' || state.draggedEntityId === card.dataset.id) return;
       card.classList.add('drag-over-card');
     });
-
     card.addEventListener('dragleave', e => {
-      if (!card.contains(e.relatedTarget)) {
-        card.classList.remove('drag-over-card');
-      }
+      if (!card.contains(e.relatedTarget)) card.classList.remove('drag-over-card');
     });
-
     card.addEventListener('drop', async e => {
       e.preventDefault();
       card.classList.remove('drag-over-card');
       if (state.draggedEntityType !== 'project' || !state.draggedEntityId || state.draggedEntityId === card.dataset.id) return;
-
-      const draggedProject = state.projects.find(p => p.id === state.draggedEntityId);
-      const targetProject  = state.projects.find(p => p.id === card.dataset.id);
+      const draggedProject  = state.projects.find(p => p.id === state.draggedEntityId);
+      const targetProject   = state.projects.find(p => p.id === card.dataset.id);
       const draggedClientId = draggedProject?._clientId || state.client?.id;
       const targetClientId  = targetProject?._clientId  || state.client?.id;
       if (!draggedClientId || !targetClientId) return;
-      // Prevent cross-client reorder in "all projects" mode — would move docs to wrong client.
-      if (draggedClientId !== targetClientId) {
-        toast('لا يمكن إعادة ترتيب مشاريع عملاء مختلفين', 'error');
-        return;
-      }
-
+      if (draggedClientId !== targetClientId) { toast('لا يمكن إعادة ترتيب مشاريع عملاء مختلفين', 'error'); return; }
       await handleEntityReorder('project', state.draggedEntityId, card.dataset.id, draggedClientId);
     });
   });
@@ -3576,35 +3511,30 @@ function renderKanban() {
 }
 
 function taskCardHTML(task) {
-  // v19.0 — Per-task hours dropped; tracking lives on the project doc now.
+  const isOwner = currentUser?.role === 'owner';
+  const planToggle = `<button class="card-plan-btn" data-id="${task.id}" title="${task.inPlan ? 'إزالة من الخطة' : 'إضافة للخطة'}">${task.inPlan ? '★' : '☆'}</button>`;
+  const editBtn = isOwner ? `<button class="card-edit-btn" data-id="${task.id}" title="تعديل">✏️</button>` : '';
+  const delBtn  = isOwner ? `<button class="card-menu-btn" data-id="${task.id}" title="حذف">✕</button>` : '';
+  const endDate = task.endDate ? `<span class="nl-date">${formatDate(task.endDate)}</span>` : '';
 
-  // Inline thumbnail with hard corners — clicking opens a full-size lightbox.
-  const imgBlock = task.imageUrl
-    ? `<img class="task-card-thumb" src="${task.imageUrl}" alt="" data-img="${task.imageUrl}" title="عرض الصورة" />`
-    : '';
-
-  const planBadge = task.inPlan
-    ? `<span class="card-plan-badge in-plan" title="ضمن الخطة">🎯 في الخطة</span>`
-    : '';
-  const planToggleBtn = `<button class="card-plan-btn" data-id="${task.id}" title="${task.inPlan ? 'إزالة من الخطة' : 'إضافة للخطة'}">${task.inPlan ? '★' : '☆'}</button>`;
+  let assigneeBtn = '';
+  if (task.assignedTo?.email) {
+    const col = memberColor(task.assignedTo.email);
+    assigneeBtn = `<button class="nl-assignee" data-assign="${task.id}" style="background:${col}" title="${escapeHtml(task.assignedTo.name)}">${getInitials(task.assignedTo.name)}</button>`;
+  } else if (isOwner) {
+    assigneeBtn = `<button class="nl-assignee nl-assignee-empty" data-assign="${task.id}" title="عيّن عضو">+</button>`;
+  }
 
   return `
     <div class="task-card${task.inPlan ? ' in-plan' : ''}" id="tc-${task.id}" draggable="true" data-id="${task.id}">
-      <div class="card-top" style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-        <div class="card-title">${escapeHtml(task.title)}</div>
-        <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
-          ${planToggleBtn}
-          <button class="card-edit-btn" data-id="${task.id}" title="تعديل المهمة">✏️</button>
-          <button class="card-menu-btn" data-id="${task.id}" title="حذف المهمة">✕</button>
-        </div>
-      </div>
-      ${planBadge}
-      ${task.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.55">${escapeHtml(task.notes)}</div>` : ''}
-      ${imgBlock}
-      <div class="card-footer" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
-        <span class="card-date">🕐 ${formatDate(task.createdAt)}</span>
-        ${task.priority ? `<span class="card-priority priority-${task.priority}">${priorityLabel(task.priority)}</span>` : ''}
-        ${task.assignedTo?.name ? `<span class="card-assignee-badge" style="background:${memberColor(task.assignedTo.email)}" title="مُعين لـ ${escapeHtml(task.assignedTo.name)}">${getInitials(task.assignedTo.name)}</span>` : ''}
+      <span class="tc-dot"></span>
+      <span class="card-title">${escapeHtml(task.title)}</span>
+      <div class="nl-row-props">
+        ${endDate}
+        ${assigneeBtn}
+        ${planToggle}
+        ${editBtn}
+        ${delBtn}
       </div>
     </div>`;
 }
@@ -3625,16 +3555,57 @@ function bindTaskCardEvents(colEl) {
     });
   });
 
-  colEl.querySelectorAll('.task-card-thumb').forEach(img => {
-    img.addEventListener('click', e => {
+  // Assignee quick-assign dropdown
+  colEl.querySelectorAll('[data-assign]').forEach(btn => {
+    btn.addEventListener('click', e => {
       e.stopPropagation();
-      openImageLightbox(img.dataset.img);
+      document.querySelectorAll('.nl-assign-dd').forEach(d => d.remove());
+      const taskId = btn.dataset.assign;
+      const task   = state.tasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      const dd = document.createElement('div');
+      dd.className = 'nl-assign-dd';
+
+      const members = state.teamMembers || [];
+      let html = members.map(m => {
+        const col = memberColor(m.email);
+        return `<div class="nl-assign-item" data-email="${m.email}" data-name="${escapeHtml(m.name)}">
+          <span class="nl-assign-av" style="background:${col}">${getInitials(m.name)}</span>
+          ${escapeHtml(m.name)}
+        </div>`;
+      }).join('');
+      if (task.assignedTo?.email) {
+        html += `<div class="nl-assign-item nl-assign-none" data-email="" data-name="">— إزالة التعيين</div>`;
+      }
+      dd.innerHTML = html;
+
+      // Position below the button
+      const rect = btn.getBoundingClientRect();
+      dd.style.position = 'fixed';
+      dd.style.top  = (rect.bottom + 6) + 'px';
+      dd.style.left = (rect.left - 120) + 'px';
+      document.body.appendChild(dd);
+
+      dd.querySelectorAll('.nl-assign-item').forEach(item => {
+        item.addEventListener('click', async ev => {
+          ev.stopPropagation();
+          dd.remove();
+          const email = item.dataset.email;
+          const name  = item.dataset.name;
+          const ref   = doc(db, 'clients', state.client.id, 'projects', state.project.id, 'tasks', taskId);
+          await updateDoc(ref, { assignedTo: email ? { email, name } : null });
+        });
+      });
+
+      const close = ev => { if (!dd.contains(ev.target)) { dd.remove(); document.removeEventListener('click', close); } };
+      setTimeout(() => document.addEventListener('click', close), 0);
     });
   });
 
   colEl.querySelectorAll('.task-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('button, .task-card-thumb, input')) return;
+      if (e.target.closest('button, input')) return;
       const task = state.tasks.find(t => t.id === card.dataset.id);
       if (!task) return;
       navigateTo('task-detail', { client: state.client, project: state.project, task });
