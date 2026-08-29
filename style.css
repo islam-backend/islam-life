@@ -6420,8 +6420,404 @@ svg {
 
 
 /* ════════════════════════════════════════════════════════════════
-   TEAM VIEW (owner)
+   HUB — restored (was lost during finance-CSS removal)
 ════════════════════════════════════════════════════════════════ */
+
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HUB (Home launcher) — big tiles, no sidebar
+   ════════════════════════════════════════════════════════════════ */
+.dash-welcome-row {
+  margin-bottom: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dash-welcome-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+.hub-daily-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  max-width: 920px;
+}
+
+.hub-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 22px;
+  min-height: 92px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: right;
+  font-family: inherit;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.hub-tile:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.hub-tile:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.hub-tile-icon {
+  flex-shrink: 0;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  background: var(--accent-dim);
+  border-radius: 12px;
+}
+.hub-tile-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hub-tile-arrow {
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  margin-inline-start: auto;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.hub-tile:hover .hub-tile-arrow {
+  color: var(--accent);
+  transform: translateX(-4px);
+}
+
+/* ── Header tools (relocated from the old sidebar footer) ── */
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.db-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.header-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.header-tool-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.header-tool-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ── Hub 2-column layout: tiles (+ focus card) + big side panel ── */
+.hub-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 22px;
+  align-items: start;
+  width: 100%;
+  /* Preserve the vertical offset the removed welcome row used to give, so
+     the tiles + prayer card stay at their original lower position. */
+  margin-top: 20px;
+}
+.hub-main { align-self: start; display: flex; flex-direction: column; gap: 18px; }
+.hub-side { align-self: start; }
+.hub-main .hub-grid { max-width: none; }
+.hub-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.hub-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.hub-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+.hub-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hub-card-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.hub-card-collapse-btn {
+  flex: 0 0 auto; margin-inline-start: auto; background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 2px; border-radius: 6px; display: flex; align-items: center;
+  transition: transform .2s ease, color .15s ease, background .15s ease;
+}
+.hub-card-collapse-btn:hover { color: var(--text-primary); background: var(--bg-input); }
+.hub-card-collapse-btn svg { width: 16px; height: 16px; }
+.hub-card.is-collapsed .hub-card-collapse-btn { transform: rotate(-90deg); }
+.hub-card-body {
+  overflow: hidden;
+  max-height: 600px;
+  transition: max-height .25s ease, opacity .2s ease, margin-top .25s ease;
+  margin-top: 12px;
+  opacity: 1;
+}
+.hub-card.is-collapsed .hub-card-body {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+}
+
+/* ── Prayer times ── */
+.prayer-next {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--accent-dim);
+  border-radius: 9px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  min-height: 18px;
+}
+.prayer-next b { color: var(--accent); font-weight: 700; }
+.prayer-list { display: flex; flex-direction: column; gap: 2px; }
+.prayer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.prayer-row .prayer-name { color: var(--text-secondary); font-weight: 500; }
+.prayer-row .prayer-time { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.prayer-row.next {
+  background: var(--accent-dim);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.prayer-row.next .prayer-name,
+.prayer-row.next .prayer-time { color: var(--accent); font-weight: 700; }
+.prayer-row.passed .prayer-name { color: var(--status-done); }
+.prayer-row.passed .prayer-time { color: var(--text-muted); }
+.prayer-row .prayer-name { display: inline-flex; align-items: center; gap: 6px; }
+.prayer-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--status-done);
+  color: #0f2419;
+  font-size: 10px;
+  font-weight: 700;
+}
+.prayer-loading, .prayer-error {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 8px 4px;
+}
+.prayer-error { color: var(--danger); }
+
+/* ── Today's client rings ── */
+.today-rings { display: flex; flex-direction: column; gap: 4px; }
+.today-ring-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.today-ring-item:hover { background: var(--bg-card-hover); }
+.today-ring-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.today-ring-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.today-ring-client {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.today-ring-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.today-ring-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--status-done);
+  transition: width 0.3s ease;
+}
+.today-ring-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ── Focus timer card (Pomodoro v4) — a full-width hub-card of its own,
+   sitting above the tile grid in .hub-main. It never shares a row/column
+   with the prayer or today's-clients cards, so nothing about them
+   (collapsed or not) can ever move or resize it. Roomy horizontal layout
+   instead of a cramped narrow column. ── */
+.focus-widget-card { display: flex; align-items: center; gap: 24px; min-height: 132px; }
+
+/* Idle: project picker + presets, laid out with real breathing room */
+.focus-idle-row { display: flex; align-items: center; gap: 24px; width: 100%; }
+.focus-idle-picker { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* Project picker reuses the app's existing custom themed dropdown
+   (.focus-dd / .focus-dd-trigger / .focus-dd-menu, ~line 3551) instead of
+   a styled native <select> — same pill trigger + floating menu already
+   used elsewhere, so this isn't a one-off look. */
+.focus-idle-picker .focus-dd { min-width: 0; max-width: none; width: 100%; }
+.focus-orb-time-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Presets reuse the app's existing pill toggle (.focus-pills/.focus-pill,
+   ~line 3711) instead of the generic IDE button — same rounded, glowing
+   time-chip look already defined elsewhere. */
+.focus-idle-presets { flex: 0 0 auto; }
+
+/* Running: ring on one side, status + controls + log filling the rest */
+.focus-running-row { display: flex; align-items: center; gap: 22px; width: 100%; }
+.focus-ring-wrap {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  animation: focus-ring-pulse 2.4s ease-in-out infinite;
+}
+.focus-ring-wrap.is-break { animation-name: focus-ring-pulse-break; }
+@keyframes focus-ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(53, 116, 240, 0.18); }
+  50%      { box-shadow: 0 0 0 8px rgba(53, 116, 240, 0); }
+}
+@keyframes focus-ring-pulse-break {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(61, 185, 129, 0.18); }
+  50%      { box-shadow: 0 0 0 8px rgba(61, 185, 129, 0); }
+}
+.focus-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.focus-ring-track { fill: none; stroke: var(--bg-app); stroke-width: 9; }
+.focus-ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 9;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s linear;
+}
+.focus-ring-wrap.is-break .focus-ring-progress { stroke: var(--status-done); }
+.focus-ring-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.focus-running-info { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.focus-orb-phase { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.focus-orb-project { font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-orb-controls { display: flex; gap: 8px; flex: 0 0 auto; }
+.focus-orb-controls .premium-ide-btn { font-size: 13px; padding: 9px 14px; }
+
+/* Recent-sessions log — its own column on the far side of the card,
+   always visible (idle or running) so "did this get logged, and to which
+   project" is answered right here. */
+.focus-log { flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.focus-log-title { font-size: 11px; color: var(--text-muted); }
+.focus-log-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--bg-app);
+}
+.focus-log-project { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-log-duration { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.focus-log-empty { font-size: 12px; color: var(--text-muted); }
+@media (max-width: 720px) {
+  .focus-idle-row, .focus-running-row { flex-wrap: wrap; }
+  .focus-log { flex-basis: 100%; }
+}
+.today-rings-empty {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 10px 4px;
+}
+
+@media (max-width: 900px) {
+  .hub-layout { grid-template-columns: 1fr; }
+  .hub-side { flex-direction: row; flex-wrap: wrap; }
+  .hub-side .hub-card { flex: 1 1 260px; }
+}
+@media (max-width: 640px) {
+  .db-status span:not(.db-dot) { display: none; }
+  .hub-grid { grid-template-columns: 1fr; }
+  .hub-side { flex-direction: column; }
+}
 
 .team-page {
   max-width: 680px;
@@ -7047,3 +7443,4 @@ svg {
 
 /* Pointer on kanban card body (exclude buttons) */
 .task-card { cursor: pointer; }
+
