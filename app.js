@@ -1908,108 +1908,66 @@ function renderTaskDetail() {
   const isOwner = currentUser?.role === 'owner';
   const backView = fromMember ? 'my-tasks' : 'tasks';
 
-  const priorityBadge = task.priority
-    ? `<span class="card-priority priority-${task.priority} td-chip">${priorityLabel(task.priority)}</span>` : '';
-  const assigneeBadge = task.assignedTo?.name
-    ? `<span class="td-chip td-assignee-chip" style="background:${memberColor(task.assignedTo.email)}">${escapeHtml(task.assignedTo.name)}</span>` : '';
   const startStr = task.startDate ? formatDate(task.startDate) : null;
   const endStr   = task.endDate   ? formatDate(task.endDate)   : null;
+  const aColor   = task.assignedTo?.email ? memberColor(task.assignedTo.email) : null;
 
   el.innerHTML = `
     <div class="td-page">
 
-      <!-- Back -->
+      <!-- Breadcrumb back -->
       <button class="td-back-btn" data-back="${backView}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="15 18 9 12 15 6"></polyline></svg>
         ${fromMember ? 'مهامي' : escapeHtml(project?.name || 'المهام')}
       </button>
 
-      <!-- Title -->
-      <div class="td-title-wrap">
-        <div class="td-title${isOwner ? ' td-title-editable' : ''}"
-          ${isOwner ? 'contenteditable="true" spellcheck="false"' : ''}
-          id="td-title-field">${escapeHtml(task.title)}</div>
-        <span class="td-status-pill status-${task.status}" id="td-status-pill"
+      <!-- Title — big, editable -->
+      <div class="td-title${isOwner ? ' td-title-editable' : ''}"
+        ${isOwner ? 'contenteditable="true" spellcheck="false"' : ''}
+        id="td-title-field">${escapeHtml(task.title)}</div>
+
+      <!-- Properties row -->
+      <div class="td-props-row">
+        <span class="td-prop td-prop-${task.status}" id="td-status-pill"
           ${isOwner ? 'style="cursor:pointer" title="اضغط لتغيير الحالة"' : ''}>
           ${STATUS_LABEL[task.status] || task.status}
         </span>
+        ${task.priority ? `<span class="td-prop td-prop-neutral">${priorityLabel(task.priority)}</span>` : ''}
+        ${aColor ? `<span class="td-prop td-prop-assignee" style="background:${aColor}">👤 ${escapeHtml(task.assignedTo.name)}</span>` : ''}
+        ${startStr ? `<span class="td-prop td-prop-neutral">📅 ${startStr}${endStr ? ' ← ' + endStr : ''}</span>` : ''}
+        <span class="td-prop td-prop-neutral" style="font-size:12px">📁 ${escapeHtml(project?.name || '—')}</span>
       </div>
 
-      <!-- Chips row -->
-      <div class="td-chips-row">
-        ${priorityBadge}
-        ${assigneeBadge}
-        ${startStr ? `<span class="td-chip">📅 ${startStr}${endStr ? ' → ' + endStr : ''}</span>` : ''}
-      </div>
-
-      <!-- Two-column body -->
+      <!-- Single-column body -->
       <div class="td-body">
 
-        <!-- Left: description + subtasks + comments -->
-        <div class="td-main">
-
-          <!-- Description -->
-          <div class="td-section">
-            <div class="td-section-label">الوصف</div>
-            <textarea class="td-description" id="td-description" placeholder="أضف وصفاً تفصيلياً للمهمة..."
-              ${!isOwner ? 'readonly' : ''}>${escapeHtml(task.description || '')}</textarea>
-          </div>
-
-          <!-- Subtasks -->
-          <div class="td-section">
-            <div class="td-section-label">المهام الفرعية <span class="td-count" id="td-subtask-count"></span></div>
-            <div id="td-subtasks-list"></div>
-            ${isOwner ? `
-            <div class="td-subtask-add-row">
-              <input type="text" id="td-new-subtask" class="td-subtask-input" placeholder="＋ أضف مهمة فرعية..." maxlength="120" />
-            </div>` : ''}
-          </div>
-
-          <!-- Comments -->
-          <div class="td-section">
-            <div class="td-section-label">التعليقات</div>
-            <div id="td-comments-list"></div>
-            <div class="td-comment-form">
-              <div class="td-comment-avatar" style="background:${memberColor(currentUser?.email || '')}">${getInitials(currentUser?.name || '?')}</div>
-              <input type="text" id="td-new-comment" class="td-comment-input" placeholder="اكتب تعليقاً..." maxlength="300" />
-              <button class="btn-primary td-comment-send" id="td-send-comment">إرسال</button>
-            </div>
-          </div>
-
+        <!-- Description -->
+        <div class="td-section">
+          <div class="td-section-label">📝 الوصف</div>
+          <textarea class="td-description" id="td-description"
+            placeholder="أضف وصفاً تفصيلياً للمهمة..."
+            ${!isOwner ? 'readonly' : ''}>${escapeHtml(task.description || '')}</textarea>
         </div>
 
-        <!-- Right: meta panel (owner only) -->
-        ${isOwner ? `
-        <div class="td-meta">
-          <div class="td-meta-section">
-            <div class="td-meta-label">الحالة</div>
-            <div class="td-meta-value">${STATUS_LABEL[task.status] || task.status}</div>
+        <!-- Subtasks -->
+        <div class="td-section">
+          <div class="td-section-label">✅ المهام الفرعية <span class="td-count" id="td-subtask-count"></span></div>
+          <div id="td-subtasks-list"></div>
+          ${isOwner ? `<div class="td-subtask-add-row">
+            <input type="text" id="td-new-subtask" class="td-subtask-input" placeholder="＋ أضف مهمة فرعية..." maxlength="120" />
+          </div>` : ''}
+        </div>
+
+        <!-- Comments -->
+        <div class="td-section">
+          <div class="td-section-label">💬 التعليقات</div>
+          <div id="td-comments-list"></div>
+          <div class="td-comment-form">
+            <div class="td-comment-av" style="background:${memberColor(currentUser?.email || '')}">${getInitials(currentUser?.name || '?')}</div>
+            <input type="text" id="td-new-comment" class="td-comment-input" placeholder="اكتب تعليقاً..." maxlength="300" />
+            <button class="btn-primary td-comment-send" id="td-send-comment">إرسال</button>
           </div>
-          ${task.priority ? `<div class="td-meta-section">
-            <div class="td-meta-label">الأولوية</div>
-            <div class="td-meta-value"><span class="card-priority priority-${task.priority}">${priorityLabel(task.priority)}</span></div>
-          </div>` : ''}
-          ${task.assignedTo?.name ? `<div class="td-meta-section">
-            <div class="td-meta-label">مُعيَّن لـ</div>
-            <div class="td-meta-value">${escapeHtml(task.assignedTo.name)}</div>
-          </div>` : ''}
-          ${startStr ? `<div class="td-meta-section">
-            <div class="td-meta-label">البداية</div>
-            <div class="td-meta-value">${startStr}</div>
-          </div>` : ''}
-          ${endStr ? `<div class="td-meta-section">
-            <div class="td-meta-label">الانتهاء</div>
-            <div class="td-meta-value">${endStr}</div>
-          </div>` : ''}
-          <div class="td-meta-section">
-            <div class="td-meta-label">المشروع</div>
-            <div class="td-meta-value">${escapeHtml(project?.name || '—')}</div>
-          </div>
-          <div class="td-meta-section">
-            <div class="td-meta-label">العميل</div>
-            <div class="td-meta-value">${escapeHtml(client?.name || '—')}</div>
-          </div>
-        </div>` : ''}
+        </div>
 
       </div><!-- /.td-body -->
     </div><!-- /.td-page -->`;
