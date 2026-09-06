@@ -22,6 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Flips Settings → Pages → Source to "GitHub Actions" automatically
+      # (otherwise GitHub's branch-based "pages build and deployment" keeps
+      # serving the repo-root index.html and this build never wins).
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
