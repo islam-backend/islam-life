@@ -1,23 +1,27 @@
 import type { TaskPriority } from '../types/task'
 
-/** Shared by ProjectTasksPage and AdminAllAssignmentsPage — the assignee
- * dropdown offers 'all' | 'unassigned' | a specific member uid. */
-export function matchesAssigneeFilter(assigneeUids: string[] | undefined, filterValue: string): boolean {
+// All matchers take an array of selected values. Empty = no filter (match
+// everything); otherwise a task matches if it satisfies ANY selected value.
+
+/** Selected values are member uids, plus the sentinel 'unassigned'. */
+export function matchesAssigneeFilter(assigneeUids: string[] | undefined, selected: string[]): boolean {
+  if (selected.length === 0) return true
   const uids = assigneeUids ?? []
-  if (filterValue === 'all') return true
-  if (filterValue === 'unassigned') return uids.length === 0
-  return uids.includes(filterValue)
+  return selected.some((s) => (s === 'unassigned' ? uids.length === 0 : uids.includes(s)))
 }
 
-/** 'all' | 'none' | a specific priority. */
-export function matchesPriorityFilter(priority: TaskPriority | null | undefined, filterValue: string): boolean {
-  if (filterValue === 'all') return true
-  if (filterValue === 'none') return !priority
-  return priority === filterValue
+export function matchesStatusFilter(status: string, selected: string[]): boolean {
+  return selected.length === 0 || selected.includes(status)
 }
 
-/** 'all' | a specific tag label. */
-export function matchesTagFilter(tags: string[] | undefined, filterValue: string): boolean {
-  if (filterValue === 'all') return true
-  return (tags ?? []).includes(filterValue)
+/** Selected values are priorities, plus the sentinel 'none'. */
+export function matchesPriorityFilter(priority: TaskPriority | null | undefined, selected: string[]): boolean {
+  if (selected.length === 0) return true
+  return selected.some((s) => (s === 'none' ? !priority : priority === s))
+}
+
+export function matchesTagFilter(tags: string[] | undefined, selected: string[]): boolean {
+  if (selected.length === 0) return true
+  const t = tags ?? []
+  return selected.some((s) => t.includes(s))
 }

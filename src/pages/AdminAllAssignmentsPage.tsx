@@ -5,7 +5,12 @@ import { DEFAULT_TASK_FILTERS, FilterBar, type TaskFilters } from '../components
 import { TopBar } from '../components/layout/TopBar'
 import { useAllTasks } from '../hooks/useAllTasks'
 import { useMembers } from '../hooks/useMembers'
-import { matchesAssigneeFilter, matchesPriorityFilter, matchesTagFilter } from '../utils/taskFilters'
+import {
+  matchesAssigneeFilter,
+  matchesPriorityFilter,
+  matchesStatusFilter,
+  matchesTagFilter,
+} from '../utils/taskFilters'
 
 export function AdminAllAssignmentsPage() {
   const { tasks } = useAllTasks()
@@ -19,10 +24,10 @@ export function AdminAllAssignmentsPage() {
 
   const filtered = useMemo(() => {
     return tasks.filter((t) => {
-      if (!matchesAssigneeFilter(t.assigneeUids, filters.assigneeUid)) return false
-      if (filters.status !== 'all' && t.status !== filters.status) return false
-      if (!matchesPriorityFilter(t.priority, filters.priority)) return false
-      if (!matchesTagFilter(t.tags, filters.tag)) return false
+      if (!matchesAssigneeFilter(t.assigneeUids, filters.assigneeUids)) return false
+      if (!matchesStatusFilter(t.status, filters.statuses)) return false
+      if (!matchesPriorityFilter(t.priority, filters.priorities)) return false
+      if (!matchesTagFilter(t.tags, filters.tags)) return false
       if (filters.search && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false
       return true
     })

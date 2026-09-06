@@ -10,7 +10,12 @@ import { useAuth } from '../hooks/useAuth'
 import { useClientProject } from '../hooks/useClientProject'
 import { useMembers } from '../hooks/useMembers'
 import { useProjectTasks } from '../hooks/useProjectTasks'
-import { matchesAssigneeFilter, matchesPriorityFilter, matchesTagFilter } from '../utils/taskFilters'
+import {
+  matchesAssigneeFilter,
+  matchesPriorityFilter,
+  matchesStatusFilter,
+  matchesTagFilter,
+} from '../utils/taskFilters'
 import { isOwnerRole } from '../utils/role'
 
 function startOfToday() {
@@ -58,10 +63,10 @@ export function ProjectTasksPage() {
     weekOut.setDate(weekOut.getDate() + 7)
 
     return tasks.filter((t) => {
-      if (!matchesAssigneeFilter(t.assigneeUids, filters.assigneeUid)) return false
-      if (filters.status !== 'all' && t.status !== filters.status) return false
-      if (!matchesPriorityFilter(t.priority, filters.priority)) return false
-      if (!matchesTagFilter(t.tags, filters.tag)) return false
+      if (!matchesAssigneeFilter(t.assigneeUids, filters.assigneeUids)) return false
+      if (!matchesStatusFilter(t.status, filters.statuses)) return false
+      if (!matchesPriorityFilter(t.priority, filters.priorities)) return false
+      if (!matchesTagFilter(t.tags, filters.tags)) return false
       if (filters.search && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false
 
       if (filters.due !== 'any') {
