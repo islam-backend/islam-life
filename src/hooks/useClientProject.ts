@@ -15,10 +15,20 @@ export function useClientProject(clientId: string, projectId: string) {
   const [projectLoaded, setProjectLoaded] = useState(false)
 
   useEffect(() => {
-    setClientLoaded(false)
-    setProjectLoaded(false)
     setClientName(null)
     setProjectName(null)
+
+    // Members call this with empty ids (they get the names off their own
+    // member doc instead) — `doc(db, 'clients', '')` throws "invalid
+    // document reference", so bail out and just report "resolved".
+    if (!clientId || !projectId) {
+      setClientLoaded(true)
+      setProjectLoaded(true)
+      return
+    }
+
+    setClientLoaded(false)
+    setProjectLoaded(false)
 
     const unsubClient = onSnapshot(
       doc(db, 'clients', clientId),
