@@ -6,7 +6,8 @@
   "description": "End-of-day report for IslamLifeV2 — pulls today's progress from Firestore and sends to Telegram + Gmail.",
   "scripts": {
     "report": "node daily-report.js",
-    "migrate:assignees": "node migrate-multi-assignee.js"
+    "migrate:assignees": "node migrate-multi-assignee.js",
+    "migrate:schema": "node migrate-schema.js"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0",
