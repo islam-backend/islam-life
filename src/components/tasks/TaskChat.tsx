@@ -1,10 +1,10 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
-import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
 import { useTaskComments } from '../../hooks/useTaskComments'
-import { db, storage } from '../../lib/firebase/app'
+import { db } from '../../lib/firebase/app'
+import { fileToChatImage } from '../../lib/image'
 import { primeAudio } from '../../lib/notify'
 import { Avatar } from '../ui/Avatar'
 
@@ -44,14 +44,14 @@ export function TaskChat({
 
   const authorName = member?.displayName || member?.email || 'Member'
 
-  async function postComment(fields: { text: string; imageUrl?: string; imagePath?: string }) {
+  async function postComment(fields: { text: string; imageUrl?: string }) {
     if (!user) return
     await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'comments'), {
       authorUid: user.uid,
       authorEmail: member?.email || user.email || '',
       authorName,
       text: fields.text,
-      ...(fields.imageUrl ? { imageUrl: fields.imageUrl, imagePath: fields.imagePath } : {}),
+      ...(fields.imageUrl ? { imageUrl: fields.imageUrl } : {}),
       createdAt: serverTimestamp(),
     })
   }
@@ -77,23 +77,19 @@ export function TaskChat({
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file || !user) return
-    if (file.size > 5 * 1024 * 1024) {
-      setError('الصورة أكبر من 5 ميجا')
-      return
-    }
     primeAudio()
     setSending(true)
     setError(null)
     try {
-      const safeName = file.name.replace(/[^\w.-]/g, '_')
-      const path = `taskImages/${clientId}/${projectId}/${taskId}/${Date.now()}-${safeName}`
-      const objectRef = storageRef(storage, path)
-      await uploadBytes(objectRef, file)
-      const url = await getDownloadURL(objectRef)
-      await postComment({ text: text.trim(), imageUrl: url, imagePath: path })
+      const imageUrl = await fileToChatImage(file)
+      await postComment({ text: text.trim(), imageUrl })
       setText('')
-    } catch {
-      setError('رفع الصورة فشل — جرّب تاني')
+    } catch (err) {
+      setError(
+        (err as Error).message === 'too-large'
+          ? 'الصورة كبيرة أوي حتى بعد الضغط — جرّب صورة أصغر'
+          : 'الصورة مترفعتش — جرّب تاني'
+      )
     } finally {
       setSending(false)
     }

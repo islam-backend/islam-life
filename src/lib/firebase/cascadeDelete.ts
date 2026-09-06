@@ -1,20 +1,6 @@
 import { type DocumentReference, collection, doc, getDocs, updateDoc, writeBatch } from 'firebase/firestore'
-import { deleteObject, listAll, ref as storageRef } from 'firebase/storage'
 
-import { db, storage } from './app'
-
-/** Best-effort removal of a task's chat image attachments from Storage.
- * Never throws — an orphaned image is harmless, a failed delete shouldn't
- * block the Firestore cascade. */
-async function deleteTaskImages(clientId: string, projectId: string, taskId: string) {
-  try {
-    const folder = storageRef(storage, `taskImages/${clientId}/${projectId}/${taskId}`)
-    const { items } = await listAll(folder)
-    await Promise.all(items.map((item) => deleteObject(item).catch(() => {})))
-  } catch {
-    /* folder doesn't exist / no permission — ignore */
-  }
-}
+import { db } from './app'
 
 /** Firestore batches cap at 500 ops — commit in safe-sized chunks. */
 async function deleteRefsInChunks(refs: DocumentReference[]) {
@@ -36,10 +22,10 @@ async function collectTaskRefs(clientId: string, projectId: string, taskId: stri
   return [...subtasks.docs.map((d) => d.ref), ...comments.docs.map((d) => d.ref), taskRef]
 }
 
-/** Deletes one task along with its subtasks/comments and chat images. */
+/** Deletes one task along with its subtasks/comments (chat images live
+ * inside the comment docs, so they go with them). */
 export async function deleteTaskCascade(clientId: string, projectId: string, taskId: string) {
   await deleteRefsInChunks(await collectTaskRefs(clientId, projectId, taskId))
-  await deleteTaskImages(clientId, projectId, taskId)
 }
 
 /** Deletes a project's tasks (with their subtasks/comments), then the project itself. */
@@ -50,7 +36,6 @@ export async function deleteProjectCascade(clientId: string, projectId: string) 
   )
   const projectRef = doc(db, 'clients', clientId, 'projects', projectId)
   await deleteRefsInChunks([...taskRefGroups.flat(), projectRef])
-  await Promise.all(tasksSnap.docs.map((t) => deleteTaskImages(clientId, projectId, t.id)))
 }
 
 /** Deletes every project under a client (cascading through tasks), then the client itself. */
