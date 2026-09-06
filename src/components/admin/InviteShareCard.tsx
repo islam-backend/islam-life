@@ -3,14 +3,21 @@ import { useState } from 'react'
 /** The invite system is an allowlist — adding an email doesn't send the
  * person anything. This card gives the owner a ready-made link + message
  * to send them by hand (WhatsApp, email, wherever). */
+/** Full public URL of the app — origin + Vite base ("/islam-life/" on
+ * GitHub Pages), so the invite link points at the real deployed path,
+ * not just the bare origin. */
+const APP_URL =
+  typeof window !== 'undefined'
+    ? (window.location.origin + import.meta.env.BASE_URL).replace(/\/+$/, '')
+    : ''
+
 export function InviteShareCard({ email }: { email: string }) {
   const [copied, setCopied] = useState(false)
-  const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
   const message =
     `اتضافت لفريق العمل على islam-life ✅\n` +
     `افتح اللينك ده وسجّل دخول بحساب Google بتاع الإيميل: ${email}\n` +
-    `${origin}`
+    `${APP_URL}`
 
   async function copy() {
     try {
