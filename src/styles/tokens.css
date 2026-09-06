@@ -1,0 +1,45 @@
+/*
+  Slate palette — the single design-system source of truth for color.
+  Every screen in the app must read colors from these tokens (via the
+  Tailwind utilities mapped in src/index.css), never hardcode a raw
+  oklch()/hex value in a component. See STYLEGUIDE.md.
+*/
+:root {
+  /* Surfaces */
+  --bg: oklch(24% 0.008 250);
+  --sidebar-bg: oklch(20% 0.009 250);
+  --surface: oklch(27% 0.009 250);
+  --field-bg: oklch(31% 0.009 250);
+  --border: oklch(36% 0.01 250);
+
+  /* Text */
+  --text: oklch(92% 0.004 250);
+  --text-muted: oklch(68% 0.008 250);
+  --text-faint: oklch(54% 0.01 250);
+
+  /* Accent (brand / interactive) */
+  --accent: oklch(72% 0.12 250);
+  --accent-tint: oklch(30% 0.06 250);
+  --accent-tint-text: oklch(80% 0.1 250);
+
+  /* Per-person avatar colors — fixed identity colors, not theme-driven */
+  --avatar-a: oklch(52% 0.15 250); /* owner */
+  --avatar-b: oklch(56% 0.14 35); /* member */
+
+  /* Semantic status colors — kept constant across any future palette */
+  --amber: oklch(75% 0.15 75); /* in progress */
+  --amber-tint: oklch(32% 0.06 75);
+  --amber-tint-text: oklch(82% 0.12 75);
+
+  --green: oklch(72% 0.13 145); /* done */
+  --green-tint: oklch(30% 0.05 145);
+  --green-tint-text: oklch(80% 0.11 145);
+
+  --red: oklch(72% 0.16 25); /* overdue / unassigned */
+  --red-tint: oklch(32% 0.07 25);
+  --red-tint-text: oklch(82% 0.14 25);
+
+  --violet: oklch(72% 0.13 300); /* backlog */
+  --violet-tint: oklch(32% 0.06 300);
+  --violet-tint-text: oklch(82% 0.11 300);
+}

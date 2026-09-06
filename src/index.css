@@ -1,0 +1,64 @@
+@import 'tailwindcss';
+@import './styles/tokens.css';
+
+/*
+  Maps our raw tokens (tokens.css) to Tailwind utilities, e.g. bg-bg,
+  text-text-muted, border-border, bg-accent-tint text-accent-tint-text.
+  Add a new utility here — never invent a one-off color in a component.
+*/
+@theme {
+  --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar-bg);
+  --color-surface: var(--surface);
+  --color-field: var(--field-bg);
+  --color-border: var(--border);
+
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+
+  --color-accent: var(--accent);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-tint-text: var(--accent-tint-text);
+
+  --color-avatar-a: var(--avatar-a);
+  --color-avatar-b: var(--avatar-b);
+
+  --color-amber: var(--amber);
+  --color-amber-tint: var(--amber-tint);
+  --color-amber-tint-text: var(--amber-tint-text);
+
+  --color-green: var(--green);
+  --color-green-tint: var(--green-tint);
+  --color-green-tint-text: var(--green-tint-text);
+
+  --color-red: var(--red);
+  --color-red-tint: var(--red-tint);
+  --color-red-tint-text: var(--red-tint-text);
+
+  --color-violet: var(--violet);
+  --color-violet-tint: var(--violet-tint);
+  --color-violet-tint-text: var(--violet-tint-text);
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
