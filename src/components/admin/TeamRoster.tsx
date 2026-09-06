@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
 import { FormField } from '../ui/FormField'
+import { Select } from '../ui/Select'
 import { useAuth } from '../../hooks/useAuth'
 import type { ClientWithProjects } from '../../hooks/useClients'
 import { useInvites } from '../../hooks/useInvites'
@@ -107,14 +108,10 @@ export function TeamRoster({ members, clients }: { members: Member[]; clients: C
             />
           </div>
           <FormField label="Role">
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as MemberRole)}
-              className="rounded-[8px] border border-border bg-field px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
-            >
+            <Select value={role} onChange={(e) => setRole(e.target.value as MemberRole)}>
               <option value="member">Member</option>
               <option value="owner">Owner</option>
-            </select>
+            </Select>
           </FormField>
         </div>
 

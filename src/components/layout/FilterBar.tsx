@@ -1,6 +1,7 @@
 import type { Member } from '../../types/member'
 import type { TaskPriority, TaskStatus } from '../../types/task'
 import { PRIORITY_META, PRIORITY_ORDER } from '../../utils/priority'
+import { Select } from '../ui/Select'
 
 export type DueFilter = 'any' | 'overdue' | 'today' | 'week'
 
@@ -22,9 +23,6 @@ export const DEFAULT_TASK_FILTERS: TaskFilters = {
   search: '',
 }
 
-const selectClass =
-  'rounded-[7px] border border-border bg-surface px-2.5 py-1.5 text-[12.5px] text-text-muted outline-none focus:border-accent'
-
 export function FilterBar({
   filters,
   onChange,
@@ -42,8 +40,8 @@ export function FilterBar({
     <div className="flex h-[52px] shrink-0 items-center justify-between gap-2.5 border-b border-border px-6 py-2.5">
       <div className="flex items-center gap-2">
         {showAssignee && (
-          <select
-            className={selectClass}
+          <Select
+            size="sm"
             value={filters.assigneeUid}
             onChange={(e) => onChange({ ...filters, assigneeUid: e.target.value })}
           >
@@ -54,10 +52,10 @@ export function FilterBar({
                 {m.displayName || m.email}
               </option>
             ))}
-          </select>
+          </Select>
         )}
-        <select
-          className={selectClass}
+        <Select
+          size="sm"
           value={filters.status}
           onChange={(e) => onChange({ ...filters, status: e.target.value as TaskFilters['status'] })}
         >
@@ -66,9 +64,9 @@ export function FilterBar({
           <option value="todo">To Do</option>
           <option value="in_progress">In Progress</option>
           <option value="done">Done</option>
-        </select>
-        <select
-          className={selectClass}
+        </Select>
+        <Select
+          size="sm"
           value={filters.priority}
           onChange={(e) => onChange({ ...filters, priority: e.target.value as TaskFilters['priority'] })}
         >
@@ -79,23 +77,19 @@ export function FilterBar({
             </option>
           ))}
           <option value="none">No priority</option>
-        </select>
+        </Select>
         {allTags.length > 0 && (
-          <select
-            className={selectClass}
-            value={filters.tag}
-            onChange={(e) => onChange({ ...filters, tag: e.target.value })}
-          >
+          <Select size="sm" value={filters.tag} onChange={(e) => onChange({ ...filters, tag: e.target.value })}>
             <option value="all">Tag: All</option>
             {allTags.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
-          </select>
+          </Select>
         )}
-        <select
-          className={selectClass}
+        <Select
+          size="sm"
           value={filters.due}
           onChange={(e) => onChange({ ...filters, due: e.target.value as DueFilter })}
         >
@@ -103,13 +97,13 @@ export function FilterBar({
           <option value="overdue">Overdue</option>
           <option value="today">Today</option>
           <option value="week">This week</option>
-        </select>
+        </Select>
       </div>
       <input
         value={filters.search}
         onChange={(e) => onChange({ ...filters, search: e.target.value })}
         placeholder="Search tasks"
-        className="w-52 rounded-[7px] border border-border bg-surface px-3 py-1.5 text-[12.5px] text-text placeholder:text-text-faint outline-none focus:border-accent"
+        className="w-52 rounded-lg border border-border bg-field px-3 py-1.5 text-[12.5px] text-text placeholder:text-text-faint outline-none focus:border-accent"
       />
     </div>
   )

@@ -1,4 +1,5 @@
 import type { TaskPriority } from '../../types/task'
+import { Select } from '../ui/Select'
 import { PRIORITY_META, PRIORITY_ORDER } from '../../utils/priority'
 
 export function PriorityControl({
@@ -11,11 +12,10 @@ export function PriorityControl({
   disabled?: boolean
 }) {
   return (
-    <select
+    <Select
       disabled={disabled}
       value={value ?? ''}
       onChange={(e) => onChange((e.target.value || null) as TaskPriority | null)}
-      className="w-fit rounded-full border-none bg-field py-1.5 pl-3 pr-8 text-[13px] font-medium text-text outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
     >
       <option value="">No priority</option>
       {PRIORITY_ORDER.map((p) => (
@@ -23,6 +23,6 @@ export function PriorityControl({
           {PRIORITY_META[p].label}
         </option>
       ))}
-    </select>
+    </Select>
   )
 }
