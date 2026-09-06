@@ -3,22 +3,41 @@
 // Run this ONCE, BEFORE deploying the new firestore.rules — the new rules and
 // the members' task queries expect `assigneeUids` to exist on every task.
 //
-//   FIREBASE_SERVICE_ACCOUNT='<full service-account JSON>' node migrate-multi-assignee.js
+// Credentials (either one):
+//   - a service-account key file at scripts/serviceAccount.json, OR
+//   - FIREBASE_SERVICE_ACCOUNT='<full service-account JSON>' in the env
+//   (Firebase Console → Project settings → Service accounts → Generate new private key)
+//
+//   npm run migrate:assignees
 //
 // Safe to re-run: tasks already migrated (no `assignedTo` field) are skipped.
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
 import admin from 'firebase-admin';
 
-function initFirebase() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) throw new Error('Missing required env var: FIREBASE_SERVICE_ACCOUNT');
-  let creds;
-  try {
-    creds = JSON.parse(raw);
-  } catch {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON');
+function loadCreds() {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON');
+    }
   }
-  admin.initializeApp({ credential: admin.credential.cert(creds) });
+  const file = join(dirname(fileURLToPath(import.meta.url)), 'serviceAccount.json');
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    throw new Error(
+      'No credentials. Put a service-account key at scripts/serviceAccount.json or set FIREBASE_SERVICE_ACCOUNT.'
+    );
+  }
+}
+
+function initFirebase() {
+  admin.initializeApp({ credential: admin.credential.cert(loadCreds()) });
   return admin.firestore();
 }
 
