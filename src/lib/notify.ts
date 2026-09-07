@@ -51,12 +51,13 @@ export async function ensureNotificationPermission(): Promise<boolean> {
   return res === 'granted'
 }
 
-/** Shows a notification only when the tab isn't focused — no point stealing
- * attention for a chat the user is already looking at. */
-export function showMessageNotification(title: string, body: string) {
+/** Shows a browser notification. By default only when the tab isn't
+ * focused (no point stealing attention for a chat you're looking at);
+ * pass `alwaysShow` for rarer, important events like a task assignment. */
+export function showMessageNotification(title: string, body: string, alwaysShow = false) {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return
-    if (!document.hidden) return
+    if (!alwaysShow && !document.hidden) return
     const n = new Notification(title, { body, tag: 'task-chat', icon: '/icon-192.png' })
     n.onclick = () => {
       window.focus()

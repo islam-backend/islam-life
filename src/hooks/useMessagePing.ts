@@ -26,10 +26,11 @@ interface LatestComment {
 }
 
 /**
- * Plays a sound (and, when the tab is hidden, shows a notification) when a
- * new chat message arrives from someone else.
- *  - Owner: one collectionGroup listener over every task's chat.
- *  - Member: one listener per task assigned to them.
+ * Sound + (when the tab is hidden) a browser notification for:
+ *  - a new chat message from someone else — owner via one collectionGroup
+ *    listener, member via one listener per assigned task
+ *  - a task newly assigned to me
+ *  - an @-mention of me in a message
  * In-app only — nothing fires when the app isn't open in a tab.
  */
 export function useMessagePing() {
@@ -37,9 +38,9 @@ export function useMessagePing() {
   const isOwner = isOwnerRole(member?.role)
   const myUid = user?.uid
 
-  // Members drive their listeners off their own task list; the owner doesn't
-  // need this (they use the collectionGroup listener below).
-  const { tasks: myTasks } = useMyTasks(isOwner ? undefined : myUid)
+  // My assigned tasks — drives the member comment listeners AND the
+  // "assigned to a task" ping (everyone, owner included).
+  const { tasks: myTasks, loading: myTasksLoading } = useMyTasks(myUid)
 
   // Ignore everything that already existed when this session started.
   const startedAt = useRef(Date.now())
@@ -61,7 +62,7 @@ export function useMessagePing() {
     const title = mentioned
       ? `📣 ${c.authorName || 'حد'} عملك منشن`
       : `💬 ${c.authorName || 'رسالة جديدة'}`
-    showMessageNotification(title, body)
+    showMessageNotification(title, body, mentioned)
   }
 
   // ── Owner: every task's chat ──────────────────────────────────
@@ -80,6 +81,25 @@ export function useMessagePing() {
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner, myUid])
+
+  // ── Anyone: pinged when a task is newly assigned to me ────────
+  const knownTaskIds = useRef<Set<string>>(new Set())
+  const baselineSet = useRef(false)
+  useEffect(() => {
+    if (!myUid || myTasksLoading) return
+    const ids = new Set(myTasks.map((t) => t.id))
+    if (!baselineSet.current) {
+      baselineSet.current = true
+      knownTaskIds.current = ids
+      return
+    }
+    for (const t of myTasks) {
+      if (knownTaskIds.current.has(t.id)) continue
+      playPing()
+      showMessageNotification('📋 اتعملك assign على تاسك', t.title || 'تاسك جديدة', true)
+    }
+    knownTaskIds.current = ids
+  }, [myUid, myTasks, myTasksLoading])
 
   // ── Member: one listener per assigned task ────────────────────
   const subs = useRef(new Map<string, Unsubscribe>())
