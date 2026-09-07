@@ -13,6 +13,7 @@ export interface TaskFilters {
   /** priorities, plus the sentinel 'none' */
   priorities: string[]
   tags: string[]
+  projectIds: string[]
   due: DueFilter
   search: string
 }
@@ -22,6 +23,7 @@ export const DEFAULT_TASK_FILTERS: TaskFilters = {
   statuses: [],
   priorities: [],
   tags: [],
+  projectIds: [],
   due: 'any',
   search: '',
 }
@@ -39,24 +41,35 @@ export function FilterBar({
   members,
   showAssignee,
   allTags = [],
+  projects = [],
 }: {
   filters: TaskFilters
   onChange: (f: TaskFilters) => void
   members: Member[]
   showAssignee: boolean
   allTags?: string[]
+  projects?: { id: string; label: string }[]
 }) {
   const anyActive =
     filters.assigneeUids.length ||
     filters.statuses.length ||
     filters.priorities.length ||
     filters.tags.length ||
+    filters.projectIds.length ||
     filters.due !== 'any' ||
     filters.search
 
   return (
     <div className="flex min-h-[52px] shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-6 py-2">
       <div className="flex flex-wrap items-center gap-2">
+        {projects.length > 0 && (
+          <FilterMenu
+            label="Project"
+            selected={filters.projectIds}
+            onChange={(projectIds) => onChange({ ...filters, projectIds })}
+            options={projects.map((p) => ({ value: p.id, label: p.label }))}
+          />
+        )}
         {showAssignee && (
           <FilterMenu
             label="Assignee"

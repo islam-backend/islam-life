@@ -25,3 +25,7 @@ export function matchesTagFilter(tags: string[] | undefined, selected: string[])
   const t = tags ?? []
   return selected.some((s) => t.includes(s))
 }
+
+export function matchesProjectFilter(projectId: string | undefined, selected: string[]): boolean {
+  return selected.length === 0 || (!!projectId && selected.includes(projectId))
+}
