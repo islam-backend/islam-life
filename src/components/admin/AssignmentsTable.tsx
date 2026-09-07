@@ -51,8 +51,9 @@ export function AssignmentsTable({ tasks, members }: { tasks: Task[]; members: M
               i > 0 ? 'border-t border-border' : ''
             } ${(task.assigneeUids ?? []).length === 0 ? 'bg-[oklch(35%_0.05_25)]' : ''}`}
           >
-            <span className="flex min-w-0 flex-col gap-1">
+            <span className="flex min-w-0 flex-col gap-1 pr-3">
               <Link
+                dir="auto"
                 to={`/clients/${task.clientId}/projects/${task.projectId}/tasks/${task.id}`}
                 className="truncate text-[13px] font-medium text-text hover:text-accent"
               >

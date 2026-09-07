@@ -7,6 +7,8 @@ export interface Project {
   clientId: string
   clientName: string
   totalHours: number
+  /** Sidebar sort position within its client (drag to reorder). */
+  orderIndex?: number
   createdAt?: unknown
   createdBy?: string
 }

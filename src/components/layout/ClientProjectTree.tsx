@@ -1,12 +1,36 @@
+import { doc, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import type { ClientWithProjects } from '../../hooks/useClients'
+import { db } from '../../lib/firebase/app'
 import { deleteClientCascade, deleteProjectCascade } from '../../lib/firebase/cascadeDelete'
 import type { Project } from '../../types/project'
 import { NewClientModal } from './NewClientModal'
 import { NewProjectModal } from './NewProjectModal'
+
+/** Persist a client's project order after a drag. */
+async function persistProjectOrder(clientId: string, orderedIds: string[]) {
+  const batch = writeBatch(db)
+  orderedIds.forEach((projectId, i) => {
+    batch.update(doc(db, 'clients', clientId, 'projects', projectId), {
+      orderIndex: i,
+      updatedAt: serverTimestamp(),
+    })
+  })
+  await batch.commit()
+}
+
+function GripIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
+      <circle cx="5.5" cy="4" r="1.3" /><circle cx="10.5" cy="4" r="1.3" />
+      <circle cx="5.5" cy="8" r="1.3" /><circle cx="10.5" cy="8" r="1.3" />
+      <circle cx="5.5" cy="12" r="1.3" /><circle cx="10.5" cy="12" r="1.3" />
+    </svg>
+  )
+}
 
 // A plain ">" glyph — rotating it 90° turns it into a "v", so ONE path
 // covers both states. Keep these two in sync; a name/rotation mismatch
@@ -113,6 +137,24 @@ export function ClientProjectTree({
     null
   )
 
+  const [drag, setDrag] = useState<{ clientId: string; projectId: string } | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+
+  async function dropOnProject(client: ClientWithProjects, targetId: string) {
+    const d = drag
+    setDrag(null)
+    setOverId(null)
+    if (!d || d.clientId !== client.id || d.projectId === targetId) return
+    const ids = client.projects.map((p) => p.id)
+    ids.splice(ids.indexOf(d.projectId), 1)
+    ids.splice(ids.indexOf(targetId), 0, d.projectId)
+    try {
+      await persistProjectOrder(client.id, ids)
+    } catch {
+      /* onSnapshot will keep the old order — nothing else to do */
+    }
+  }
+
   function toggle(clientId: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -167,21 +209,45 @@ export function ClientProjectTree({
                 <div className="flex flex-col gap-0.5 pl-5">
                   {client.projects.map((project) => {
                     const active = project.id === activeProjectId
+                    const dropHere = overId === project.id && drag?.projectId !== project.id
                     return (
                       <div
                         key={project.id}
+                        draggable={isOwner}
+                        onDragStart={() => setDrag({ clientId: client.id, projectId: project.id })}
+                        onDragEnter={() => drag?.clientId === client.id && setOverId(project.id)}
+                        onDragOver={(e) => {
+                          if (drag?.clientId === client.id) e.preventDefault()
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          void dropOnProject(client, project.id)
+                        }}
+                        onDragEnd={() => {
+                          setDrag(null)
+                          setOverId(null)
+                        }}
                         className={`group flex items-center rounded-md ${
                           active ? '-ml-[2.5px] border-l-[2.5px] border-accent bg-accent-tint' : ''
+                        } ${dropHere ? 'border-t-2 border-t-accent' : ''} ${
+                          drag?.projectId === project.id ? 'opacity-40' : ''
                         }`}
                       >
+                        {isOwner && (
+                          <span className="-mr-1 cursor-grab pl-1 text-text-faint opacity-0 group-hover:opacity-100 active:cursor-grabbing">
+                            <GripIcon />
+                          </span>
+                        )}
                         <Link
                           to={`/clients/${client.id}/projects/${project.id}`}
+                          draggable={false}
                           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 py-1.5"
                         >
                           <span
                             className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-accent' : 'bg-text-faint'}`}
                           />
                           <span
+                            dir="auto"
                             className={`truncate text-[13px] ${active ? 'font-semibold text-text' : 'text-text-muted'}`}
                           >
                             {project.name}

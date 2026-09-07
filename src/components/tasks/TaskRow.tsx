@@ -35,7 +35,7 @@ export function TaskRow({ task, to }: { task: Task; to: string }) {
       to={to}
       className={`grid ${TASK_GRID} items-center gap-3 rounded-lg border border-border bg-surface px-5 py-3.5 transition-colors hover:bg-field`}
     >
-      <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 flex-col gap-1 pr-4">
         <span dir="auto" className="truncate text-[13.5px] text-text">{task.title}</span>
         <TagList tags={task.tags} />
       </span>

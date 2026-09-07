@@ -56,11 +56,20 @@ export function useClients(enabled = true) {
         for (const clientId of currentIds) {
           if (projectUnsubs.has(clientId)) continue
           const unsub = onSnapshot(
-            query(collection(db, 'clients', clientId, 'projects'), orderBy('name')),
+            // No orderBy in the query: not every project has `orderIndex`
+            // yet (Firestore would drop those), so sort client-side —
+            // orderIndex first, name as the tiebreaker / fallback.
+            collection(db, 'clients', clientId, 'projects'),
             (projSnap) => {
               projectsByClient.set(
                 clientId,
-                projSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Project)
+                projSnap.docs
+                  .map((d) => ({ id: d.id, ...d.data() }) as Project)
+                  .sort(
+                    (a, b) =>
+                      (a.orderIndex ?? 1e9) - (b.orderIndex ?? 1e9) ||
+                      a.name.localeCompare(b.name)
+                  )
               )
               rebuild(latestClientDocs)
             }
