@@ -129,7 +129,11 @@ export function TaskChat({
                         className="mb-1.5 max-h-60 cursor-zoom-in rounded-lg object-cover"
                       />
                     )}
-                    {c.text && <span className="whitespace-pre-wrap break-words">{c.text}</span>}
+                    {c.text && (
+                      <span dir="auto" className="block whitespace-pre-wrap break-words">
+                        {c.text}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -163,6 +167,7 @@ export function TaskChat({
           </svg>
         </button>
         <input
+          dir="auto"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="اكتب رسالة…"

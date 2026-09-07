@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { DEFAULT_TASK_FILTERS, FilterBar, type TaskFilters } from '../components/layout/FilterBar'
@@ -51,6 +51,13 @@ export function ProjectTasksPage() {
   const [showNewTask, setShowNewTask] = useState(false)
 
   const [filters, setFilters] = useState<TaskFilters>(DEFAULT_TASK_FILTERS)
+
+  // React Router keeps this page mounted when you switch projects, so
+  // filters set on one project would silently carry over and hide
+  // everything on the next. Reset them whenever the project changes.
+  useEffect(() => {
+    setFilters(DEFAULT_TASK_FILTERS)
+  }, [clientId, projectId])
 
   const allTags = useMemo(
     () => Array.from(new Set(tasks.flatMap((t) => t.tags ?? []))).sort(),

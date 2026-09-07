@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { type FormEvent, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../../hooks/useAuth'
 import { db } from '../../lib/firebase/app'
@@ -36,6 +37,7 @@ export function NewTaskModal({
   taskCount: number
 }) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [title, setTitle] = useState('')
   const [assignees, setAssignees] = useState<TaskAssignee[]>([])
   const [priority, setPriority] = useState<TaskPriority | null>(null)
@@ -59,7 +61,7 @@ export function NewTaskModal({
     if (!trimmed) return
     setSaving(true)
 
-    await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks'), {
+    const ref = await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks'), {
       title: trimmed,
       description: '',
       status: 'todo',
@@ -82,6 +84,8 @@ export function NewTaskModal({
     setSaving(false)
     reset()
     onClose()
+    // Drop straight into the new task's detail page.
+    navigate(`/clients/${clientId}/projects/${projectId}/tasks/${ref.id}`)
   }
 
   return (
@@ -93,6 +97,7 @@ export function NewTaskModal({
           <input
             autoFocus
             required
+            dir="auto"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. Design homepage hero section"

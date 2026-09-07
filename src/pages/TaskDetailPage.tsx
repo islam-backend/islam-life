@@ -142,7 +142,7 @@ export function TaskDetailPage() {
       />
 
       <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-7 overflow-y-auto p-8">
-        <h1 className="text-2xl font-bold text-text">{task.title}</h1>
+        <h1 dir="auto" className="text-2xl font-bold text-text">{task.title}</h1>
 
         <div className="grid grid-cols-[120px_1fr] items-center gap-y-4">
           <span className="self-start pt-1.5 text-[12.5px] font-medium text-text-faint">Assignees</span>
@@ -186,6 +186,7 @@ export function TaskDetailPage() {
         <div className="flex flex-col gap-2">
           <span className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Description</span>
           <textarea
+            dir="auto"
             disabled={!isOwner}
             defaultValue={task.description}
             onChange={(e) => setDescription(e.target.value)}
