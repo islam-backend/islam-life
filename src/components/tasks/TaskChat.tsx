@@ -2,12 +2,15 @@ import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc } from '
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
+import { useMembers } from '../../hooks/useMembers'
 import { useTaskComments } from '../../hooks/useTaskComments'
 import { db } from '../../lib/firebase/app'
 import { fileToChatImage } from '../../lib/image'
 import { primeAudio } from '../../lib/notify'
 import { isOwnerRole } from '../../utils/role'
 import { Avatar } from '../ui/Avatar'
+import { MentionTextInput, nameOf } from './MentionTextInput'
+import { MessageText } from './MessageText'
 
 function formatTime(ts: unknown): string {
   const d = (ts as { toDate?: () => Date } | null)?.toDate?.()
@@ -31,9 +34,11 @@ export function TaskChat({
   taskId: string
 }) {
   const { user, member } = useAuth()
+  const { members } = useMembers()
   const isOwner = isOwnerRole(member?.role)
   const { comments, loading } = useTaskComments(clientId, projectId, taskId)
   const [text, setText] = useState('')
+  const [mentionUids, setMentionUids] = useState<string[]>([])
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [zoomed, setZoomed] = useState<string | null>(null)
@@ -72,7 +77,19 @@ export function TaskChat({
 
   const authorName = member?.displayName || member?.email || 'Member'
 
-  async function postComment(fields: { text: string; imageUrl?: string }) {
+  /** uids that were @-picked AND whose name still appears in the text. */
+  function resolveMentions(body: string): string[] {
+    return members
+      .filter((m) => mentionUids.includes(m.uid) && body.includes(`@${nameOf(m)}`))
+      .map((m) => m.uid)
+  }
+
+  function mentionNamesFor(mentions: string[] | undefined): string[] {
+    if (!mentions?.length) return []
+    return members.filter((m) => mentions.includes(m.uid)).map(nameOf)
+  }
+
+  async function postComment(fields: { text: string; imageUrl?: string; mentions?: string[] }) {
     if (!user) return
     await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'comments'), {
       authorUid: user.uid,
@@ -80,6 +97,7 @@ export function TaskChat({
       authorName,
       text: fields.text,
       ...(fields.imageUrl ? { imageUrl: fields.imageUrl } : {}),
+      ...(fields.mentions?.length ? { mentions: fields.mentions } : {}),
       createdAt: serverTimestamp(),
     })
   }
@@ -92,8 +110,9 @@ export function TaskChat({
     setSending(true)
     setError(null)
     try {
-      await postComment({ text: trimmed })
+      await postComment({ text: trimmed, mentions: resolveMentions(trimmed) })
       setText('')
+      setMentionUids([])
     } catch {
       setError('الرسالة مبعتتش — جرّب تاني')
     } finally {
@@ -110,8 +129,10 @@ export function TaskChat({
     setError(null)
     try {
       const imageUrl = await fileToChatImage(file)
-      await postComment({ text: text.trim(), imageUrl })
+      const body = text.trim()
+      await postComment({ text: body, imageUrl, mentions: resolveMentions(body) })
       setText('')
+      setMentionUids([])
     } catch (err) {
       setError(
         (err as Error).message === 'too-large'
@@ -186,11 +207,7 @@ export function TaskChat({
                           className="mb-1.5 max-h-60 cursor-zoom-in rounded-lg object-cover"
                         />
                       )}
-                      {c.text && (
-                        <span dir="auto" className="block whitespace-pre-wrap break-words">
-                          {c.text}
-                        </span>
-                      )}
+                      {c.text && <MessageText text={c.text} mentionNames={mentionNamesFor(c.mentions)} />}
                     </div>
                   )}
 
@@ -246,12 +263,15 @@ export function TaskChat({
             <path d="M3 12l3.5-3.5 2 2L11 7l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <input
-          dir="auto"
+        <MentionTextInput
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="اكتب رسالة…"
-          className="flex-1 rounded-lg border border-border bg-field px-3.5 py-2 text-[13px] text-text outline-none focus:border-accent"
+          onChange={(v, addedUid) => {
+            setText(v)
+            if (addedUid) setMentionUids((prev) => (prev.includes(addedUid) ? prev : [...prev, addedUid]))
+          }}
+          members={members}
+          disabled={sending}
+          placeholder="اكتب رسالة… (@ لمنشن حد)"
         />
         <button
           type="submit"

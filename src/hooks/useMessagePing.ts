@@ -21,6 +21,7 @@ interface LatestComment {
   authorName?: string
   text?: string
   imageUrl?: string
+  mentions?: string[]
   createdAt?: { toMillis?: () => number }
 }
 
@@ -55,8 +56,12 @@ export function useMessagePing() {
     }
     seen.current.add(c.id)
     playPing()
+    const mentioned = !!c.mentions?.includes(myUid)
     const body = c.text?.trim() || (c.imageUrl ? '📷 صورة' : 'رسالة جديدة')
-    showMessageNotification(`💬 ${c.authorName || 'رسالة جديدة'}`, body)
+    const title = mentioned
+      ? `📣 ${c.authorName || 'حد'} عملك منشن`
+      : `💬 ${c.authorName || 'رسالة جديدة'}`
+    showMessageNotification(title, body)
   }
 
   // ── Owner: every task's chat ──────────────────────────────────
