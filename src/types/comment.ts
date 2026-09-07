@@ -8,4 +8,6 @@ export interface TaskComment {
   imageUrl?: string
   imagePath?: string
   createdAt?: unknown
+  /** Set when the owner edits the message. */
+  editedAt?: unknown
 }

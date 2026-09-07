@@ -1,4 +1,4 @@
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
@@ -6,6 +6,7 @@ import { useTaskComments } from '../../hooks/useTaskComments'
 import { db } from '../../lib/firebase/app'
 import { fileToChatImage } from '../../lib/image'
 import { primeAudio } from '../../lib/notify'
+import { isOwnerRole } from '../../utils/role'
 import { Avatar } from '../ui/Avatar'
 
 function formatTime(ts: unknown): string {
@@ -30,13 +31,40 @@ export function TaskChat({
   taskId: string
 }) {
   const { user, member } = useAuth()
+  const isOwner = isOwnerRole(member?.role)
   const { comments, loading } = useTaskComments(clientId, projectId, taskId)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [zoomed, setZoomed] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  function commentRef(id: string) {
+    return doc(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'comments', id)
+  }
+
+  async function deleteComment(id: string) {
+    if (!window.confirm('تمسح الرسالة دي؟')) return
+    try {
+      await deleteDoc(commentRef(id))
+    } catch {
+      setError('المسح منفعش — جرّب تاني')
+    }
+  }
+
+  async function saveEdit(id: string) {
+    const trimmed = editText.trim()
+    setEditingId(null)
+    if (!trimmed) return
+    try {
+      await updateDoc(commentRef(id), { text: trimmed, editedAt: serverTimestamp() })
+    } catch {
+      setError('التعديل منفعش — جرّب تاني')
+    }
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' })
@@ -109,32 +137,84 @@ export function TaskChat({
         ) : (
           comments.map((c) => {
             const mine = c.authorUid === user?.uid
+            const editing = editingId === c.id
             return (
-              <div key={c.id} className={`flex gap-2.5 ${mine ? 'flex-row-reverse' : ''}`}>
+              <div key={c.id} className={`group flex gap-2.5 ${mine ? 'flex-row-reverse' : ''}`}>
                 <Avatar name={c.authorName} size={26} colorClass={mine ? 'bg-avatar-a' : 'bg-avatar-b'} />
                 <div className={`flex max-w-[78%] flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
                   <span className="text-[11px] text-text-faint">
                     {mine ? 'أنا' : c.authorName} · {formatTime(c.createdAt)}
+                    {c.editedAt ? ' · اتعدّلت' : ''}
                   </span>
-                  <div
-                    className={`rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
-                      mine ? 'bg-accent text-white' : 'bg-surface text-text'
-                    }`}
-                  >
-                    {c.imageUrl && (
-                      <img
-                        src={c.imageUrl}
-                        alt="attachment"
-                        onClick={() => setZoomed(c.imageUrl!)}
-                        className="mb-1.5 max-h-60 cursor-zoom-in rounded-lg object-cover"
+
+                  {editing ? (
+                    <div className="flex w-full flex-col gap-1.5">
+                      <textarea
+                        dir="auto"
+                        autoFocus
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        rows={2}
+                        className="w-full resize-none rounded-lg border border-border bg-field px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
                       />
-                    )}
-                    {c.text && (
-                      <span dir="auto" className="block whitespace-pre-wrap break-words">
-                        {c.text}
-                      </span>
-                    )}
-                  </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveEdit(c.id)}
+                          className="rounded-md bg-accent px-2.5 py-1 text-[11.5px] font-semibold text-white"
+                        >
+                          حفظ
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="rounded-md border border-border px-2.5 py-1 text-[11.5px] font-medium text-text-muted"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={`rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
+                        mine ? 'bg-accent text-white' : 'bg-surface text-text'
+                      }`}
+                    >
+                      {c.imageUrl && (
+                        <img
+                          src={c.imageUrl}
+                          alt="attachment"
+                          onClick={() => setZoomed(c.imageUrl!)}
+                          className="mb-1.5 max-h-60 cursor-zoom-in rounded-lg object-cover"
+                        />
+                      )}
+                      {c.text && (
+                        <span dir="auto" className="block whitespace-pre-wrap break-words">
+                          {c.text}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {isOwner && !editing && (
+                    <div className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                      {c.text && (
+                        <button
+                          onClick={() => {
+                            setEditingId(c.id)
+                            setEditText(c.text)
+                          }}
+                          className="text-[10.5px] font-medium text-text-faint hover:text-text"
+                        >
+                          تعديل
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteComment(c.id)}
+                        className="text-[10.5px] font-medium text-text-faint hover:text-red"
+                      >
+                        مسح
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )
