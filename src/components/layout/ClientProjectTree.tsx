@@ -284,7 +284,7 @@ export function ClientProjectTree({
         <NewClientModal
           open
           onClose={() => setEditingClient(null)}
-          editingClient={{ id: editingClient.id, name: editingClient.name }}
+          editingClient={{ id: editingClient.id, name: editingClient.name, avatarUrl: editingClient.avatarUrl }}
         />
       )}
       {newProjectFor && (

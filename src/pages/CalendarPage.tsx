@@ -5,8 +5,10 @@ import { Link } from 'react-router-dom'
 import { MonthGrid } from '../components/calendar/MonthGrid'
 import { groupByClient, tasksByDay } from '../components/calendar/calendarUtils'
 import { TopBar } from '../components/layout/TopBar'
+import { Avatar } from '../components/ui/Avatar'
 import { StatusPill } from '../components/ui/StatusPill'
 import { useCalendarTasks } from '../hooks/useCalendarTasks'
+import { useClientMeta } from '../hooks/useClientMeta'
 import { taskDocRef } from '../lib/firebase/refs'
 
 function monthLabel(d: Date) {
@@ -24,6 +26,7 @@ function prettyDay(key: string) {
 
 export function CalendarPage() {
   const { tasks, loading } = useCalendarTasks()
+  const clientMeta = useClientMeta()
   const [month, setMonth] = useState(() => new Date())
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
 
@@ -74,6 +77,7 @@ export function CalendarPage() {
               <MonthGrid
                 month={month}
                 tasksForDay={(key) => byDay.get(key) ?? []}
+                clientAvatar={(id) => clientMeta.get(id)?.avatarUrl}
                 selectedKey={selectedKey}
                 onSelectDay={setSelectedKey}
               />
@@ -110,7 +114,13 @@ export function CalendarPage() {
               <div className="flex flex-col gap-4">
                 {selectedGroups.map((g) => (
                   <div key={g.clientId} className="flex flex-col gap-2">
-                    <span className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">
+                    <span className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">
+                      <Avatar
+                        name={g.clientName}
+                        imageUrl={clientMeta.get(g.clientId)?.avatarUrl}
+                        size={18}
+                        colorClass="bg-avatar-a"
+                      />
                       {g.clientName} · {g.done}/{g.tasks.length}
                     </span>
                     {g.tasks.map((t) => (

@@ -10,15 +10,33 @@ export interface ClientDay {
   status: DayStatus
 }
 
-/** Local 'YYYY-MM-DD' for a task's dueDate, or null when it has none. */
-export function dueDayKey(task: Task): string | null {
-  const d = (task.dueDate as { toDate?: () => Date } | null)?.toDate?.()
-  if (!d) return null
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 export function dayKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function toDate(v: unknown): Date | null {
+  return (v as { toDate?: () => Date } | null)?.toDate?.() ?? null
+}
+
+/** Every local day a task occupies on the calendar. A task with both a
+ * start and a due date spans the whole range (capped at 60 days); with
+ * only one date it lands on that single day. */
+export function taskDayKeys(task: Task): string[] {
+  const a = toDate(task.startDate)
+  const b = toDate(task.dueDate)
+  if (!a && !b) return []
+  let start = a ?? b!
+  let end = b ?? a!
+  if (start > end) [start, end] = [end, start]
+
+  const keys: string[] = []
+  const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  const last = new Date(end.getFullYear(), end.getMonth(), end.getDate())
+  for (let i = 0; cur <= last && i < 60; i++) {
+    keys.push(dayKey(cur))
+    cur.setDate(cur.getDate() + 1)
+  }
+  return keys
 }
 
 /**
@@ -44,15 +62,15 @@ export function groupByClient(tasks: Task[]): ClientDay[] {
   return Array.from(byClient.values()).sort((a, b) => a.clientName.localeCompare(b.clientName))
 }
 
-/** Tasks with a dueDate, keyed by local day. */
+/** Tasks keyed by local day — a ranged task appears under every day it spans. */
 export function tasksByDay(tasks: Task[]): Map<string, Task[]> {
   const map = new Map<string, Task[]>()
   for (const t of tasks) {
-    const key = dueDayKey(t)
-    if (!key) continue
-    const arr = map.get(key)
-    if (arr) arr.push(t)
-    else map.set(key, [t])
+    for (const key of taskDayKeys(t)) {
+      const arr = map.get(key)
+      if (arr) arr.push(t)
+      else map.set(key, [t])
+    }
   }
   return map
 }

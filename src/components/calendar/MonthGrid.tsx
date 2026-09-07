@@ -7,11 +7,13 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 export function MonthGrid({
   month,
   tasksForDay,
+  clientAvatar,
   selectedKey,
   onSelectDay,
 }: {
   month: Date
   tasksForDay: (key: string) => Task[]
+  clientAvatar: (clientId: string) => string | undefined
   selectedKey: string | null
   onSelectDay: (key: string) => void
 }) {
@@ -55,7 +57,13 @@ export function MonthGrid({
               <div className="flex flex-wrap gap-1">
                 {clientDays.map((cd) => (
                   <span key={cd.clientId} title={`${cd.clientName} — ${cd.done}/${cd.tasks.length} done`}>
-                    <Avatar name={cd.clientName} size={22} colorClass="bg-avatar-a" statusBorder={cd.status} />
+                    <Avatar
+                      name={cd.clientName}
+                      imageUrl={clientAvatar(cd.clientId)}
+                      size={22}
+                      colorClass="bg-avatar-a"
+                      statusBorder={cd.status}
+                    />
                   </span>
                 ))}
               </div>

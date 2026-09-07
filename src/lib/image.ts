@@ -3,14 +3,22 @@
 // Storage bucket needed), so the result MUST stay well under Firestore's
 // 1 MiB document limit.
 
-const MAX_DIM = 1280
-const MAX_BYTES = 900_000 // data-URL length ceiling, leaves room for other fields
+/** Chat attachment — up to ~1280px, kept under ~900KB. */
+export function fileToChatImage(file: File): Promise<string> {
+  return resizeToDataUrl(file, 1280, 900_000)
+}
 
-export async function fileToChatImage(file: File): Promise<string> {
+/** Client / avatar image — small square-ish, kept tiny since it rides on
+ * the client doc and is drawn at ~24px. */
+export function fileToAvatarImage(file: File): Promise<string> {
+  return resizeToDataUrl(file, 256, 120_000)
+}
+
+async function resizeToDataUrl(file: File, maxDim: number, maxBytes: number): Promise<string> {
   if (!file.type.startsWith('image/')) throw new Error('not-an-image')
 
   const bitmap = await loadBitmap(file)
-  const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height))
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height))
   const w = Math.max(1, Math.round(bitmap.width * scale))
   const h = Math.max(1, Math.round(bitmap.height * scale))
 
@@ -22,11 +30,10 @@ export async function fileToChatImage(file: File): Promise<string> {
   ctx.drawImage(bitmap, 0, 0, w, h)
   if ('close' in bitmap) (bitmap as ImageBitmap).close()
 
-  // PNG screenshots compress badly as PNG — always go out as JPEG, stepping
-  // quality down until it fits.
-  for (const q of [0.72, 0.6, 0.48, 0.36, 0.25]) {
+  // PNG compresses badly — always emit JPEG, stepping quality down to fit.
+  for (const q of [0.8, 0.68, 0.55, 0.42, 0.3, 0.2]) {
     const url = canvas.toDataURL('image/jpeg', q)
-    if (url.length <= MAX_BYTES) return url
+    if (url.length <= maxBytes) return url
   }
   throw new Error('too-large')
 }
