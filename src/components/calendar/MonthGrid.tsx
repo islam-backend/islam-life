@@ -1,8 +1,14 @@
 import type { Task } from '../../types/task'
 import { Avatar } from '../ui/Avatar'
-import { type ClientDay, dayKey, groupByClient, monthGridDays } from './calendarUtils'
+import { type ClientDay, type DayStatus, dayKey, groupByClient, monthGridDays } from './calendarUtils'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const RING: Record<DayStatus, string> = {
+  green: 'var(--green)',
+  amber: 'var(--amber)',
+  red: 'var(--red)',
+}
+const MAX_AVATARS = 5
 
 export function MonthGrid({
   month,
@@ -23,7 +29,7 @@ export function MonthGrid({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <div className="grid grid-cols-7 bg-field">
+      <div className="grid grid-cols-7 border-b border-border bg-field">
         {WEEKDAYS.map((d) => (
           <div key={d} className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-text-faint">
             {d}
@@ -31,42 +37,53 @@ export function MonthGrid({
         ))}
       </div>
       <div className="grid grid-cols-7">
-        {days.map((date) => {
+        {days.map((date, i) => {
           const key = dayKey(date)
-          const dayTasks = tasksForDay(key)
-          const clientDays: ClientDay[] = groupByClient(dayTasks)
+          const clientDays: ClientDay[] = groupByClient(tasksForDay(key))
           const outside = date.getMonth() !== thisMonth
           const isToday = key === todayKey
           const selected = key === selectedKey
+          const shown = clientDays.slice(0, MAX_AVATARS)
+          const extra = clientDays.length - shown.length
 
           return (
             <button
               key={key}
               onClick={() => onSelectDay(key)}
-              className={`flex min-h-[92px] flex-col gap-1.5 border-b border-r border-border p-1.5 text-left transition-colors last:border-r-0 hover:bg-field ${
-                outside ? 'opacity-40' : ''
-              } ${selected ? 'bg-accent-tint/50' : ''}`}
+              className={`flex min-h-[104px] flex-col gap-2 overflow-hidden border-b border-border p-2 text-left transition-colors hover:bg-field ${
+                i % 7 !== 6 ? 'border-r' : ''
+              } ${outside ? 'bg-field/30 text-text-faint' : ''} ${selected ? 'bg-accent-tint/40' : ''}`}
             >
               <span
-                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11.5px] ${
-                  isToday ? 'bg-accent font-bold text-white' : 'text-text-muted'
+                className={`inline-flex h-[18px] min-w-[18px] items-center justify-center self-start rounded-full px-1 text-[11.5px] font-medium ${
+                  isToday ? 'bg-accent text-white' : outside ? 'text-text-faint' : 'text-text-muted'
                 }`}
               >
                 {date.getDate()}
               </span>
-              <div className="flex flex-wrap gap-1">
-                {clientDays.map((cd) => (
-                  <span key={cd.clientId} title={`${cd.clientName} — ${cd.done}/${cd.tasks.length} done`}>
-                    <Avatar
-                      name={cd.clientName}
-                      imageUrl={clientAvatar(cd.clientId)}
-                      size={22}
-                      colorClass="bg-avatar-a"
-                      statusBorder={cd.status}
-                    />
-                  </span>
-                ))}
-              </div>
+
+              {clientDays.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {shown.map((cd) => (
+                    <span
+                      key={cd.clientId}
+                      title={`${cd.clientName} — ${cd.done}/${cd.tasks.length} done`}
+                      className="inline-flex rounded-full"
+                      style={{ boxShadow: `0 0 0 2px ${RING[cd.status]}` }}
+                    >
+                      <Avatar
+                        name={cd.clientName}
+                        imageUrl={clientAvatar(cd.clientId)}
+                        size={20}
+                        colorClass="bg-avatar-a"
+                      />
+                    </span>
+                  ))}
+                  {extra > 0 && (
+                    <span className="text-[10.5px] font-semibold text-text-faint">+{extra}</span>
+                  )}
+                </div>
+              )}
             </button>
           )
         })}
