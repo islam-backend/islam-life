@@ -161,7 +161,12 @@ export function TaskChat({
             const editing = editingId === c.id
             return (
               <div key={c.id} className={`group flex gap-2.5 ${mine ? 'flex-row-reverse' : ''}`}>
-                <Avatar name={c.authorName} size={26} colorClass={mine ? 'bg-avatar-a' : 'bg-avatar-b'} />
+                <Avatar
+                  name={c.authorName}
+                  imageUrl={members.find((m) => m.uid === c.authorUid)?.avatarUrl}
+                  size={26}
+                  colorClass={mine ? 'bg-avatar-a' : 'bg-avatar-b'}
+                />
                 <div className={`flex max-w-[78%] flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
                   <span className="text-[11px] text-text-faint">
                     {mine ? 'أنا' : c.authorName} · {formatTime(c.createdAt)}

@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { TopBar } from '../components/layout/TopBar'
 import { TASK_GRID, TaskRow } from '../components/tasks/TaskRow'
 import { useAuth } from '../hooks/useAuth'
+import { useMembers } from '../hooks/useMembers'
 import { useMyTasks } from '../hooks/useMyTasks'
 import type { Task } from '../types/task'
 
@@ -29,6 +30,7 @@ function dueMillis(t: Task): number {
 export function MyTasksPage() {
   const { user } = useAuth()
   const { tasks, loading } = useMyTasks(user?.uid)
+  const { members } = useMembers()
 
   const groups = useMemo<Group[]>(() => {
     const byProject = new Map<string, Group>()
@@ -82,6 +84,7 @@ export function MyTasksPage() {
                   key={t.id}
                   task={t}
                   to={`/clients/${t.clientId}/projects/${t.projectId}/tasks/${t.id}`}
+                  members={members}
                 />
               ))}
             </section>

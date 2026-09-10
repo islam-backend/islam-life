@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 
+import type { Member } from '../../types/member'
 import type { Task } from '../../types/task'
 import { Avatar } from '../ui/Avatar'
 import { StatusPill } from '../ui/StatusPill'
@@ -27,8 +28,12 @@ function formatDue(dueDate: unknown): { label: string; overdue: boolean } {
   return { label: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), overdue }
 }
 
-export function TaskRow({ task, to }: { task: Task; to: string }) {
+export function TaskRow({ task, to, members = [] }: { task: Task; to: string; members?: Member[] }) {
   const due = formatDue(task.dueDate)
+
+  // The person's Google photo lives on their live member doc, not on the
+  // denormalized assignee snapshot stored on the task — look it up by uid.
+  const avatarFor = (uid: string) => members.find((m) => m.uid === uid)?.avatarUrl
 
   return (
     <Link
@@ -44,7 +49,7 @@ export function TaskRow({ task, to }: { task: Task; to: string }) {
           <span className="flex -space-x-1.5">
             {(task.assignees ?? []).slice(0, 3).map((a) => (
               <span key={a.uid} className="rounded-full ring-2 ring-surface">
-                <Avatar name={a.displayName} size={22} colorClass="bg-avatar-b" />
+                <Avatar name={a.displayName} imageUrl={avatarFor(a.uid)} size={22} colorClass="bg-avatar-b" />
               </span>
             ))}
           </span>
