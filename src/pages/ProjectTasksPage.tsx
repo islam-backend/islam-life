@@ -115,7 +115,7 @@ export function ProjectTasksPage() {
         showAssignee={canManage}
         allTags={allTags}
       />
-      <TaskTable tasks={filteredTasks} />
+      <TaskTable tasks={filteredTasks} members={members} />
 
       {canManage && (
         <NewTaskModal
