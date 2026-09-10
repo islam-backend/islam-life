@@ -1,4 +1,4 @@
-export type MemberRole = 'owner' | 'member'
+export type MemberRole = 'owner' | 'manager' | 'member'
 
 export interface AssignedProject {
   clientId: string
@@ -21,6 +21,10 @@ export interface Member {
    * by the owner, anytime, independent of individual task assignment.
    * Owner ignores this entirely (sees everything). */
   assignedProjects?: AssignedProject[]
+  /** MANAGER only — the clients this manager has full, owner-like control
+   * over (create projects, create/assign/delete tasks, invite members).
+   * Ignored for owner (sees everything) and plain members. */
+  managedClientIds?: string[]
   createdAt?: unknown
   updatedAt?: unknown
 }

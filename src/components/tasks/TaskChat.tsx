@@ -7,7 +7,7 @@ import { useTaskComments } from '../../hooks/useTaskComments'
 import { db } from '../../lib/firebase/app'
 import { fileToChatImage } from '../../lib/image'
 import { primeAudio } from '../../lib/notify'
-import { isOwnerRole } from '../../utils/role'
+import { canManageClient } from '../../utils/role'
 import { Avatar } from '../ui/Avatar'
 import { MentionTextInput, nameOf } from './MentionTextInput'
 import { MessageText } from './MessageText'
@@ -35,7 +35,7 @@ export function TaskChat({
 }) {
   const { user, member } = useAuth()
   const { members } = useMembers()
-  const isOwner = isOwnerRole(member?.role)
+  const canManage = canManageClient(member, clientId)
   const { comments, loading } = useTaskComments(clientId, projectId, taskId)
   const [text, setText] = useState('')
   const [mentionUids, setMentionUids] = useState<string[]>([])
@@ -211,7 +211,7 @@ export function TaskChat({
                     </div>
                   )}
 
-                  {isOwner && !editing && (
+                  {canManage && !editing && (
                     <div className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
                       {c.text && (
                         <button

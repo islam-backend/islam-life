@@ -17,7 +17,7 @@ import { deleteTaskCascade } from '../lib/firebase/cascadeDelete'
 import { taskDocRef } from '../lib/firebase/refs'
 import type { TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
 import { assigneeFields } from '../utils/assignees'
-import { isOwnerRole } from '../utils/role'
+import { canManageClient } from '../utils/role'
 
 function toDateInputValue(dueDate: unknown): string {
   const d = (dueDate as { toDate?: () => Date } | null)?.toDate?.()
@@ -43,14 +43,15 @@ export function TaskDetailPage() {
   const [description, setDescription] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const isOwner = isOwnerRole(member?.role)
+  // Owner, or a manager of this task's client, edits everything. An
+  // assigned member can move status + set priority / tags / start date
+  // (see firestore.rules) but not reassign, rewrite the description, or
+  // change the due date.
+  const canManage = canManageClient(member, clientId)
   const taskRef = taskDocRef(clientId, projectId, taskId)
 
-  // Owner edits everything. An assigned member can move status + set
-  // priority / tags / start date (see firestore.rules) but not reassign,
-  // rewrite the description, or change the due date.
   const assignedToMe = !!member && (task?.assigneeUids ?? []).includes(member.uid)
-  const canEdit = isOwner || assignedToMe
+  const canEdit = canManage || assignedToMe
 
   const creator = members.find((m) => m.uid === task?.createdBy)
 
@@ -146,7 +147,7 @@ export function TaskDetailPage() {
 
         <div className="grid grid-cols-[120px_1fr] items-center gap-y-4">
           <span className="self-start pt-1.5 text-[12.5px] font-medium text-text-faint">Assignees</span>
-          <AssigneePicker value={task.assignees ?? []} members={members} onChange={setAssignees} disabled={!isOwner} />
+          <AssigneePicker value={task.assignees ?? []} members={members} onChange={setAssignees} disabled={!canManage} />
 
           <span className="text-[12.5px] font-medium text-text-faint">Status</span>
           <StatusSegmentedControl value={task.status} onChange={setStatus} />
@@ -169,7 +170,7 @@ export function TaskDetailPage() {
           <span className="text-[12.5px] font-medium text-text-faint">Due date</span>
           <input
             type="date"
-            disabled={!isOwner}
+            disabled={!canManage}
             defaultValue={toDateInputValue(task.dueDate)}
             onChange={(e) => setDueDate(e.target.value)}
             className="w-fit rounded-lg border border-border bg-field px-3 py-1.5 text-[13px] text-text outline-none focus:border-accent disabled:opacity-60"
@@ -187,7 +188,7 @@ export function TaskDetailPage() {
           <span className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Description</span>
           <textarea
             dir="auto"
-            disabled={!isOwner}
+            disabled={!canManage}
             defaultValue={task.description}
             onChange={(e) => setDescription(e.target.value)}
             onBlur={saveDescription}
@@ -201,7 +202,7 @@ export function TaskDetailPage() {
 
         <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} />
 
-        {isOwner && (
+        {canManage && (
           <div className="flex justify-end border-t border-border pt-5">
             <Button variant="ghost" onClick={() => setConfirmDelete(true)} className="text-red">
               Delete task

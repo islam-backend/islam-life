@@ -4,16 +4,21 @@ import { useEffect, useState } from 'react'
 import { db } from '../lib/firebase/app'
 import type { Member } from '../types/member'
 import type { Task } from '../types/task'
-import { isOwnerRole } from '../utils/role'
 
 /**
- * Live tasks for one project. A member's query MUST filter by their own
- * uid — Firestore rejects an unfiltered `list` query outright when the
+ * Live tasks for one project. A plain member's query MUST filter by their
+ * own uid — Firestore rejects an unfiltered `list` query outright when the
  * matching security rule depends on document data (it can't prove every
  * possible result would pass), it doesn't silently filter results for
- * you. The owner has no such restriction.
+ * you. The owner (and a manager of this client) have no such restriction —
+ * pass `canManage=true` for them.
  */
-export function useProjectTasks(clientId: string | null, projectId: string | null, member: Member | null) {
+export function useProjectTasks(
+  clientId: string | null,
+  projectId: string | null,
+  member: Member | null,
+  canManage: boolean
+) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -25,10 +30,9 @@ export function useProjectTasks(clientId: string | null, projectId: string | nul
     }
 
     const tasksRef = collection(db, 'clients', clientId, 'projects', projectId, 'tasks')
-    const q =
-      isOwnerRole(member.role)
-        ? query(tasksRef, orderBy('orderIndex'))
-        : query(tasksRef, where('assigneeUids', 'array-contains', member.uid), orderBy('orderIndex'))
+    const q = canManage
+      ? query(tasksRef, orderBy('orderIndex'))
+      : query(tasksRef, where('assigneeUids', 'array-contains', member.uid), orderBy('orderIndex'))
 
     setLoading(true)
     return onSnapshot(
@@ -42,7 +46,7 @@ export function useProjectTasks(clientId: string | null, projectId: string | nul
         setLoading(false)
       }
     )
-  }, [clientId, projectId, member])
+  }, [clientId, projectId, member, canManage])
 
   return { tasks, loading }
 }

@@ -4,7 +4,9 @@ import { AssignmentsTable } from '../components/admin/AssignmentsTable'
 import { DEFAULT_TASK_FILTERS, FilterBar, type TaskFilters } from '../components/layout/FilterBar'
 import { TopBar } from '../components/layout/TopBar'
 import { useAllTasks } from '../hooks/useAllTasks'
+import { useAuth } from '../hooks/useAuth'
 import { useMembers } from '../hooks/useMembers'
+import { isOwnerRole } from '../utils/role'
 import {
   matchesAssigneeFilter,
   matchesPriorityFilter,
@@ -14,7 +16,11 @@ import {
 } from '../utils/taskFilters'
 
 export function AdminAllAssignmentsPage() {
-  const { tasks } = useAllTasks()
+  const { member } = useAuth()
+  const isOwner = isOwnerRole(member?.role)
+  const managedClientIds = member?.managedClientIds ?? []
+  // Owner: every task. Manager: every task in the clients they manage.
+  const { tasks } = useAllTasks(isOwner || managedClientIds.length > 0, isOwner ? undefined : managedClientIds)
   const { members } = useMembers()
   const [filters, setFilters] = useState<TaskFilters>(DEFAULT_TASK_FILTERS)
 

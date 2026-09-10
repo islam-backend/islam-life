@@ -118,10 +118,15 @@ function RowActions({ onRename, onDelete }: { onRename: () => void; onDelete: ()
 
 export function ClientProjectTree({
   clients,
-  isOwner,
+  canAddClient,
+  canManageClient,
 }: {
   clients: ClientWithProjects[]
-  isOwner: boolean
+  /** Owner only — can spin up a whole new client. */
+  canAddClient: boolean
+  /** Per-client: can add/rename/delete its projects (owner, or a manager
+   * of that client). */
+  canManageClient: (clientId: string) => boolean
 }) {
   const navigate = useNavigate()
   const { clientId: activeClientId, projectId: activeProjectId } = useParams()
@@ -167,7 +172,7 @@ export function ClientProjectTree({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between px-2 pb-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Clients</span>
-        {isOwner && (
+        {canAddClient && (
           <button
             onClick={() => setShowNewClient(true)}
             title="Add client"
@@ -180,13 +185,14 @@ export function ClientProjectTree({
 
       {clients.length === 0 && (
         <p className="px-2 text-[12.5px] text-text-faint">
-          {isOwner ? 'No clients yet — add one above to get started.' : "You haven't been given access to a project yet."}
+          {canAddClient ? 'No clients yet — add one above to get started.' : "You don't have access to any projects yet."}
         </p>
       )}
 
       <div className="flex flex-col gap-0.5">
         {clients.map((client) => {
           const isExpanded = expanded.has(client.id)
+          const canManage = canManageClient(client.id)
           return (
             <div key={client.id} className="flex flex-col gap-0.5">
               <div className="group flex items-center rounded-md hover:bg-field">
@@ -197,7 +203,9 @@ export function ClientProjectTree({
                   <Chevron direction={isExpanded ? 'down' : 'right'} />
                   <span className="truncate text-[13.5px] font-medium text-text">{client.name}</span>
                 </button>
-                {isOwner && (
+                {/* Renaming / deleting a whole client stays an owner action —
+                    a manager manages the PROJECTS inside it, not the client. */}
+                {canAddClient && (
                   <RowActions
                     onRename={() => setEditingClient(client)}
                     onDelete={() => setDeletingClient(client)}
@@ -213,7 +221,7 @@ export function ClientProjectTree({
                     return (
                       <div
                         key={project.id}
-                        draggable={isOwner}
+                        draggable={canManage}
                         onDragStart={() => setDrag({ clientId: client.id, projectId: project.id })}
                         onDragEnter={() => drag?.clientId === client.id && setOverId(project.id)}
                         onDragOver={(e) => {
@@ -233,7 +241,7 @@ export function ClientProjectTree({
                           drag?.projectId === project.id ? 'opacity-40' : ''
                         }`}
                       >
-                        {isOwner && (
+                        {canManage && (
                           <span className="-mr-1 cursor-grab pl-1 text-text-faint opacity-0 group-hover:opacity-100 active:cursor-grabbing">
                             <GripIcon />
                           </span>
@@ -253,7 +261,7 @@ export function ClientProjectTree({
                             {project.name}
                           </span>
                         </Link>
-                        {isOwner && (
+                        {canManage && (
                           <RowActions
                             onRename={() => setEditingProject({ client, project })}
                             onDelete={() => setDeletingProject({ client, project })}
@@ -263,7 +271,7 @@ export function ClientProjectTree({
                     )
                   })}
 
-                  {isOwner && (
+                  {canManage && (
                     <button
                       onClick={() => setNewProjectFor(client)}
                       className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-text-faint hover:bg-field hover:text-text-muted"

@@ -33,14 +33,15 @@ function SwatchIcon() {
   )
 }
 
-const items = [
-  { to: '/admin/team', label: 'Team', Icon: TeamIcon },
-  { to: '/admin/assignments', label: 'All Assignments', Icon: AssignmentsIcon },
-  { to: '/styleguide', label: 'Design system', Icon: SwatchIcon },
-]
-
-export function AdminNav() {
+export function AdminNav({ isOwner }: { isOwner: boolean }) {
   const location = useLocation()
+
+  const items = [
+    { to: '/admin/team', label: 'Team', Icon: TeamIcon },
+    { to: '/admin/assignments', label: 'All Assignments', Icon: AssignmentsIcon },
+    // Design system is an owner-only surface.
+    ...(isOwner ? [{ to: '/styleguide', label: 'Design system', Icon: SwatchIcon }] : []),
+  ]
 
   return (
     <div className="flex flex-col gap-0.5">

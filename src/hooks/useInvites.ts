@@ -8,11 +8,13 @@ export interface Invite {
   email: string
   role: MemberRole
   assignedProjects: AssignedProject[]
+  /** Manager invites only — the clients the invitee will manage. */
+  managedClientIds?: string[]
   invitedAt?: unknown
   invitedBy?: string
 }
 
-/** Owner-only — see firestore.rules. The pending-invite list for Admin → Team. */
+/** Owner + manager — see firestore.rules. The pending-invite list for Admin → Team. */
 export function useInvites() {
   const [invites, setInvites] = useState<Invite[]>([])
   const [loading, setLoading] = useState(true)

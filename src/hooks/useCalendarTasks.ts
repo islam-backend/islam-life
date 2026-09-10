@@ -1,16 +1,23 @@
 import { useAllTasks } from './useAllTasks'
 import { useAuth } from './useAuth'
 import { useMyTasks } from './useMyTasks'
-import { isOwnerRole } from '../utils/role'
+import { isManagerRole, isOwnerRole } from '../utils/role'
 
-/** Tasks to show on the calendar — the owner sees everything, a member
- * sees only tasks assigned to them. */
+/** Tasks to show on the calendar:
+ *  - owner   → every task
+ *  - manager → every task in the clients they manage
+ *  - member  → only tasks assigned to them */
 export function useCalendarTasks() {
   const { user, member } = useAuth()
   const isOwner = isOwnerRole(member?.role)
+  const isManager = isManagerRole(member?.role)
+  const managedClientIds = member?.managedClientIds ?? []
 
   const all = useAllTasks(isOwner)
-  const mine = useMyTasks(isOwner ? undefined : user?.uid)
+  const scoped = useAllTasks(isManager && managedClientIds.length > 0, managedClientIds)
+  const mine = useMyTasks(isOwner || isManager ? undefined : user?.uid)
 
-  return isOwner ? all : mine
+  if (isOwner) return all
+  if (isManager) return scoped
+  return mine
 }

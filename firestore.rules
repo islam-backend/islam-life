@@ -30,11 +30,43 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/members/$(request.auth.uid));
     }
 
-    function isOwner() {
+    function roleOf() {
       // .lower().trim() tolerates a hand-typed role value in the console
       // (the one-time owner bootstrap) — a stray capital or trailing
       // space here used to mean silent, hard-to-diagnose access denials.
-      return isMember() && memberDoc().data.role is string && memberDoc().data.role.lower().trim() == 'owner';
+      return memberDoc().data.role is string ? memberDoc().data.role.lower().trim() : '';
+    }
+
+    function isOwner() {
+      return isMember() && roleOf() == 'owner';
+    }
+
+    // A "manager" is a scoped owner: pick a set of whole CLIENTS for them
+    // (managedClientIds on their member doc) and inside those clients they
+    // act exactly like the owner — create projects, create/assign/delete
+    // tasks, invite plain members. Outside those clients they are just a
+    // member (read + their own assigned tasks, nothing more).
+    function isManager() {
+      return isMember() && roleOf() == 'manager';
+    }
+
+    function managesClient(clientId) {
+      return isManager()
+          && memberDoc().data.managedClientIds is list
+          && clientId in memberDoc().data.managedClientIds;
+    }
+
+    function canManageClient(clientId) {
+      return isOwner() || managesClient(clientId);
+    }
+
+    // Same check, but from a task/doc that carries a denormalized clientId
+    // (used in the collectionGroup rules where the path has no clientId).
+    function managesDocClient(data) {
+      return isManager()
+          && data.clientId is string
+          && memberDoc().data.managedClientIds is list
+          && data.clientId in memberDoc().data.managedClientIds;
     }
 
     function isAssignedToMe(taskData) {
@@ -43,9 +75,13 @@ service cloud.firestore {
     }
 
     // ── Invites (allowlist) — the owner manages these from the app's
-    // Admin → Team page; nobody else can read or write them.
+    // Admin → Team page. A manager can invite too, but only ever plain
+    // members (never another manager or an owner).
     match /invites/{email} {
-      allow read, write: if isOwner();
+      allow read:           if isOwner() || isManager();
+      allow create, update: if isOwner()
+          || (isManager() && request.resource.data.role == 'member');
+      allow delete:         if isOwner() || isManager();
     }
 
     // ── Members ─────────────────────────────────────────────────
@@ -55,6 +91,15 @@ service cloud.firestore {
       // would be circular here (it requires the doc to already exist).
       allow read: if isMember() || (isSignedIn() && request.auth.uid == uid);
       allow write: if isOwner();
+
+      // A manager may adjust which projects a member can see, but must
+      // never touch anyone's role/email (no self- or cross-promotion) —
+      // `diff().affectedKeys()` only lists keys whose value actually
+      // changed, so re-writing an unchanged role still passes.
+      allow update: if isManager()
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['assignedProjects', 'updatedAt'])
+          && request.resource.data.role == resource.data.role;
 
       // First-ever sign-in: a signed-in Google account may create ITS
       // OWN member doc, but only if its email is on the invite list,
@@ -78,36 +123,40 @@ service cloud.firestore {
 
     // ── Clients & Projects ─────────────────────────────────────
     match /clients/{clientId} {
-      allow read:  if isMember();
-      allow write: if isOwner();
+      allow read:          if isMember();
+      // Only the owner spins up or tears down a whole client. A manager
+      // works INSIDE a client (rename / avatar), never creates one.
+      allow create, delete: if isOwner();
+      allow update:        if canManageClient(clientId);
 
       match /projects/{projectId} {
         allow read:  if isMember();
-        allow write: if isOwner();
+        allow write: if canManageClient(clientId);
 
         match /tasks/{taskId} {
-          // Owner: full access. Member: read + status-only update on their tasks.
-          allow read:   if isOwner() || (isMember() && isAssignedToMe(resource.data));
-          allow create, delete: if isOwner();
+          // Owner + managing manager: full access. Member: read + status-only
+          // update on their own tasks.
+          allow read:   if canManageClient(clientId) || (isMember() && isAssignedToMe(resource.data));
+          allow create, delete: if canManageClient(clientId);
           // An assigned member may move the workflow status and set the
           // Notion-style fields (priority / tags / start date) — never
           // reassign, rename, or change the due date.
-          allow update: if isOwner()
+          allow update: if canManageClient(clientId)
               || (isMember() && isAssignedToMe(resource.data)
                   && request.resource.data.diff(resource.data).affectedKeys()
                       .hasOnly(['status', 'priority', 'tags', 'startDate', 'updatedAt']));
 
           match /subtasks/{subtaskId} {
-            allow read:   if isOwner() || (isMember() && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data));
-            allow write:  if isOwner();
+            allow read:   if canManageClient(clientId) || (isMember() && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data));
+            allow write:  if canManageClient(clientId);
             allow update: if isMember()
                 && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done']);
           }
 
           match /comments/{commentId} {
-            allow read:   if isOwner() || (isMember() && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data));
-            allow write:  if isOwner();
+            allow read:   if canManageClient(clientId) || (isMember() && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data));
+            allow write:  if canManageClient(clientId);
             allow create: if isMember()
                 && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
                 && request.resource.data.authorUid == request.auth.uid;
@@ -128,7 +177,9 @@ service cloud.firestore {
       allow read: if isMember();
     }
     match /{path=**}/tasks/{taskId} {
-      allow read: if isOwner() || (isMember() && isAssignedToMe(resource.data));
+      allow read: if isOwner()
+          || managesDocClient(resource.data)
+          || (isMember() && isAssignedToMe(resource.data));
       allow update: if isMember() && isAssignedToMe(resource.data)
           && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['status', 'priority', 'tags', 'startDate', 'updatedAt']);

@@ -8,10 +8,11 @@ import { AdminTeamPage } from './pages/AdminTeamPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { EmptyProjectState } from './pages/EmptyProjectState'
 import { LoginPage } from './pages/LoginPage'
+import { MyTasksPage } from './pages/MyTasksPage'
 import { ProjectTasksPage } from './pages/ProjectTasksPage'
 import { StyleguidePage } from './pages/StyleguidePage'
 import { TaskDetailPage } from './pages/TaskDetailPage'
-import { isOwnerRole } from './utils/role'
+import { isAdminRole, isOwnerRole } from './utils/role'
 
 function Gate() {
   const { user, member, loading } = useAuth()
@@ -25,18 +26,20 @@ function Gate() {
   }
 
   const ownerOnly = (el: React.ReactElement) => (isOwnerRole(member.role) ? el : <Navigate to="/" replace />)
+  const adminOnly = (el: React.ReactElement) => (isAdminRole(member.role) ? el : <Navigate to="/" replace />)
 
   return (
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/" element={<EmptyProjectState />} />
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/my-tasks" element={<MyTasksPage />} />
         <Route path="/clients/:clientId/projects/:projectId" element={<ProjectTasksPage />} />
         {/* Its own full page, not an overlay on the task list — a direct link
             (from Admin → All Assignments, say) opens the same real page. */}
         <Route path="/clients/:clientId/projects/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
-        <Route path="/admin/team" element={ownerOnly(<AdminTeamPage />)} />
-        <Route path="/admin/assignments" element={ownerOnly(<AdminAllAssignmentsPage />)} />
+        <Route path="/admin/team" element={adminOnly(<AdminTeamPage />)} />
+        <Route path="/admin/assignments" element={adminOnly(<AdminAllAssignmentsPage />)} />
         <Route path="/styleguide" element={ownerOnly(<StyleguidePage />)} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
