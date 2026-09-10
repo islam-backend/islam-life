@@ -4,10 +4,19 @@ import { NavLink } from 'react-router-dom'
 import { Avatar } from '../ui/Avatar'
 import { useAuth } from '../../hooks/useAuth'
 import { useClients, type ClientWithProjects } from '../../hooks/useClients'
+import { useMyProjects } from '../../hooks/useMyProjects'
 import { ensureNotificationPermission, primeAudio } from '../../lib/notify'
-import { isOwnerRole } from '../../utils/role'
+import { canManageClient, isManagerRole, isOwnerRole } from '../../utils/role'
 import { AdminNav } from './AdminNav'
 import { ClientProjectTree } from './ClientProjectTree'
+
+function ListIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <path d="M5.5 4.5h8M5.5 8h8M5.5 11.5h8M2.5 4.5h.01M2.5 8h.01M2.5 11.5h.01" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 function CalendarIcon() {
   return (
@@ -53,18 +62,27 @@ function SignOutIcon() {
 }
 
 export function Sidebar() {
-  const { member, signOut } = useAuth()
+  const { user, member, signOut } = useAuth()
   const isOwner = isOwnerRole(member?.role)
+  const isManager = isManagerRole(member?.role)
+  const isAdmin = isOwner || isManager
+  const managedClientIds = member?.managedClientIds ?? []
 
-  // Owner: the real, full client/project tree. Member: only the
-  // projects the owner has explicitly granted them (member.assignedProjects) —
-  // built straight from that field, no extra query needed, since it
-  // already carries the client/project names.
-  const { clients: allClients } = useClients(isOwner)
+  // Owner: the real, full client/project tree. Manager: that same tree,
+  // filtered to the clients they manage. Member: the projects granted to
+  // them (member.assignedProjects) UNION every project they actually have
+  // an assigned task in (useMyProjects) — so a fresh assignment shows up
+  // with no owner action needed.
+  const { clients: allClients } = useClients(isAdmin)
+  const { projects: myProjects } = useMyProjects(isAdmin ? undefined : user?.uid)
+
   const memberTree = useMemo<ClientWithProjects[]>(() => {
-    if (!member || isOwner) return []
+    if (!member || isAdmin) return []
     const byClient = new Map<string, ClientWithProjects>()
-    for (const p of member.assignedProjects || []) {
+    const seenProject = new Set<string>()
+    for (const p of [...(member.assignedProjects || []), ...myProjects]) {
+      if (seenProject.has(p.projectId)) continue
+      seenProject.add(p.projectId)
       if (!byClient.has(p.clientId)) {
         byClient.set(p.clientId, { id: p.clientId, name: p.clientName, archived: false, projects: [] })
       }
@@ -78,9 +96,13 @@ export function Sidebar() {
       })
     }
     return Array.from(byClient.values()).sort((a, b) => a.name.localeCompare(b.name))
-  }, [member, isOwner])
+  }, [member, isAdmin, myProjects])
 
-  const clients = isOwner ? allClients : memberTree
+  const clients = isOwner
+    ? allClients
+    : isManager
+      ? allClients.filter((c) => managedClientIds.includes(c.id))
+      : memberTree
 
   if (!member) return null
 
@@ -105,8 +127,27 @@ export function Sidebar() {
           <CalendarIcon />
           Calendar
         </NavLink>
-        <ClientProjectTree clients={clients} isOwner={isOwner} />
-        {isOwner && <AdminNav />}
+        {!isOwner && (
+          <NavLink
+            to="/my-tasks"
+            className={({ isActive }) =>
+              `mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+                isActive
+                  ? '-ml-[2.5px] border-l-[2.5px] border-accent bg-accent-tint font-semibold text-text'
+                  : 'text-text-muted'
+              }`
+            }
+          >
+            <ListIcon />
+            My Tasks
+          </NavLink>
+        )}
+        <ClientProjectTree
+          clients={clients}
+          canAddClient={isOwner}
+          canManageClient={(clientId) => canManageClient(member, clientId)}
+        />
+        {isAdmin && <AdminNav isOwner={isOwner} />}
       </div>
 
       <NotificationsToggle />
@@ -115,11 +156,12 @@ export function Sidebar() {
         <Avatar
           name={member.displayName || member.email}
           imageUrl={member.avatarUrl}
-          colorClass={isOwner ? 'bg-avatar-a' : 'bg-avatar-b'}
+          colorClass={isAdmin ? 'bg-avatar-a' : 'bg-avatar-b'}
           size={26}
         />
         <span className="min-w-0 flex-1 truncate text-[12.5px] text-text-muted">
-          {member.displayName || member.email} &middot; {isOwner ? 'Owner' : 'Member'}
+          {member.displayName || member.email} &middot;{' '}
+          {isOwner ? 'Owner' : isManager ? 'Manager' : 'Member'}
         </span>
         <button
           onClick={signOut}

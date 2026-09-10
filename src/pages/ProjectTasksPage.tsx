@@ -16,7 +16,7 @@ import {
   matchesStatusFilter,
   matchesTagFilter,
 } from '../utils/taskFilters'
-import { isOwnerRole } from '../utils/role'
+import { canManageClient } from '../utils/role'
 
 function startOfToday() {
   const d = new Date()
@@ -27,27 +27,21 @@ function startOfToday() {
 export function ProjectTasksPage() {
   const { clientId = '', projectId = '' } = useParams()
   const { member } = useAuth()
-  const isOwner = isOwnerRole(member?.role)
+  const canManage = canManageClient(member, clientId)
 
-  // A member already has the name denormalized on their own doc — no
-  // extra read needed. The owner fetches just this one client + project
-  // directly by id (fast, and correct regardless of what the sidebar's
-  // broader tree has loaded so far).
-  const assigned = member?.assignedProjects?.find((ap) => ap.projectId === projectId)
-  const direct = useClientProject(isOwner ? clientId : '', isOwner ? projectId : '')
-
-  const clientProject = isOwner
-    ? direct.clientName && direct.projectName
+  // Everyone (owner, manager, member) can read the client + project docs,
+  // so fetch the breadcrumb names directly by id — uniform, and correct
+  // even for a project a member reached purely through a task assignment
+  // (not one of their granted `assignedProjects`).
+  const direct = useClientProject(clientId, projectId)
+  const clientProject =
+    direct.clientName && direct.projectName
       ? { clientName: direct.clientName, projectName: direct.projectName }
       : null
-    : assigned
-      ? { clientName: assigned.clientName, projectName: assigned.projectName }
-      : null
-
-  const notFound = isOwner ? direct.notFound : !isOwner && !!member && !assigned
+  const notFound = direct.notFound
 
   const { members } = useMembers()
-  const { tasks } = useProjectTasks(clientId, projectId, member)
+  const { tasks } = useProjectTasks(clientId, projectId, member, canManage)
   const [showNewTask, setShowNewTask] = useState(false)
 
   const [filters, setFilters] = useState<TaskFilters>(DEFAULT_TASK_FILTERS)
@@ -107,7 +101,7 @@ export function ProjectTasksPage() {
       <TopBar
         crumbs={[{ label: clientProject.clientName }, { label: clientProject.projectName }]}
         actions={
-          isOwner ? (
+          canManage ? (
             <Button variant="primary" onClick={() => setShowNewTask(true)}>
               New Task
             </Button>
@@ -118,12 +112,12 @@ export function ProjectTasksPage() {
         filters={filters}
         onChange={setFilters}
         members={members}
-        showAssignee={isOwner}
+        showAssignee={canManage}
         allTags={allTags}
       />
       <TaskTable tasks={filteredTasks} />
 
-      {isOwner && (
+      {canManage && (
         <NewTaskModal
           open={showNewTask}
           onClose={() => setShowNewTask(false)}
