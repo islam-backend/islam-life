@@ -18,6 +18,25 @@ export function primeAudio() {
   }
 }
 
+let unlockAttached = false
+
+/** Primes audio on the very first click/keypress/tap anywhere in the app.
+ * Without this, a returning user (Notification permission already granted
+ * from a previous visit, so the "🔔 Enable notifications" button never
+ * renders again) never triggers `primeAudio()` from a real user gesture —
+ * `playPing()` then creates the AudioContext for the first time on its own,
+ * outside any gesture, and the browser leaves it permanently suspended:
+ * the notification still shows, but the ding never plays. Call once from
+ * the app shell. */
+export function setupAudioAutoUnlock() {
+  if (unlockAttached || typeof document === 'undefined') return
+  unlockAttached = true
+  const unlock = () => primeAudio()
+  for (const type of ['pointerdown', 'keydown', 'touchend'] as const) {
+    document.addEventListener(type, unlock, { passive: true })
+  }
+}
+
 /** A soft two-note "ding". */
 export function playPing() {
   try {

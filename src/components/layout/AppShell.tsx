@@ -1,11 +1,20 @@
+import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { useMessagePing } from '../../hooks/useMessagePing'
+import { setupAudioAutoUnlock } from '../../lib/notify'
 import { Sidebar } from './Sidebar'
 
 export function AppShell() {
   // Sound + background notification when a new chat message arrives.
   useMessagePing()
+
+  // Unlocks the ping sound on the first click/keypress anywhere in the app —
+  // needed even when Notification permission was already granted in a past
+  // visit, since then the one button that used to prime audio never renders.
+  useEffect(() => {
+    setupAudioAutoUnlock()
+  }, [])
 
   return (
     <div className="flex h-full bg-bg">
