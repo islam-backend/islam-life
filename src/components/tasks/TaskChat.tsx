@@ -553,7 +553,7 @@ export function TaskChat({
               </svg>
             ) : (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M2 8l10-6-3 6 3 6L2 8z" />
+                <path d="M14 8L4 2l3 6-3 6L14 8z" />
               </svg>
             )}
           </button>
