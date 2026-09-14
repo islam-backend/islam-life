@@ -39,6 +39,14 @@
       ]
     },
     {
+      "collectionGroup": "tasks",
+      "fieldPath": "assigneeUids",
+      "indexes": [
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
       "collectionGroup": "comments",
       "fieldPath": "createdAt",
       "indexes": [
