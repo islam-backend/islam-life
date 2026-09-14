@@ -9,6 +9,7 @@ import { useMembers } from '../hooks/useMembers'
 import { isOwnerRole } from '../utils/role'
 import {
   matchesAssigneeFilter,
+  matchesDueFilter,
   matchesPriorityFilter,
   matchesProjectFilter,
   matchesStatusFilter,
@@ -46,6 +47,7 @@ export function AdminAllAssignmentsPage() {
       if (!matchesPriorityFilter(t.priority, filters.priorities)) return false
       if (!matchesTagFilter(t.tags, filters.tags)) return false
       if (!matchesProjectFilter(t.projectId, filters.projectIds)) return false
+      if (!matchesDueFilter(t.dueDate, t.status, filters.due)) return false
       if (filters.search && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false
       return true
     })

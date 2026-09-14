@@ -12,17 +12,12 @@ import { useMembers } from '../hooks/useMembers'
 import { useProjectTasks } from '../hooks/useProjectTasks'
 import {
   matchesAssigneeFilter,
+  matchesDueFilter,
   matchesPriorityFilter,
   matchesStatusFilter,
   matchesTagFilter,
 } from '../utils/taskFilters'
 import { canManageClient } from '../utils/role'
-
-function startOfToday() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
 
 export function ProjectTasksPage() {
   const { clientId = '', projectId = '' } = useParams()
@@ -59,24 +54,13 @@ export function ProjectTasksPage() {
   )
 
   const filteredTasks = useMemo(() => {
-    const today = startOfToday()
-    const weekOut = new Date(today)
-    weekOut.setDate(weekOut.getDate() + 7)
-
     return tasks.filter((t) => {
       if (!matchesAssigneeFilter(t.assigneeUids, filters.assigneeUids)) return false
       if (!matchesStatusFilter(t.status, filters.statuses)) return false
       if (!matchesPriorityFilter(t.priority, filters.priorities)) return false
       if (!matchesTagFilter(t.tags, filters.tags)) return false
+      if (!matchesDueFilter(t.dueDate, t.status, filters.due)) return false
       if (filters.search && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false
-
-      if (filters.due !== 'any') {
-        const due = (t.dueDate as { toDate?: () => Date } | null)?.toDate?.()
-        if (!due) return false
-        if (filters.due === 'overdue' && !(due < today && t.status !== 'done')) return false
-        if (filters.due === 'today' && due.toDateString() !== today.toDateString()) return false
-        if (filters.due === 'week' && !(due >= today && due <= weekOut)) return false
-      }
       return true
     })
   }, [tasks, filters])

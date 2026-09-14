@@ -7,9 +7,11 @@ import { groupByClient, tasksByDay } from '../components/calendar/calendarUtils'
 import { TopBar } from '../components/layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { StatusPill } from '../components/ui/StatusPill'
+import { useAuth } from '../hooks/useAuth'
 import { useCalendarTasks } from '../hooks/useCalendarTasks'
 import { useClientMeta } from '../hooks/useClientMeta'
 import { taskDocRef } from '../lib/firebase/refs'
+import { isManagerRole, isOwnerRole } from '../utils/role'
 
 function monthLabel(d: Date) {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
@@ -25,12 +27,20 @@ function prettyDay(key: string) {
 }
 
 export function CalendarPage() {
+  const { user, member } = useAuth()
+  const isAdmin = isOwnerRole(member?.role) || isManagerRole(member?.role)
   const { tasks, loading } = useCalendarTasks()
   const clientMeta = useClientMeta()
   const [month, setMonth] = useState(() => new Date())
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [myOnly, setMyOnly] = useState(false)
 
-  const byDay = useMemo(() => tasksByDay(tasks), [tasks])
+  const visibleTasks = useMemo(() => {
+    if (!myOnly || !user?.uid) return tasks
+    return tasks.filter((t) => t.assigneeUids?.includes(user.uid))
+  }, [tasks, myOnly, user?.uid])
+
+  const byDay = useMemo(() => tasksByDay(visibleTasks), [visibleTasks])
   const selectedGroups = selectedKey ? groupByClient(byDay.get(selectedKey) ?? []) : []
 
   async function markDone(clientId: string, projectId: string, taskId: string) {
@@ -45,25 +55,39 @@ export function CalendarPage() {
       <TopBar
         crumbs={[{ label: 'Calendar' }, { label: monthLabel(month) }]}
         actions={
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
-              className="cursor-pointer rounded-md px-2 py-1 text-[13px] text-text-muted hover:bg-field hover:text-text"
-            >
-              ‹
-            </button>
-            <button
-              onClick={() => setMonth(new Date())}
-              className="cursor-pointer rounded-md px-2.5 py-1 text-[12.5px] font-medium text-text-muted hover:bg-field hover:text-text"
-            >
-              Today
-            </button>
-            <button
-              onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
-              className="cursor-pointer rounded-md px-2 py-1 text-[13px] text-text-muted hover:bg-field hover:text-text"
-            >
-              ›
-            </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setMyOnly((v) => !v)}
+                className={`cursor-pointer rounded-md px-2.5 py-1 text-[12.5px] font-medium transition-colors ${
+                  myOnly
+                    ? 'bg-accent text-white'
+                    : 'text-text-muted hover:bg-field hover:text-text'
+                }`}
+              >
+                تاسكاتي بس
+              </button>
+            )}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+                className="cursor-pointer rounded-md px-2 py-1 text-[13px] text-text-muted hover:bg-field hover:text-text"
+              >
+                ‹
+              </button>
+              <button
+                onClick={() => setMonth(new Date())}
+                className="cursor-pointer rounded-md px-2.5 py-1 text-[12.5px] font-medium text-text-muted hover:bg-field hover:text-text"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+                className="cursor-pointer rounded-md px-2 py-1 text-[13px] text-text-muted hover:bg-field hover:text-text"
+              >
+                ›
+              </button>
+            </div>
           </div>
         }
       />
