@@ -1,5 +1,5 @@
 import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
-import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
 import { useMembers } from '../../hooks/useMembers'
@@ -29,9 +29,113 @@ function formatTime(ts: unknown): string {
 
 function formatDuration(secs: number): string {
   const m = Math.floor(secs / 60)
-  const s = secs % 60
+  const s = Math.floor(secs % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
 }
+
+// ── WhatsApp-style voice message player ─────────────────────────────────────
+
+function PlayIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M5 3.5l8 4.5-8 4.5V3.5z" />
+    </svg>
+  )
+}
+
+function PauseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <rect x="3" y="2" width="3.5" height="12" rx="1" />
+      <rect x="9.5" y="2" width="3.5" height="12" rx="1" />
+    </svg>
+  )
+}
+
+/** Seeded pseudo-random bar heights — stable per message. */
+function makeWaveBars(seed: string, count = 32): number[] {
+  let n = seed.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0x811c9dc5)
+  return Array.from({ length: count }, () => {
+    n = Math.imul(n ^ (n >>> 17), 0x45d9f3b)
+    n = Math.imul(n ^ (n >>> 13), 0x3f7f4c3d)
+    n ^= n >>> 16
+    return 20 + Math.abs(n % 72)
+  })
+}
+
+function VoiceMessage({
+  audioUrl,
+  audioDuration,
+  mine,
+}: {
+  audioUrl: string
+  audioDuration?: number
+  mine: boolean
+}) {
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const bars = useMemo(() => makeWaveBars(audioUrl), [audioUrl])
+  const totalSecs = audioDuration ?? 0
+  const progress = totalSecs > 0 ? currentTime / totalSecs : 0
+  const playedCount = Math.floor(progress * bars.length)
+
+  function toggle() {
+    if (!audioRef.current) {
+      audioRef.current = new Audio(audioUrl)
+      audioRef.current.ontimeupdate = () => setCurrentTime(audioRef.current?.currentTime ?? 0)
+      audioRef.current.onended = () => {
+        setPlaying(false)
+        setCurrentTime(0)
+      }
+    }
+    if (playing) {
+      audioRef.current.pause()
+      setPlaying(false)
+    } else {
+      void audioRef.current.play()
+      setPlaying(true)
+    }
+  }
+
+  useEffect(() => {
+    const a = audioRef.current
+    return () => { a?.pause() }
+  }, [])
+
+  const accentColor = mine ? 'bg-white' : 'bg-accent'
+  const dimColor = mine ? 'bg-white/35' : 'bg-border'
+  const btnBg = mine ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-accent/10 hover:bg-accent/20 text-accent'
+
+  return (
+    <div className="flex items-center gap-2.5 py-0.5">
+      <button
+        onClick={toggle}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${btnBg}`}
+      >
+        {playing ? <PauseIcon /> : <PlayIcon />}
+      </button>
+
+      {/* Waveform bars */}
+      <div className="flex flex-1 items-center gap-[2.5px]" style={{ height: 28 }}>
+        {bars.map((h, i) => (
+          <div
+            key={i}
+            className={`w-[3px] rounded-full transition-colors duration-75 ${i < playedCount ? accentColor : dimColor}`}
+            style={{ height: `${Math.min(h, 100)}%` }}
+          />
+        ))}
+      </div>
+
+      <span className={`shrink-0 text-[11px] tabular-nums ${mine ? 'text-white/70' : 'text-text-faint'}`}>
+        {formatDuration(playing ? currentTime : totalSecs)}
+      </span>
+    </div>
+  )
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export function TaskChat({
   clientId,
@@ -92,7 +196,6 @@ export function TaskChat({
     endRef.current?.scrollIntoView({ block: 'nearest' })
   }, [comments.length])
 
-  // Cleanup recording on unmount
   useEffect(() => {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
@@ -131,7 +234,9 @@ export function TaskChat({
       text: fields.text,
       ...(fields.imageUrl ? { imageUrl: fields.imageUrl } : {}),
       ...(fields.fileUrl ? { fileUrl: fields.fileUrl, fileName: fields.fileName, fileType: fields.fileType } : {}),
-      ...(fields.audioUrl ? { audioUrl: fields.audioUrl, ...(fields.audioDuration ? { audioDuration: fields.audioDuration } : {}) } : {}),
+      ...(fields.audioUrl
+        ? { audioUrl: fields.audioUrl, ...(fields.audioDuration ? { audioDuration: fields.audioDuration } : {}) }
+        : {}),
       ...(fields.mentions?.length ? { mentions: fields.mentions } : {}),
       createdAt: serverTimestamp(),
     })
@@ -168,10 +273,8 @@ export function TaskChat({
         const imageUrl = await fileToChatImage(file)
         await postComment({ text: body, imageUrl, mentions: resolveMentions(body) })
       } else if (isTextFile(file)) {
-        // Store text files as plain content (no base64 overhead)
         if (file.size > MAX_FILE_BYTES) throw new Error('too-large')
         const textContent = await fileToText(file)
-        // Encode as a data URL but we'll store it as fileUrl with text MIME
         const fileUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(textContent)}`
         await postComment({ text: body, fileUrl, fileName: file.name, fileType: file.type || 'text/plain', mentions: resolveMentions(body) })
       } else {
@@ -211,9 +314,8 @@ export function TaskChat({
         }
         const reader = new FileReader()
         reader.onload = async () => {
-          const audioUrl = reader.result as string
           try {
-            await postComment({ text: '', audioUrl, audioDuration: duration })
+            await postComment({ text: '', audioUrl: reader.result as string, audioDuration: duration })
           } catch {
             setError('الصوت مترفعش — جرّب تاني')
           } finally {
@@ -258,7 +360,6 @@ export function TaskChat({
       recordingTimerRef.current = null
     }
     if (mediaRecorderRef.current) {
-      // Detach onstop so it doesn't post
       mediaRecorderRef.current.onstop = null
       if (mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop()
       mediaRecorderRef.current = null
@@ -345,14 +446,7 @@ export function TaskChat({
                         />
                       )}
                       {c.audioUrl && (
-                        <div className="mb-1.5 flex items-center gap-2">
-                          <audio controls src={c.audioUrl} className="h-8 max-w-[220px]" />
-                          {c.audioDuration !== undefined && (
-                            <span className={`text-[11px] ${mine ? 'text-white/70' : 'text-text-faint'}`}>
-                              {formatDuration(c.audioDuration)}
-                            </span>
-                          )}
-                        </div>
+                        <VoiceMessage audioUrl={c.audioUrl} audioDuration={c.audioDuration} mine={mine} />
                       )}
                       {c.fileUrl && !c.imageUrl && !c.audioUrl && (
                         <a
@@ -360,11 +454,13 @@ export function TaskChat({
                           download={c.fileName || 'file'}
                           onClick={(e) => e.stopPropagation()}
                           className={`mb-1.5 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-medium ${
-                            mine ? 'border-white/20 text-white hover:bg-white/10' : 'border-border text-text-muted hover:bg-field'
+                            mine
+                              ? 'border-white/20 text-white hover:bg-white/10'
+                              : 'border-border text-text-muted hover:bg-field'
                           }`}
                         >
                           <span>{getFileDecoration(c.fileType, c.fileName)}</span>
-                          <span className="truncate max-w-[160px]">{c.fileName || 'ملف'}</span>
+                          <span className="max-w-[160px] truncate">{c.fileName || 'ملف'}</span>
                         </a>
                       )}
                       {c.text && <MessageText text={c.text} mentionNames={mentionNamesFor(c.mentions)} />}
@@ -404,36 +500,70 @@ export function TaskChat({
 
       {error && <p className="text-[12px] text-red">{error}</p>}
 
+      {/* ── Recording bar ── */}
       {recording ? (
-        <div className="flex items-center gap-2">
-          <span className="flex h-2 w-2 rounded-full bg-red animate-pulse" />
-          <span className="text-[13px] font-medium text-red tabular-nums">{formatDuration(recordingTime)}</span>
-          <span className="text-[12px] text-text-faint flex-1">جاري التسجيل…</span>
+        <div className="flex items-center gap-3 rounded-xl border border-red/30 bg-red/5 px-3 py-2">
+          {/* Pulsing dot */}
+          <span className="relative flex h-3 w-3 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red opacity-60" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-red" />
+          </span>
+
+          {/* Timer */}
+          <span className="w-10 shrink-0 text-[13px] font-semibold tabular-nums text-red">
+            {formatDuration(recordingTime)}
+          </span>
+
+          {/* Animated waveform bars */}
+          <div className="flex flex-1 items-center justify-center gap-[3px]" style={{ height: 24 }}>
+            {Array.from({ length: 20 }, (_, i) => (
+              <div
+                key={i}
+                className="w-[3px] rounded-full bg-red/50"
+                style={{
+                  height: '100%',
+                  animation: `pulse-bar ${0.4 + (i % 5) * 0.1}s ease-in-out infinite alternate`,
+                  animationDelay: `${(i * 37) % 200}ms`,
+                }}
+              />
+            ))}
+          </div>
+
           <button
             type="button"
             onClick={cancelRecording}
-            className="rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-text-muted hover:border-red hover:text-red"
+            title="إلغاء"
+            className="shrink-0 rounded-lg p-1.5 text-text-faint hover:bg-surface hover:text-red"
           >
-            إلغاء
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
           </button>
+
           <button
             type="button"
             onClick={stopRecording}
             disabled={sending}
-            className="rounded-lg bg-accent px-4 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
+            title="إرسال"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white shadow-sm disabled:opacity-50"
           >
-            {sending ? '…' : 'إرسال'}
+            {sending ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="animate-spin">
+                <path d="M8 1a7 7 0 1 0 7 7" strokeWidth="0" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2 8l10-6-3 6 3 6L2 8z" />
+              </svg>
+            )}
           </button>
         </div>
       ) : (
+        /* ── Normal input bar ── */
         <form onSubmit={handleSend} className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="*/*"
-            onChange={handleFile}
-            className="hidden"
-          />
+          <input ref={fileInputRef} type="file" accept="*/*" onChange={handleFile} className="hidden" />
+
+          {/* File attach */}
           <button
             type="button"
             disabled={sending}
@@ -442,10 +572,17 @@ export function TaskChat({
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-field text-text-muted hover:text-text disabled:opacity-60"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M13.5 9.5l-5 5a3.536 3.536 0 0 1-5-5l6-6a2.357 2.357 0 0 1 3.333 3.333L7.167 12.5A1.179 1.179 0 0 1 5.5 10.833l5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M13.5 9.5l-5 5a3.536 3.536 0 0 1-5-5l6-6a2.357 2.357 0 0 1 3.333 3.333L7.167 12.5A1.179 1.179 0 0 1 5.5 10.833l5-5"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
-          {/* Voice recording button */}
+
+          {/* Mic */}
           {'mediaDevices' in navigator && (
             <button
               type="button"
@@ -456,10 +593,16 @@ export function TaskChat({
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <rect x="5.5" y="1" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.4" />
-                <path d="M3 7.5A5 5 0 0 0 13 7.5M8 13v2M6 15h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                <path
+                  d="M3 7.5A5 5 0 0 0 13 7.5M8 13v2M6 15h4"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
               </svg>
             </button>
           )}
+
           <MentionTextInput
             value={text}
             onChange={(v, addedUid) => {
@@ -470,6 +613,7 @@ export function TaskChat({
             disabled={sending}
             placeholder="اكتب رسالة… (@ لمنشن حد)"
           />
+
           <button
             type="submit"
             disabled={sending || !text.trim()}
@@ -480,6 +624,7 @@ export function TaskChat({
         </form>
       )}
 
+      {/* Image zoom overlay */}
       {zoomed && (
         <div
           onClick={() => setZoomed(null)}
@@ -488,6 +633,14 @@ export function TaskChat({
           <img src={zoomed} alt="attachment" className="max-h-full max-w-full rounded-lg object-contain" />
         </div>
       )}
+
+      {/* Keyframes for the recording bar's animated bars */}
+      <style>{`
+        @keyframes pulse-bar {
+          from { transform: scaleY(0.25); }
+          to   { transform: scaleY(1); }
+        }
+      `}</style>
     </div>
   )
 }
