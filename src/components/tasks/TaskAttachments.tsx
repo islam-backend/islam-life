@@ -4,7 +4,7 @@ import { type ChangeEvent, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTaskAttachments } from '../../hooks/useTaskAttachments'
 import { db } from '../../lib/firebase/app'
-import { fileToDataUrl, fileToText, isTextFile } from '../../lib/files'
+import { fileToDataUrl, fileToText, formatFileSize, isTextFile } from '../../lib/files'
 import { fileToChatImage } from '../../lib/image'
 
 const MAX_FILE_BYTES = 700_000

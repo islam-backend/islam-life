@@ -23,6 +23,7 @@ interface LatestComment {
   authorName?: string
   text?: string
   imageUrl?: string
+  audioUrl?: string
   mentions?: string[]
   createdAt?: { toMillis?: () => number }
 }
