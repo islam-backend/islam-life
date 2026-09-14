@@ -136,7 +136,17 @@ service cloud.firestore {
         match /tasks/{taskId} {
           // Owner + managing manager: full access. Member: read + status-only
           // update on their own tasks.
-          allow read:   if canManageClient(clientId) || (isMember() && isAssignedToMe(resource.data));
+          // The member branch is inlined (not isAssignedToMe()) and skips the
+          // `is list` guard on purpose — Firestore's query-safety prover only
+          // recognizes a query as provably safe when the rule's condition is
+          // a bare `request.auth.uid in resource.data.field` matching the
+          // query's own `array-contains` filter; wrapping it in a helper
+          // function or adding an extra `is list` conjunct breaks that
+          // pattern match and the whole `list` request comes back
+          // permission-denied — even though a plain get() of the same
+          // document would've been allowed.
+          allow read:   if canManageClient(clientId)
+              || (isMember() && request.auth.uid in resource.data.assigneeUids);
           allow create, delete: if canManageClient(clientId);
           // An assigned member may move the workflow status and set the
           // Notion-style fields (priority / tags / start date) — never
@@ -177,9 +187,11 @@ service cloud.firestore {
       allow read: if isMember();
     }
     match /{path=**}/tasks/{taskId} {
+      // See the same-shaped rule under clients/*/projects/*/tasks/* above for
+      // why the member branch is inlined instead of calling isAssignedToMe().
       allow read: if isOwner()
           || managesDocClient(resource.data)
-          || (isMember() && isAssignedToMe(resource.data));
+          || (isMember() && request.auth.uid in resource.data.assigneeUids);
       allow update: if isMember() && isAssignedToMe(resource.data)
           && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['status', 'priority', 'tags', 'startDate', 'updatedAt']);
