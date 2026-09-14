@@ -176,9 +176,11 @@ function priorityMeta(p) {
 
 function statusMeta(s) {
   switch (s) {
-    case 'doing': return { label: 'قيد التنفيذ', color: '#D97706', bg: '#FEF3C7', icon: '🟡' };
-    case 'todo':  return { label: 'لم تبدأ',     color: '#2563EB', bg: '#DBEAFE', icon: '🔵' };
-    case 'done':  return { label: 'مكتملة',      color: '#059669', bg: '#D1FAE5', icon: '✅' };
+    case 'doing':      return { label: 'قيد التنفيذ', color: '#D97706', bg: '#FEF3C7', icon: '🟡' };
+    case 'in_progress': return { label: 'قيد التنفيذ', color: '#D97706', bg: '#FEF3C7', icon: '🟡' };
+    case 'todo':       return { label: 'لم تبدأ',     color: '#2563EB', bg: '#DBEAFE', icon: '🔵' };
+    case 'in_review':  return { label: 'قيد المراجعة', color: '#0891B2', bg: '#CFFAFE', icon: '👀' };
+    case 'done':       return { label: 'مكتملة',      color: '#059669', bg: '#D1FAE5', icon: '✅' };
     default:      return { label: '—',           color: '#6B7280', bg: '#F3F4F6', icon: '•' };
   }
 }
@@ -201,7 +203,7 @@ function buildReport({ clients, projects, tasks, focusSessions, anchor }) {
 
   const todayPlanned = tasks.filter(t => taskCoversDay(t, todayStart));
   const todayNotDone = todayPlanned.filter(t => t.status !== 'done');
-  const inProgress = tasks.filter(t => t.status === 'doing');
+  const inProgress = tasks.filter(t => t.status === 'in_progress');
 
   const tomorrowTasks = tasks
     .filter(t => t.status !== 'done' && taskCoversDay(t, tomorrowStart))

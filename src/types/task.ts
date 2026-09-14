@@ -1,4 +1,4 @@
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'done'
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done'
 
 /** How urgent the task is — independent of workflow status. `null`/absent = "no priority". */
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'

@@ -40,6 +40,10 @@
   --color-violet-tint: var(--violet-tint);
   --color-violet-tint-text: var(--violet-tint-text);
 
+  --color-cyan: var(--cyan);
+  --color-cyan-tint: var(--cyan-tint);
+  --color-cyan-tint-text: var(--cyan-tint-text);
+
   --font-sans:
     system-ui, -apple-system, 'Segoe UI', sans-serif;
 }

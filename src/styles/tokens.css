@@ -42,4 +42,8 @@
   --violet: oklch(72% 0.13 300); /* backlog */
   --violet-tint: oklch(32% 0.06 300);
   --violet-tint-text: oklch(82% 0.11 300);
+
+  --cyan: oklch(74% 0.1 210); /* in review */
+  --cyan-tint: oklch(31% 0.05 210);
+  --cyan-tint-text: oklch(81% 0.1 210);
 }

@@ -11,7 +11,9 @@ import { useEffect, useRef } from 'react'
 
 import { db } from '../lib/firebase/app'
 import { playPing, showMessageNotification } from '../lib/notify'
-import { isOwnerRole } from '../utils/role'
+import type { TaskStatus } from '../types/task'
+import { isAdminRole, isOwnerRole } from '../utils/role'
+import { useAllTasks } from './useAllTasks'
 import { useAuth } from './useAuth'
 import { useMyTasks } from './useMyTasks'
 
@@ -31,11 +33,14 @@ interface LatestComment {
  *    listener, member via one listener per assigned task
  *  - a task newly assigned to me
  *  - an @-mention of me in a message
+ *  - (owner/manager) a task moving into "In Review", scoped to the clients
+ *    they manage
  * In-app only — nothing fires when the app isn't open in a tab.
  */
 export function useMessagePing() {
   const { user, member } = useAuth()
   const isOwner = isOwnerRole(member?.role)
+  const isAdmin = isAdminRole(member?.role)
   const myUid = user?.uid
 
   // My assigned tasks — drives the member comment listeners AND the
@@ -100,6 +105,34 @@ export function useMessagePing() {
     }
     knownTaskIds.current = ids
   }, [myUid, myTasks, myTasksLoading])
+
+  // ── Owner/manager: pinged when a task moves into "In Review" ──
+  // Scoped the same way as the Admin "All Assignments" page: unscoped for
+  // the owner, `clientId in managedClientIds` for a manager.
+  const managedClientIds = member?.managedClientIds ?? []
+  const watchReview = isOwner || managedClientIds.length > 0
+  const { tasks: allTasks, loading: allTasksLoading } = useAllTasks(
+    isAdmin && watchReview,
+    isOwner ? null : managedClientIds
+  )
+  const lastStatus = useRef(new Map<string, TaskStatus>())
+  const reviewBaselineSet = useRef(false)
+  useEffect(() => {
+    if (!isAdmin || !watchReview || allTasksLoading) return
+    if (!reviewBaselineSet.current) {
+      reviewBaselineSet.current = true
+      lastStatus.current = new Map(allTasks.map((t) => [t.id, t.status]))
+      return
+    }
+    for (const t of allTasks) {
+      const was = lastStatus.current.get(t.id)
+      if (t.status === 'in_review' && was !== 'in_review' && !t.assigneeUids?.includes(myUid ?? '')) {
+        playPing()
+        showMessageNotification('👀 تاسك جاهزة للمراجعة', t.title || 'تاسك', true)
+      }
+    }
+    lastStatus.current = new Map(allTasks.map((t) => [t.id, t.status]))
+  }, [isAdmin, watchReview, allTasks, allTasksLoading, myUid])
 
   // ── Member: one listener per assigned task ────────────────────
   const subs = useRef(new Map<string, Unsubscribe>())

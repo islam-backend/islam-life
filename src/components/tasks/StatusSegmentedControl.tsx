@@ -4,6 +4,7 @@ const options: { value: TaskStatus; label: string; activeClass: string }[] = [
   { value: 'backlog', label: 'Backlog', activeClass: 'bg-violet-tint text-violet-tint-text' },
   { value: 'todo', label: 'To Do', activeClass: 'bg-accent-tint text-accent-tint-text' },
   { value: 'in_progress', label: 'In Progress', activeClass: 'bg-amber-tint text-amber-tint-text' },
+  { value: 'in_review', label: 'In Review', activeClass: 'bg-cyan-tint text-cyan-tint-text' },
   { value: 'done', label: 'Done', activeClass: 'bg-green-tint text-green-tint-text' },
 ]
 
