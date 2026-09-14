@@ -170,6 +170,21 @@ service cloud.firestore {
             allow create: if isMember()
                 && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
                 && request.resource.data.authorUid == request.auth.uid;
+            // Any member can edit the text of their OWN messages (never reassign authorship).
+            allow update: if isMember()
+                && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
+                && resource.data.authorUid == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt']);
+          }
+
+          match /attachments/{attachmentId} {
+            allow read:   if canManageClient(clientId)
+                || (isMember() && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data));
+            allow create: if canManageClient(clientId)
+                || (isMember()
+                    && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
+                    && request.resource.data.createdBy == request.auth.uid);
+            allow delete: if canManageClient(clientId);
           }
         }
       }

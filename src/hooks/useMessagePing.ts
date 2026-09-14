@@ -51,7 +51,7 @@ export function useMessagePing() {
   const startedAt = useRef(Date.now())
   const seen = useRef(new Set<string>())
 
-  function handle(c: LatestComment | null) {
+  function handle(c: LatestComment | null, taskUrl?: string) {
     if (!c || !myUid) return
     if (c.authorUid === myUid) return
     if (seen.current.has(c.id)) return
@@ -63,11 +63,21 @@ export function useMessagePing() {
     seen.current.add(c.id)
     playPing()
     const mentioned = !!c.mentions?.includes(myUid)
-    const body = c.text?.trim() || (c.imageUrl ? '📷 صورة' : 'رسالة جديدة')
+    const body = c.text?.trim() || (c.imageUrl ? '📷 صورة' : c.audioUrl ? '🎤 رسالة صوتية' : '📎 ملف')
     const title = mentioned
       ? `📣 ${c.authorName || 'حد'} عملك منشن`
       : `💬 ${c.authorName || 'رسالة جديدة'}`
-    showMessageNotification(title, body, mentioned)
+    showMessageNotification(title, body, mentioned, taskUrl)
+  }
+
+  /** Extract task app-URL from a Firestore comment doc path. */
+  function commentPathToTaskUrl(docPath: string): string | undefined {
+    // "clients/cId/projects/pId/tasks/tId/comments/commentId"
+    const parts = docPath.split('/')
+    if (parts.length === 8 && parts[0] === 'clients' && parts[4] === 'tasks') {
+      return `/clients/${parts[1]}/projects/${parts[3]}/tasks/${parts[5]}#chat`
+    }
+    return undefined
   }
 
   // ── Owner: every task's chat ──────────────────────────────────
@@ -79,7 +89,8 @@ export function useMessagePing() {
       (snap) => {
         snap.docChanges().forEach((ch) => {
           if (ch.type === 'removed') return
-          handle({ id: ch.doc.id, ...(ch.doc.data() as Omit<LatestComment, 'id'>) })
+          const taskUrl = commentPathToTaskUrl(ch.doc.ref.path)
+          handle({ id: ch.doc.id, ...(ch.doc.data() as Omit<LatestComment, 'id'>) }, taskUrl)
         })
       },
       (err) => console.error('useMessagePing (owner):', err.message)
@@ -159,6 +170,7 @@ export function useMessagePing() {
         orderBy('createdAt', 'desc'),
         limit(1)
       )
+      const taskUrl = `/clients/${t.clientId}/projects/${t.projectId}/tasks/${t.id}#chat`
       subs.current.set(
         path,
         onSnapshot(
@@ -166,7 +178,7 @@ export function useMessagePing() {
           (snap) => {
             snap.docChanges().forEach((ch) => {
               if (ch.type === 'removed') return
-              handle({ id: ch.doc.id, ...(ch.doc.data() as Omit<LatestComment, 'id'>) })
+              handle({ id: ch.doc.id, ...(ch.doc.data() as Omit<LatestComment, 'id'>) }, taskUrl)
             })
           },
           (err) => console.error('useMessagePing (member):', err.message)

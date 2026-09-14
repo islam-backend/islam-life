@@ -1,11 +1,12 @@
 import { serverTimestamp, updateDoc } from 'firebase/firestore'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { AssigneePicker } from '../components/tasks/AssigneePicker'
 import { PriorityControl } from '../components/tasks/PriorityControl'
 import { StatusSegmentedControl } from '../components/tasks/StatusSegmentedControl'
 import { TagsField } from '../components/tasks/TagsField'
+import { TaskAttachments } from '../components/tasks/TaskAttachments'
 import { TopBar } from '../components/layout/TopBar'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -42,6 +43,17 @@ export function TaskDetailPage() {
   const { task, loading } = useTaskDetail(clientId, projectId, taskId)
   const [description, setDescription] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const chatRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to the chat section when opened from a notification (URL hash #chat)
+  useEffect(() => {
+    if (window.location.hash === '#chat') {
+      const timer = setTimeout(() => {
+        chatRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 400)
+      return () => clearTimeout(timer)
+    }
+  }, [])
 
   // Owner, or a manager of this task's client, edits everything. An
   // assigned member can move status + set priority / tags / start date
@@ -200,7 +212,19 @@ export function TaskDetailPage() {
 
         <div className="h-px bg-border" />
 
-        <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} />
+        <TaskAttachments
+          clientId={clientId}
+          projectId={projectId}
+          taskId={taskId}
+          canEdit={canEdit}
+          canDelete={canManage}
+        />
+
+        <div className="h-px bg-border" />
+
+        <div ref={chatRef} id="chat">
+          <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} />
+        </div>
 
         {canManage && (
           <div className="flex justify-end border-t border-border pt-5">

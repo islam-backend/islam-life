@@ -72,14 +72,16 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 
 /** Shows a browser notification. By default only when the tab isn't
  * focused (no point stealing attention for a chat you're looking at);
- * pass `alwaysShow` for rarer, important events like a task assignment. */
-export function showMessageNotification(title: string, body: string, alwaysShow = false) {
+ * pass `alwaysShow` for rarer, important events like a task assignment.
+ * Pass `url` to navigate to a specific page when the notification is clicked. */
+export function showMessageNotification(title: string, body: string, alwaysShow = false, url?: string) {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return
     if (!alwaysShow && !document.hidden) return
-    const n = new Notification(title, { body, tag: 'task-chat', icon: '/icon-192.png' })
+    const n = new Notification(title, { body, tag: url ?? 'task-chat', icon: '/icon-192.png' })
     n.onclick = () => {
       window.focus()
+      if (url) window.location.href = url
       n.close()
     }
   } catch {

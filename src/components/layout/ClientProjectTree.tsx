@@ -22,6 +22,15 @@ async function persistProjectOrder(clientId: string, orderedIds: string[]) {
   await batch.commit()
 }
 
+/** Persist the client list order after a drag. Owner-only. */
+async function persistClientOrder(orderedIds: string[]) {
+  const batch = writeBatch(db)
+  orderedIds.forEach((clientId, i) => {
+    batch.update(doc(db, 'clients', clientId), { orderIndex: i })
+  })
+  await batch.commit()
+}
+
 function GripIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
@@ -142,8 +151,27 @@ export function ClientProjectTree({
     null
   )
 
+  // Project drag state
   const [drag, setDrag] = useState<{ clientId: string; projectId: string } | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  // Client drag state (owner-only)
+  const [dragClientId, setDragClientId] = useState<string | null>(null)
+  const [overClientId, setOverClientId] = useState<string | null>(null)
+
+  async function dropOnClient(allClients: ClientWithProjects[], targetId: string) {
+    const d = dragClientId
+    setDragClientId(null)
+    setOverClientId(null)
+    if (!d || d === targetId) return
+    const ids = allClients.map((c) => c.id)
+    ids.splice(ids.indexOf(d), 1)
+    ids.splice(ids.indexOf(targetId), 0, d)
+    try {
+      await persistClientOrder(ids)
+    } catch {
+      /* onSnapshot will restore the old order */
+    }
+  }
 
   async function dropOnProject(client: ClientWithProjects, targetId: string) {
     const d = drag
@@ -163,7 +191,7 @@ export function ClientProjectTree({
   function toggle(clientId: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
-      next.has(clientId) ? next.delete(clientId) : next.add(clientId)
+      if (next.has(clientId)) { next.delete(clientId) } else { next.add(clientId) }
       return next
     })
   }
@@ -193,9 +221,39 @@ export function ClientProjectTree({
         {clients.map((client) => {
           const isExpanded = expanded.has(client.id)
           const canManage = canManageClient(client.id)
+          const clientDropHere = overClientId === client.id && dragClientId !== client.id
           return (
-            <div key={client.id} className="flex flex-col gap-0.5">
+            <div
+              key={client.id}
+              className={`flex flex-col gap-0.5 ${clientDropHere ? 'border-t-2 border-t-accent' : ''} ${dragClientId === client.id ? 'opacity-40' : ''}`}
+              draggable={canAddClient}
+              onDragStart={(e) => {
+                e.stopPropagation()
+                setDragClientId(client.id)
+              }}
+              onDragEnter={(e) => {
+                e.stopPropagation()
+                if (dragClientId && dragClientId !== client.id) setOverClientId(client.id)
+              }}
+              onDragOver={(e) => {
+                if (dragClientId) e.preventDefault()
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                void dropOnClient(clients, client.id)
+              }}
+              onDragEnd={() => {
+                setDragClientId(null)
+                setOverClientId(null)
+              }}
+            >
               <div className="group flex items-center rounded-md hover:bg-field">
+                {canAddClient && (
+                  <span className="-mr-1 cursor-grab pl-1 text-text-faint opacity-0 group-hover:opacity-100 active:cursor-grabbing">
+                    <GripIcon />
+                  </span>
+                )}
                 <button
                   onClick={() => toggle(client.id)}
                   className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 px-2 py-1.5 text-left"
