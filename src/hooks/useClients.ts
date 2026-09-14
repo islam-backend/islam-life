@@ -1,4 +1,4 @@
-import { collection, onSnapshot, orderBy, query, type Unsubscribe } from 'firebase/firestore'
+import { collection, onSnapshot, query, type Unsubscribe } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 
 import { db } from '../lib/firebase/app'
@@ -36,9 +36,15 @@ export function useClients(enabled = true) {
     let latestClientDocs: { id: string; data: Client }[] = []
 
     const unsubClients = onSnapshot(
-      query(collection(db, 'clients'), orderBy('name')),
+      query(collection(db, 'clients')),
       (snap) => {
-        latestClientDocs = snap.docs.map((d) => ({ id: d.id, data: d.data() as Client }))
+        latestClientDocs = snap.docs
+          .map((d) => ({ id: d.id, data: d.data() as Client }))
+          .sort(
+            (a, b) =>
+              (a.data.orderIndex ?? 1e9) - (b.data.orderIndex ?? 1e9) ||
+              a.data.name.localeCompare(b.data.name)
+          )
         setLoading(false)
 
         const currentIds = new Set(latestClientDocs.map((c) => c.id))
