@@ -1,5 +1,5 @@
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 
 const db = getFirestore();
@@ -24,6 +24,17 @@ exports.notifyTaskAssigned = onDocumentWritten(
       const memberRef  = db.collection('members').doc(uid);
       const memberSnap = await memberRef.get();
       if (!memberSnap.exists) return;
+
+      // Always write an in-app notification regardless of FCM token
+      await memberRef.collection('notifications').add({
+        taskId:    event.params.taskId,
+        projectId: event.params.projectId,
+        clientId:  event.params.clientId,
+        taskTitle: taskTitle,
+        type:      'assigned',
+        read:      false,
+        createdAt: FieldValue.serverTimestamp(),
+      });
 
       const token = memberSnap.data().fcmToken;
       if (!token) return; // member hasn't opened the app yet / denied permission

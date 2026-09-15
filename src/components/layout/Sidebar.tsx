@@ -9,6 +9,7 @@ import { ensureNotificationPermission, primeAudio } from '../../lib/notify'
 import { canManageClient, isManagerRole, isOwnerRole } from '../../utils/role'
 import { AdminNav } from './AdminNav'
 import { ClientProjectTree } from './ClientProjectTree'
+import { NotificationBell } from './NotificationBell'
 
 function ListIcon() {
   return (
@@ -163,6 +164,7 @@ export function Sidebar() {
           {member.displayName || member.email} &middot;{' '}
           {isOwner ? 'Owner' : isManager ? 'Manager' : 'Member'}
         </span>
+        <NotificationBell />
         <button
           onClick={signOut}
           title="Sign out"

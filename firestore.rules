@@ -190,6 +190,15 @@ service cloud.firestore {
       }
     }
 
+    // ── In-app notifications — self-read, self-mark-as-read ─────────
+    // Written by the Cloud Function (admin SDK bypasses rules).
+    // Client can read and update `read` field only — never create/delete.
+    match /members/{uid}/notifications/{notifId} {
+      allow read:   if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+
     // ── Focus sessions — self-only, owner can see everyone's ───────
     match /focusSessions/{sessionId} {
       allow read:   if isOwner() || (isMember() && resource.data.uid == request.auth.uid);
