@@ -5,6 +5,7 @@ import { Button } from '../ui/Button'
 import { FormField } from '../ui/FormField'
 import { Modal } from '../ui/Modal'
 import { Select } from '../ui/Select'
+import { logActivity } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import type { ClientWithProjects } from '../../hooks/useClients'
 import type { AssignedProject, Member, MemberRole } from '../../types/member'
@@ -46,6 +47,19 @@ export function EditMemberAccessModal({
         assignedProjects: projects,
         updatedAt: serverTimestamp(),
       })
+    }
+    const name = member.displayName || member.email
+    const recipients = [member.uid]
+    if (effectiveRole !== member.role) {
+      void logActivity([{ type: 'member.role', memberUid: member.uid, targetName: name, from: member.role, to: effectiveRole, recipients }])
+    }
+    const ids = (list: { projectId: string }[] = []) => list.map((p) => p.projectId).sort().join(',')
+    const accessChanged = canChangeRole
+      ? ids(effectiveRole === 'member' ? projects : []) !== ids(member.assignedProjects) ||
+        [...(effectiveRole === 'manager' ? managedClientIds : [])].sort().join(',') !== [...(member.managedClientIds ?? [])].sort().join(',')
+      : ids(projects) !== ids(member.assignedProjects)
+    if (accessChanged) {
+      void logActivity([{ type: 'member.access', memberUid: member.uid, targetName: name, recipients }])
     }
     setSaving(false)
     onClose()

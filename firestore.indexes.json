@@ -7,6 +7,14 @@
         { "fieldPath": "assigneeUids", "arrayConfig": "CONTAINS" },
         { "fieldPath": "orderIndex", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "auditLog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clientId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

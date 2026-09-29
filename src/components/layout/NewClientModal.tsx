@@ -1,6 +1,7 @@
 import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { type ChangeEvent, type FormEvent, useRef, useState } from 'react'
 
+import { logActivity } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import { renameClient } from '../../lib/firebase/cascadeDelete'
 import { fileToAvatarImage } from '../../lib/image'
@@ -49,18 +50,24 @@ export function NewClientModal({
     if (!trimmed) return
     setSaving(true)
     if (editingClient) {
-      if (trimmed !== editingClient.name) await renameClient(editingClient.id, trimmed)
+      if (trimmed !== editingClient.name) {
+        await renameClient(editingClient.id, trimmed)
+        void logActivity([
+          { type: 'client.renamed', clientId: editingClient.id, clientName: trimmed, from: editingClient.name, to: trimmed },
+        ])
+      }
       await updateDoc(doc(db, 'clients', editingClient.id), {
         avatarUrl: avatarUrl ?? null,
         updatedAt: serverTimestamp(),
       })
     } else {
-      await addDoc(collection(db, 'clients'), {
+      const ref = await addDoc(collection(db, 'clients'), {
         name: trimmed,
         archived: false,
         ...(avatarUrl ? { avatarUrl } : {}),
         createdAt: serverTimestamp(),
       })
+      void logActivity([{ type: 'client.created', clientId: ref.id, clientName: trimmed }])
     }
     setSaving(false)
     setName('')

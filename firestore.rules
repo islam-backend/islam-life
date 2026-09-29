@@ -191,12 +191,34 @@ service cloud.firestore {
     }
 
     // ── In-app notifications — self-read, self-mark-as-read ─────────
-    // Written by the Cloud Function (admin SDK bypasses rules).
-    // Client can read and update `read` field only — never create/delete.
+    // Created by the app (lib/activityLog.ts) for OTHER people when you act:
+    // always in your own name, unread, never to yourself. The recipient can
+    // only flip `read` — nobody can edit or delete one.
     match /members/{uid}/notifications/{notifId} {
       allow read:   if isSignedIn() && request.auth.uid == uid;
+      allow create: if isMember()
+          && uid != request.auth.uid
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.read == false
+          && request.resource.data.createdAt == request.time;
       allow update: if isSignedIn() && request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+
+    // ── Audit log — appended by the app with each action (lib/activityLog.ts).
+    // Every entry is pinned to its real author (actorUid == you) and a
+    // server timestamp; nobody can edit or delete one afterwards.
+    // Owner reads everything; a manager reads only entries for clients they
+    // manage. The manager branch backs a list query
+    // (where clientId == X, one per managed client), so it's written inline —
+    // no helper function (see the collection-group tasks rule for why).
+    match /auditLog/{entryId} {
+      allow read: if isOwner()
+          || (isManager() && resource.data.clientId in memberDoc().data.managedClientIds);
+      allow create: if isMember()
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
     }
 
     // ── Focus sessions — self-only, owner can see everyone's ───────

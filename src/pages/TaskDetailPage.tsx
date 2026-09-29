@@ -1,12 +1,12 @@
-import { serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { AssigneePicker } from '../components/tasks/AssigneePicker'
 import { PriorityControl } from '../components/tasks/PriorityControl'
 import { StatusSegmentedControl } from '../components/tasks/StatusSegmentedControl'
 import { TagsField } from '../components/tasks/TagsField'
 import { TaskAttachments } from '../components/tasks/TaskAttachments'
+import { TaskCompletionProof } from '../components/tasks/TaskCompletionProof'
 import { TopBar } from '../components/layout/TopBar'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -14,11 +14,12 @@ import { useAuth } from '../hooks/useAuth'
 import { useMembers } from '../hooks/useMembers'
 import { useTaskDetail } from '../hooks/useTaskDetail'
 import { TaskChat } from '../components/tasks/TaskChat'
+import { logActivity, taskChangeEntries, updateTaskLogged } from '../lib/activityLog'
 import { deleteTaskCascade } from '../lib/firebase/cascadeDelete'
-import { taskDocRef } from '../lib/firebase/refs'
-import type { TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
+import type { Task, TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
 import { assigneeFields } from '../utils/assignees'
 import { canManageClient } from '../utils/role'
+import { readOrigin } from '../utils/taskOrigin'
 
 function toDateInputValue(dueDate: unknown): string {
   const d = (dueDate as { toDate?: () => Date } | null)?.toDate?.()
@@ -38,6 +39,8 @@ function formatStamp(ts: unknown): string {
 export function TaskDetailPage() {
   const { clientId = '', projectId = '', taskId = '' } = useParams()
   const navigate = useNavigate()
+  // Set by whichever list linked here (My Tasks, All Assignments, …).
+  const origin = readOrigin(useLocation().state)
   const { member } = useAuth()
   const { members } = useMembers()
   const { task, loading } = useTaskDetail(clientId, projectId, taskId)
@@ -60,7 +63,6 @@ export function TaskDetailPage() {
   // (see firestore.rules) but not reassign, rewrite the description, or
   // change the due date.
   const canManage = canManageClient(member, clientId)
-  const taskRef = taskDocRef(clientId, projectId, taskId)
 
   const assignedToMe = !!member && (task?.assigneeUids ?? []).includes(member.uid)
   const canEdit = canManage || assignedToMe
@@ -79,37 +81,54 @@ export function TaskDetailPage() {
     }
   }
 
+  // Every edit goes through updateTaskLogged so it lands in the audit log
+  // and notifies the people on the task.
+  async function update(patch: Partial<Task>) {
+    if (task) await updateTaskLogged(task, patch)
+  }
+
   async function setStatus(status: TaskStatus) {
-    await updateDoc(taskRef, { status, updatedAt: serverTimestamp() })
+    await update({ status })
   }
 
   async function setAssignees(assignees: TaskAssignee[]) {
-    await updateDoc(taskRef, { ...assigneeFields(assignees), updatedAt: serverTimestamp() })
+    await update(assigneeFields(assignees))
   }
 
   async function setDueDate(value: string) {
-    await updateDoc(taskRef, { dueDate: value ? new Date(value) : null, updatedAt: serverTimestamp() })
+    await update({ dueDate: value ? new Date(value) : null })
   }
 
   async function setStartDate(value: string) {
-    await updateDoc(taskRef, { startDate: value ? new Date(value) : null, updatedAt: serverTimestamp() })
+    await update({ startDate: value ? new Date(value) : null })
   }
 
   async function setPriority(priority: TaskPriority | null) {
-    await updateDoc(taskRef, { priority, updatedAt: serverTimestamp() })
+    await update({ priority })
   }
 
   async function setTags(tags: string[]) {
-    await updateDoc(taskRef, { tags, updatedAt: serverTimestamp() })
+    await update({ tags })
+  }
+
+  async function saveTitle(input: HTMLInputElement) {
+    const title = input.value.trim()
+    // An empty title isn't allowed — snap back to the current one.
+    if (!title || title === task?.title) {
+      input.value = task?.title ?? ''
+      return
+    }
+    await update({ title })
   }
 
   async function saveDescription() {
-    if (description === null) return
-    await updateDoc(taskRef, { description, updatedAt: serverTimestamp() })
+    if (description === null || description === task?.description) return
+    await update({ description })
   }
 
   async function handleDelete() {
     await deleteTaskCascade(clientId, projectId, taskId)
+    if (task) void logActivity(taskChangeEntries(task, null))
     close()
   }
 
@@ -132,8 +151,10 @@ export function TaskDetailPage() {
     <>
       <TopBar
         crumbs={[
+          ...(origin ? [origin] : []),
           { label: task.clientName },
           { label: task.projectName, to: `/clients/${clientId}/projects/${projectId}` },
+          { label: task.title },
         ]}
         actions={
           <button
@@ -155,7 +176,26 @@ export function TaskDetailPage() {
       />
 
       <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-7 overflow-y-auto p-8">
-        <h1 dir="auto" className="text-2xl font-bold text-text">{task.title}</h1>
+        {canManage ? (
+          <input
+            // Remount on a remote rename so the field picks up the new title.
+            key={task.title}
+            dir="auto"
+            defaultValue={task.title}
+            onBlur={(e) => saveTitle(e.currentTarget)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                e.currentTarget.value = task.title
+                e.currentTarget.blur()
+              }
+            }}
+            aria-label="Task title"
+            className="-mx-2 rounded-lg bg-transparent px-2 py-1 text-2xl font-bold text-text outline-none hover:bg-field/60 focus:bg-field focus:ring-1 focus:ring-accent"
+          />
+        ) : (
+          <h1 dir="auto" className="text-2xl font-bold text-text">{task.title}</h1>
+        )}
 
         <div className="grid grid-cols-[120px_1fr] items-center gap-y-4">
           <span className="self-start pt-1.5 text-[12.5px] font-medium text-text-faint">Assignees</span>
@@ -212,7 +252,20 @@ export function TaskDetailPage() {
 
         <div className="h-px bg-border" />
 
+        <TaskCompletionProof
+          task={task}
+          clientId={clientId}
+          projectId={projectId}
+          taskId={taskId}
+          isDone={task.status === 'done'}
+          canEdit={canEdit}
+          canDelete={canManage}
+        />
+
+        <div className="h-px bg-border" />
+
         <TaskAttachments
+          task={task}
           clientId={clientId}
           projectId={projectId}
           taskId={taskId}
@@ -223,7 +276,7 @@ export function TaskDetailPage() {
         <div className="h-px bg-border" />
 
         <div ref={chatRef} id="chat">
-          <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} />
+          <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} task={task} />
         </div>
 
         {canManage && (

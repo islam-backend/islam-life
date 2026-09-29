@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
-import { DEFAULT_TASK_FILTERS, FilterBar, type TaskFilters } from '../components/layout/FilterBar'
+import { FilterBar } from '../components/layout/FilterBar'
 import { TopBar } from '../components/layout/TopBar'
 import { Button } from '../components/ui/Button'
 import { NewTaskModal } from '../components/tasks/NewTaskModal'
@@ -9,6 +9,7 @@ import { TaskTable } from '../components/tasks/TaskTable'
 import { useAuth } from '../hooks/useAuth'
 import { useClientProject } from '../hooks/useClientProject'
 import { useMembers } from '../hooks/useMembers'
+import { usePersistedFilters } from '../hooks/usePersistedFilters'
 import { useProjectTasks } from '../hooks/useProjectTasks'
 import {
   matchesAssigneeFilter,
@@ -39,14 +40,8 @@ export function ProjectTasksPage() {
   const { tasks } = useProjectTasks(clientId, projectId, member, canManage)
   const [showNewTask, setShowNewTask] = useState(false)
 
-  const [filters, setFilters] = useState<TaskFilters>(DEFAULT_TASK_FILTERS)
-
-  // React Router keeps this page mounted when you switch projects, so
-  // filters set on one project would silently carry over and hide
-  // everything on the next. Reset them whenever the project changes.
-  useEffect(() => {
-    setFilters(DEFAULT_TASK_FILTERS)
-  }, [clientId, projectId])
+  // Kept per project, and across opening a task and coming back.
+  const [filters, setFilters] = usePersistedFilters(`task-filters:${clientId}/${projectId}`)
 
   const allTags = useMemo(
     () => Array.from(new Set(tasks.flatMap((t) => t.tags ?? []))).sort(),
@@ -99,7 +94,12 @@ export function ProjectTasksPage() {
         showAssignee={canManage}
         allTags={allTags}
       />
-      <TaskTable tasks={filteredTasks} members={members} />
+      <TaskTable
+        key={`${clientId}/${projectId}`}
+        tasks={filteredTasks}
+        members={members}
+        exportHeading={`${clientProject.clientName} — ${clientProject.projectName}`}
+      />
 
       {canManage && (
         <NewTaskModal

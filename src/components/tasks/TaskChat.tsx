@@ -4,10 +4,12 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState 
 import { useAuth } from '../../hooks/useAuth'
 import { useMembers } from '../../hooks/useMembers'
 import { useTaskComments } from '../../hooks/useTaskComments'
+import { logActivity, taskBase, taskWatchers } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import { fileToDataUrl, isTextFile, fileToText } from '../../lib/files'
 import { fileToChatImage } from '../../lib/image'
 import { primeAudio } from '../../lib/notify'
+import type { Task } from '../../types/task'
 import { canManageClient } from '../../utils/role'
 import { Avatar } from '../ui/Avatar'
 import { MentionTextInput, nameOf } from './MentionTextInput'
@@ -141,10 +143,13 @@ export function TaskChat({
   clientId,
   projectId,
   taskId,
+  task,
 }: {
   clientId: string
   projectId: string
   taskId: string
+  /** For the activity log / notifications. */
+  task?: Task
 }) {
   const { user, member } = useAuth()
   const { members } = useMembers()
@@ -227,7 +232,7 @@ export function TaskChat({
     mentions?: string[]
   }) {
     if (!user) return
-    await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'comments'), {
+    const ref = await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'comments'), {
       authorUid: user.uid,
       authorEmail: member?.email || user.email || '',
       authorName,
@@ -240,6 +245,20 @@ export function TaskChat({
       ...(fields.mentions?.length ? { mentions: fields.mentions } : {}),
       createdAt: serverTimestamp(),
     })
+    if (task) {
+      const text = fields.text.trim()
+      void logActivity([
+        {
+          ...taskBase(task),
+          type: 'comment.created',
+          kind: fields.audioUrl ? 'voice' : fields.imageUrl ? 'image' : fields.fileUrl ? 'file' : 'text',
+          detail: (text.length > 140 ? `${text.slice(0, 140)}…` : text) || fields.fileName || '',
+          commentId: ref.id,
+          recipients: taskWatchers(task),
+          mentioned: fields.mentions ?? [],
+        },
+      ])
+    }
   }
 
   async function handleSend(e: FormEvent) {

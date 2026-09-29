@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
-import { useNotifications } from '../../hooks/useNotifications'
+import { type AppNotification, useNotifications } from '../../hooks/useNotifications'
+import { activityLink, describeActivity, millisOf, relativeTimeAr } from '../../utils/activity'
 
 function BellIcon() {
   return (
@@ -17,20 +18,8 @@ function BellIcon() {
   )
 }
 
-function relativeTime(createdAt: { toMillis?: () => number } | null): string {
-  if (!createdAt?.toMillis) return ''
-  const diff = Date.now() - createdAt.toMillis()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'الآن'
-  if (mins < 60) return `منذ ${mins} د`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `منذ ${hrs} س`
-  const days = Math.floor(hrs / 24)
-  return `منذ ${days} ي`
-}
-
 export function NotificationBell() {
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications(20)
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -47,10 +36,11 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
-  async function handleClick(notifId: string, clientId: string, projectId: string, taskId: string) {
-    await markRead(notifId)
+  async function handleClick(n: AppNotification) {
+    if (!n.read) await markRead(n.id)
     setOpen(false)
-    navigate(`/clients/${clientId}/projects/${projectId}/tasks/${taskId}`)
+    const to = activityLink(n)
+    if (to) navigate(to)
   }
 
   return (
@@ -69,15 +59,15 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+        <div
+          dir="rtl"
+          className="absolute bottom-full left-0 z-50 mb-2 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+        >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-[12px] font-semibold text-text">الإشعارات</span>
             {unreadCount > 0 && (
-              <button
-                onClick={markAllRead}
-                className="text-[11px] text-text-muted hover:text-accent"
-              >
+              <button onClick={markAllRead} className="text-[11px] text-text-muted hover:text-accent">
                 تحديد الكل كمقروء
               </button>
             )}
@@ -88,29 +78,37 @@ export function NotificationBell() {
             {notifications.length === 0 ? (
               <p className="px-3 py-5 text-center text-[12px] text-text-faint">لا توجد إشعارات</p>
             ) : (
-              notifications.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => handleClick(n.id, n.clientId, n.projectId, n.taskId)}
-                  className={`flex w-full flex-col gap-0.5 px-3 py-2.5 text-right hover:bg-field ${
-                    n.read ? 'opacity-60' : ''
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    {!n.read && (
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                    )}
-                    <span className={`flex-1 text-[12px] leading-snug ${n.read ? 'text-text-muted' : 'font-medium text-text'}`}>
-                      {n.taskTitle}
+              notifications.map((n) => {
+                const { icon, text } = describeActivity(n, true)
+                return (
+                  <button
+                    key={n.id}
+                    onClick={() => handleClick(n)}
+                    className={`flex w-full items-start gap-2 px-3 py-2.5 text-right hover:bg-field ${
+                      n.read ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <span className="text-[13px] leading-5">{icon}</span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className={`text-[12px] leading-snug ${n.read ? 'text-text-muted' : 'font-medium text-text'}`}>
+                        {text}
+                      </span>
+                      <span className="text-[10.5px] text-text-faint">{relativeTimeAr(millisOf(n))}</span>
                     </span>
-                  </div>
-                  <span className="pl-3.5 text-[10.5px] text-text-faint">
-                    📋 تم تعيينك · {relativeTime(n.createdAt)}
-                  </span>
-                </button>
-              ))
+                    {!n.read && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+                  </button>
+                )
+              })
             )}
           </div>
+
+          <Link
+            to="/notifications"
+            onClick={() => setOpen(false)}
+            className="block border-t border-border px-3 py-2 text-center text-[12px] font-medium text-accent hover:bg-field"
+          >
+            عرض كل الإشعارات
+          </Link>
         </div>
       )}
     </div>

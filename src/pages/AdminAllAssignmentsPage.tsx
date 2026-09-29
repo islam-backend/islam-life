@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { AssignmentsTable } from '../components/admin/AssignmentsTable'
-import { DEFAULT_TASK_FILTERS, FilterBar, type TaskFilters } from '../components/layout/FilterBar'
+import { FilterBar } from '../components/layout/FilterBar'
 import { TopBar } from '../components/layout/TopBar'
 import { useAllTasks } from '../hooks/useAllTasks'
 import { useAuth } from '../hooks/useAuth'
 import { useMembers } from '../hooks/useMembers'
+import { usePersistedFilters } from '../hooks/usePersistedFilters'
 import { isOwnerRole } from '../utils/role'
 import {
   matchesAssigneeFilter,
@@ -23,7 +24,7 @@ export function AdminAllAssignmentsPage() {
   // Owner: every task. Manager: every task in the clients they manage.
   const { tasks } = useAllTasks(isOwner || managedClientIds.length > 0, isOwner ? undefined : managedClientIds)
   const { members } = useMembers()
-  const [filters, setFilters] = useState<TaskFilters>(DEFAULT_TASK_FILTERS)
+  const [filters, setFilters] = usePersistedFilters('task-filters:admin-assignments')
 
   const allTags = useMemo(
     () => Array.from(new Set(tasks.flatMap((t) => t.tags ?? []))).sort(),
