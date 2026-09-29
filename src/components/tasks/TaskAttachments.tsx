@@ -75,7 +75,9 @@ export function TaskAttachments({
   canDelete: boolean
 }) {
   const { user, member } = useAuth()
-  const { attachments, loading } = useTaskAttachments(clientId, projectId, taskId)
+  const { attachments: all, loading } = useTaskAttachments(clientId, projectId, taskId)
+  // Proof-of-done screenshots live in their own section (TaskCompletionProof).
+  const attachments = all.filter((a) => a.kind !== 'proof')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)

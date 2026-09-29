@@ -199,6 +199,17 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
     }
 
+    // ── Audit log — written only by Cloud Functions (functions/activity.js).
+    // Owner reads everything; a manager reads only entries for clients they
+    // manage. The manager branch backs a list query
+    // (where clientId == X, one per managed client), so it's written inline —
+    // no helper function (see the collection-group tasks rule for why).
+    match /auditLog/{entryId} {
+      allow read: if isOwner()
+          || (isManager() && resource.data.clientId in memberDoc().data.managedClientIds);
+      allow write: if false;
+    }
+
     // ── Focus sessions — self-only, owner can see everyone's ───────
     match /focusSessions/{sessionId} {
       allow read:   if isOwner() || (isMember() && resource.data.uid == request.auth.uid);

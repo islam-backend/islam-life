@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 import type { Member } from '../../types/member'
 import type { Task } from '../../types/task'
+import type { TaskOrigin } from '../../utils/taskOrigin'
 import { Avatar } from '../ui/Avatar'
 import { StatusPill } from '../ui/StatusPill'
 import { PriorityPill } from './PriorityPill'
@@ -28,7 +29,18 @@ function formatDue(dueDate: unknown): { label: string; overdue: boolean } {
   return { label: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), overdue }
 }
 
-export function TaskRow({ task, to, members = [] }: { task: Task; to: string; members?: Member[] }) {
+export function TaskRow({
+  task,
+  to,
+  members = [],
+  from,
+}: {
+  task: Task
+  to: string
+  members?: Member[]
+  /** Shown as the first breadcrumb on the task page. */
+  from?: TaskOrigin
+}) {
   const due = formatDue(task.dueDate)
 
   // The person's Google photo lives on their live member doc, not on the
@@ -38,6 +50,7 @@ export function TaskRow({ task, to, members = [] }: { task: Task; to: string; me
   return (
     <Link
       to={to}
+      state={from ? { from } : undefined}
       className={`grid ${TASK_GRID} items-center gap-3 rounded-lg border border-border bg-surface px-5 py-3.5 transition-colors hover:bg-field`}
     >
       <span className="flex min-w-0 flex-col gap-1 pr-4">

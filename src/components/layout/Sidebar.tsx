@@ -5,6 +5,7 @@ import { Avatar } from '../ui/Avatar'
 import { useAuth } from '../../hooks/useAuth'
 import { useClients, type ClientWithProjects } from '../../hooks/useClients'
 import { useMyProjects } from '../../hooks/useMyProjects'
+import { useNotifications } from '../../hooks/useNotifications'
 import { ensureNotificationPermission, primeAudio } from '../../lib/notify'
 import { canManageClient, isManagerRole, isOwnerRole } from '../../utils/role'
 import { AdminNav } from './AdminNav'
@@ -24,6 +25,19 @@ function CalendarIcon() {
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
       <rect x="2.5" y="3" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
       <path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function InboxIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M2.5 9.5 4 3.5h8l1.5 6M2.5 9.5v3h11v-3M2.5 9.5h3.25a2.25 2.25 0 0 0 4.5 0h3.25"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -64,6 +78,7 @@ function SignOutIcon() {
 
 export function Sidebar() {
   const { user, member, signOut } = useAuth()
+  const { unreadCount } = useNotifications(50)
   const isOwner = isOwnerRole(member?.role)
   const isManager = isManagerRole(member?.role)
   const isAdmin = isOwner || isManager
@@ -127,6 +142,24 @@ export function Sidebar() {
         >
           <CalendarIcon />
           Calendar
+        </NavLink>
+        <NavLink
+          to="/notifications"
+          className={({ isActive }) =>
+            `mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+              isActive
+                ? '-ml-[2.5px] border-l-[2.5px] border-accent bg-accent-tint font-semibold text-text'
+                : 'text-text-muted'
+            }`
+          }
+        >
+          <InboxIcon />
+          <span className="flex-1">Notifications</span>
+          {unreadCount > 0 && (
+            <span className="rounded-full bg-accent px-1.5 text-[10.5px] font-bold leading-[16px] text-white">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
         </NavLink>
         {!isOwner && (
           <NavLink

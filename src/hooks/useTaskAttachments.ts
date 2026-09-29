@@ -12,6 +12,8 @@ export interface TaskAttachment {
   /** Raw text content — set for text/MD/JSON etc. */
   textContent?: string
   fileSize: number
+  /** 'proof' = a screenshot showing the task is done (see TaskCompletionProof) */
+  kind?: 'proof'
   createdAt?: unknown
   createdBy?: string
   createdByName?: string

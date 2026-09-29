@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -10,38 +11,42 @@ import {
 import { useEffect, useState } from 'react'
 
 import { db } from '../lib/firebase/app'
+import type { ActivityEntry } from '../utils/activity'
 import { useAuth } from './useAuth'
 
-export interface AppNotification {
-  id: string
-  taskId: string
-  clientId: string
-  projectId: string
-  taskTitle: string
-  type: 'assigned'
+export interface AppNotification extends ActivityEntry {
   read: boolean
-  createdAt: { toMillis?: () => number } | null
 }
 
-export function useNotifications() {
+/** My notifications, newest first. `max` grows via loadMore() on the full page. */
+export function useNotifications(initialMax = 50) {
   const { user } = useAuth()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [max, setMax] = useState(initialMax)
 
   useEffect(() => {
     if (!user?.uid) return
     const q = query(
       collection(db, 'members', user.uid, 'notifications'),
       orderBy('createdAt', 'desc'),
+      limit(max),
     )
-    const unsub = onSnapshot(q, (snap) => {
-      setNotifications(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AppNotification, 'id'>) })),
-      )
-    })
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setNotifications(
+          snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AppNotification, 'id'>) })),
+        )
+        setLoading(false)
+      },
+      () => setLoading(false),
+    )
     return unsub
-  }, [user?.uid])
+  }, [user?.uid, max])
 
   const unreadCount = notifications.filter((n) => !n.read).length
+  const hasMore = notifications.length >= max
 
   async function markRead(notifId: string) {
     if (!user?.uid) return
@@ -59,5 +64,13 @@ export function useNotifications() {
     await batch.commit()
   }
 
-  return { notifications, unreadCount, markRead, markAllRead }
+  return {
+    notifications,
+    loading,
+    unreadCount,
+    hasMore,
+    loadMore: () => setMax((m) => m + initialMax),
+    markRead,
+    markAllRead,
+  }
 }

@@ -85,6 +85,7 @@ export function MyTasksPage() {
                   task={t}
                   to={`/clients/${t.clientId}/projects/${t.projectId}/tasks/${t.id}`}
                   members={members}
+                  from={{ label: 'My Tasks', to: '/my-tasks' }}
                 />
               ))}
             </section>

@@ -12,6 +12,7 @@ import { useCalendarTasks } from '../hooks/useCalendarTasks'
 import { useClientMeta } from '../hooks/useClientMeta'
 import { taskDocRef } from '../lib/firebase/refs'
 import { isManagerRole, isOwnerRole } from '../utils/role'
+import { originState } from '../utils/taskOrigin'
 
 function monthLabel(d: Date) {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
@@ -154,6 +155,7 @@ export function CalendarPage() {
                       >
                         <Link
                           to={`/clients/${t.clientId}/projects/${t.projectId}/tasks/${t.id}`}
+                          state={originState('Calendar', '/calendar')}
                           className="min-w-0 flex-1 truncate text-[12.5px] text-text hover:text-accent"
                         >
                           {t.title}

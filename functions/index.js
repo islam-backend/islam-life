@@ -10,3 +10,13 @@ initializeApp();
 // — no Cloud Function / Identity Platform needed for that anymore.
 exports.notifyTaskAssigned    = require('./notifications').notifyTaskAssigned;
 exports.aggregateFocusSession = require('./aggregation').aggregateFocusSession;
+
+// Audit log + per-member notifications for everything else that happens.
+const activity = require('./activity');
+exports.logTaskActivity       = activity.logTaskActivity;
+exports.logCommentActivity    = activity.logCommentActivity;
+exports.logAttachmentActivity = activity.logAttachmentActivity;
+exports.logClientActivity     = activity.logClientActivity;
+exports.logProjectActivity    = activity.logProjectActivity;
+exports.logMemberActivity     = activity.logMemberActivity;
+exports.logInviteActivity     = activity.logInviteActivity;

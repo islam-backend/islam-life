@@ -1,12 +1,13 @@
 import { serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { AssigneePicker } from '../components/tasks/AssigneePicker'
 import { PriorityControl } from '../components/tasks/PriorityControl'
 import { StatusSegmentedControl } from '../components/tasks/StatusSegmentedControl'
 import { TagsField } from '../components/tasks/TagsField'
 import { TaskAttachments } from '../components/tasks/TaskAttachments'
+import { TaskCompletionProof } from '../components/tasks/TaskCompletionProof'
 import { TopBar } from '../components/layout/TopBar'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -19,6 +20,7 @@ import { taskDocRef } from '../lib/firebase/refs'
 import type { TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
 import { assigneeFields } from '../utils/assignees'
 import { canManageClient } from '../utils/role'
+import { readOrigin } from '../utils/taskOrigin'
 
 function toDateInputValue(dueDate: unknown): string {
   const d = (dueDate as { toDate?: () => Date } | null)?.toDate?.()
@@ -38,6 +40,8 @@ function formatStamp(ts: unknown): string {
 export function TaskDetailPage() {
   const { clientId = '', projectId = '', taskId = '' } = useParams()
   const navigate = useNavigate()
+  // Set by whichever list linked here (My Tasks, All Assignments, …).
+  const origin = readOrigin(useLocation().state)
   const { member } = useAuth()
   const { members } = useMembers()
   const { task, loading } = useTaskDetail(clientId, projectId, taskId)
@@ -103,6 +107,16 @@ export function TaskDetailPage() {
     await updateDoc(taskRef, { tags, updatedAt: serverTimestamp() })
   }
 
+  async function saveTitle(input: HTMLInputElement) {
+    const title = input.value.trim()
+    // An empty title isn't allowed — snap back to the current one.
+    if (!title || title === task?.title) {
+      input.value = task?.title ?? ''
+      return
+    }
+    await updateDoc(taskRef, { title, updatedAt: serverTimestamp() })
+  }
+
   async function saveDescription() {
     if (description === null) return
     await updateDoc(taskRef, { description, updatedAt: serverTimestamp() })
@@ -132,8 +146,10 @@ export function TaskDetailPage() {
     <>
       <TopBar
         crumbs={[
+          ...(origin ? [origin] : []),
           { label: task.clientName },
           { label: task.projectName, to: `/clients/${clientId}/projects/${projectId}` },
+          { label: task.title },
         ]}
         actions={
           <button
@@ -155,7 +171,26 @@ export function TaskDetailPage() {
       />
 
       <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-7 overflow-y-auto p-8">
-        <h1 dir="auto" className="text-2xl font-bold text-text">{task.title}</h1>
+        {canManage ? (
+          <input
+            // Remount on a remote rename so the field picks up the new title.
+            key={task.title}
+            dir="auto"
+            defaultValue={task.title}
+            onBlur={(e) => saveTitle(e.currentTarget)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                e.currentTarget.value = task.title
+                e.currentTarget.blur()
+              }
+            }}
+            aria-label="Task title"
+            className="-mx-2 rounded-lg bg-transparent px-2 py-1 text-2xl font-bold text-text outline-none hover:bg-field/60 focus:bg-field focus:ring-1 focus:ring-accent"
+          />
+        ) : (
+          <h1 dir="auto" className="text-2xl font-bold text-text">{task.title}</h1>
+        )}
 
         <div className="grid grid-cols-[120px_1fr] items-center gap-y-4">
           <span className="self-start pt-1.5 text-[12.5px] font-medium text-text-faint">Assignees</span>
@@ -209,6 +244,17 @@ export function TaskDetailPage() {
             className="resize-none rounded-lg border border-border bg-field px-4 py-3 text-[13.5px] leading-relaxed text-text-muted outline-none placeholder:text-text-faint focus:ring-1 focus:ring-accent disabled:opacity-70"
           />
         </div>
+
+        <div className="h-px bg-border" />
+
+        <TaskCompletionProof
+          clientId={clientId}
+          projectId={projectId}
+          taskId={taskId}
+          isDone={task.status === 'done'}
+          canEdit={canEdit}
+          canDelete={canManage}
+        />
 
         <div className="h-px bg-border" />
 

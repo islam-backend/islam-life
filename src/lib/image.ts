@@ -8,6 +8,12 @@ export function fileToChatImage(file: File): Promise<string> {
   return resizeToDataUrl(file, 1280, 900_000)
 }
 
+/** "Proof of done" screenshot — a bit larger than chat so on-screen text
+ * stays readable, same Firestore-safe byte cap. */
+export function fileToProofImage(file: File): Promise<string> {
+  return resizeToDataUrl(file, 1600, 900_000)
+}
+
 /** Client / avatar image — small square-ish, kept tiny since it rides on
  * the client doc and is drawn at ~24px. */
 export function fileToAvatarImage(file: File): Promise<string> {

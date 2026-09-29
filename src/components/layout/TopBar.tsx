@@ -8,22 +8,27 @@ interface Crumb {
 
 export function TopBar({ crumbs, actions }: { crumbs: Crumb[]; actions?: ReactNode }) {
   return (
-    <div className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-surface px-6">
-      <div className="flex items-center gap-1.5 text-sm">
+    <div className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-6">
+      <div className="flex min-w-0 items-center gap-1.5 text-sm">
         {crumbs.map((c, i) => (
-          <span key={i} className="flex items-center gap-1.5">
+          <span key={i} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <span className="text-text-faint">/</span>}
             {c.to ? (
-              <Link to={c.to} className="text-text-muted hover:text-text">
+              <Link to={c.to} className="max-w-[220px] truncate text-text-muted hover:text-text hover:underline">
                 {c.label}
               </Link>
             ) : (
-              <span className="font-semibold text-text">{c.label}</span>
+              <span
+                dir="auto"
+                className={`max-w-[320px] truncate ${i === crumbs.length - 1 ? 'font-semibold text-text' : 'text-text-muted'}`}
+              >
+                {c.label}
+              </span>
             )}
           </span>
         ))}
       </div>
-      {actions && <div className="flex items-center gap-2.5">{actions}</div>}
+      {actions && <div className="flex shrink-0 items-center gap-2.5">{actions}</div>}
     </div>
   )
 }

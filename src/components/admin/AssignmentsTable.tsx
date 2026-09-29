@@ -8,6 +8,7 @@ import { StatusPill } from '../ui/StatusPill'
 import { taskDocRef } from '../../lib/firebase/refs'
 import type { Member } from '../../types/member'
 import type { Task, TaskAssignee } from '../../types/task'
+import { originState } from '../../utils/taskOrigin'
 import { assigneeFields } from '../../utils/assignees'
 
 const GRID = 'grid-cols-[1.3fr_0.8fr_0.8fr_240px_110px_110px_90px]'
@@ -55,6 +56,7 @@ export function AssignmentsTable({ tasks, members }: { tasks: Task[]; members: M
               <Link
                 dir="auto"
                 to={`/clients/${task.clientId}/projects/${task.projectId}/tasks/${task.id}`}
+                state={originState('All Assignments', '/admin/assignments')}
                 className="truncate text-[13px] font-medium text-text hover:text-accent"
               >
                 {task.title}

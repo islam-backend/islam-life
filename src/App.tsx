@@ -4,11 +4,13 @@ import { AppShell } from './components/layout/AppShell'
 import { AuthProvider } from './context/AuthProvider'
 import { useAuth } from './hooks/useAuth'
 import { AdminAllAssignmentsPage } from './pages/AdminAllAssignmentsPage'
+import { AdminAuditLogPage } from './pages/AdminAuditLogPage'
 import { AdminTeamPage } from './pages/AdminTeamPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { EmptyProjectState } from './pages/EmptyProjectState'
 import { LoginPage } from './pages/LoginPage'
 import { MyTasksPage } from './pages/MyTasksPage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { ProjectTasksPage } from './pages/ProjectTasksPage'
 import { StyleguidePage } from './pages/StyleguidePage'
 import { TaskDetailPage } from './pages/TaskDetailPage'
@@ -40,6 +42,8 @@ function Gate() {
         <Route path="/clients/:clientId/projects/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
         <Route path="/admin/team" element={adminOnly(<AdminTeamPage />)} />
         <Route path="/admin/assignments" element={adminOnly(<AdminAllAssignmentsPage />)} />
+        <Route path="/admin/audit-log" element={adminOnly(<AdminAuditLogPage />)} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/styleguide" element={ownerOnly(<StyleguidePage />)} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
