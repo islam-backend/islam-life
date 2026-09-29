@@ -1,4 +1,3 @@
-import { serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
@@ -15,9 +14,9 @@ import { useAuth } from '../hooks/useAuth'
 import { useMembers } from '../hooks/useMembers'
 import { useTaskDetail } from '../hooks/useTaskDetail'
 import { TaskChat } from '../components/tasks/TaskChat'
+import { logActivity, taskChangeEntries, updateTaskLogged } from '../lib/activityLog'
 import { deleteTaskCascade } from '../lib/firebase/cascadeDelete'
-import { taskDocRef } from '../lib/firebase/refs'
-import type { TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
+import type { Task, TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
 import { assigneeFields } from '../utils/assignees'
 import { canManageClient } from '../utils/role'
 import { readOrigin } from '../utils/taskOrigin'
@@ -64,7 +63,6 @@ export function TaskDetailPage() {
   // (see firestore.rules) but not reassign, rewrite the description, or
   // change the due date.
   const canManage = canManageClient(member, clientId)
-  const taskRef = taskDocRef(clientId, projectId, taskId)
 
   const assignedToMe = !!member && (task?.assigneeUids ?? []).includes(member.uid)
   const canEdit = canManage || assignedToMe
@@ -83,28 +81,34 @@ export function TaskDetailPage() {
     }
   }
 
+  // Every edit goes through updateTaskLogged so it lands in the audit log
+  // and notifies the people on the task.
+  async function update(patch: Partial<Task>) {
+    if (task) await updateTaskLogged(task, patch)
+  }
+
   async function setStatus(status: TaskStatus) {
-    await updateDoc(taskRef, { status, updatedAt: serverTimestamp() })
+    await update({ status })
   }
 
   async function setAssignees(assignees: TaskAssignee[]) {
-    await updateDoc(taskRef, { ...assigneeFields(assignees), updatedAt: serverTimestamp() })
+    await update(assigneeFields(assignees))
   }
 
   async function setDueDate(value: string) {
-    await updateDoc(taskRef, { dueDate: value ? new Date(value) : null, updatedAt: serverTimestamp() })
+    await update({ dueDate: value ? new Date(value) : null })
   }
 
   async function setStartDate(value: string) {
-    await updateDoc(taskRef, { startDate: value ? new Date(value) : null, updatedAt: serverTimestamp() })
+    await update({ startDate: value ? new Date(value) : null })
   }
 
   async function setPriority(priority: TaskPriority | null) {
-    await updateDoc(taskRef, { priority, updatedAt: serverTimestamp() })
+    await update({ priority })
   }
 
   async function setTags(tags: string[]) {
-    await updateDoc(taskRef, { tags, updatedAt: serverTimestamp() })
+    await update({ tags })
   }
 
   async function saveTitle(input: HTMLInputElement) {
@@ -114,16 +118,17 @@ export function TaskDetailPage() {
       input.value = task?.title ?? ''
       return
     }
-    await updateDoc(taskRef, { title, updatedAt: serverTimestamp() })
+    await update({ title })
   }
 
   async function saveDescription() {
-    if (description === null) return
-    await updateDoc(taskRef, { description, updatedAt: serverTimestamp() })
+    if (description === null || description === task?.description) return
+    await update({ description })
   }
 
   async function handleDelete() {
     await deleteTaskCascade(clientId, projectId, taskId)
+    if (task) void logActivity(taskChangeEntries(task, null))
     close()
   }
 
@@ -248,6 +253,7 @@ export function TaskDetailPage() {
         <div className="h-px bg-border" />
 
         <TaskCompletionProof
+          task={task}
           clientId={clientId}
           projectId={projectId}
           taskId={taskId}
@@ -259,6 +265,7 @@ export function TaskDetailPage() {
         <div className="h-px bg-border" />
 
         <TaskAttachments
+          task={task}
           clientId={clientId}
           projectId={projectId}
           taskId={taskId}
@@ -269,7 +276,7 @@ export function TaskDetailPage() {
         <div className="h-px bg-border" />
 
         <div ref={chatRef} id="chat">
-          <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} />
+          <TaskChat clientId={clientId} projectId={projectId} taskId={taskId} task={task} />
         </div>
 
         {canManage && (

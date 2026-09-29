@@ -3,9 +3,10 @@ import { type FormEvent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../../hooks/useAuth'
+import { logActivity, taskChangeEntries } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import type { Member } from '../../types/member'
-import type { TaskAssignee, TaskPriority } from '../../types/task'
+import type { Task, TaskAssignee, TaskPriority } from '../../types/task'
 import { assigneeFields } from '../../utils/assignees'
 import { Button } from '../ui/Button'
 import { FormField } from '../ui/FormField'
@@ -61,7 +62,7 @@ export function NewTaskModal({
     if (!trimmed) return
     setSaving(true)
 
-    const ref = await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks'), {
+    const fields = {
       title: trimmed,
       description: '',
       status: 'todo',
@@ -76,10 +77,14 @@ export function NewTaskModal({
       projectName,
       orderIndex: taskCount,
       hoursLogged: 0,
+    }
+    const ref = await addDoc(collection(db, 'clients', clientId, 'projects', projectId, 'tasks'), {
+      ...fields,
       createdBy: user?.uid ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+    void logActivity(taskChangeEntries(null, { id: ref.id, ...fields } as Task))
 
     setSaving(false)
     reset()

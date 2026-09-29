@@ -1,6 +1,7 @@
 import { serverTimestamp, writeBatch } from 'firebase/firestore'
 
 import type { Task, TaskStatus } from '../../types/task'
+import { logActivity, taskChangeEntries } from '../activityLog'
 import { db } from './app'
 import { taskDocRef } from './refs'
 
@@ -15,4 +16,5 @@ export async function moveTasksToStatus(tasks: Task[], status: TaskStatus) {
     }
     await batch.commit()
   }
+  void logActivity(toMove.flatMap((t) => taskChangeEntries(t, { ...t, status })))
 }

@@ -48,8 +48,9 @@ function toCsv(entries: ActivityEntry[]): string {
 }
 
 /**
- * Everything that happened, who did it, and when. Written only by Cloud
- * Functions (functions/activity.js), so it can't be edited from the app.
+ * Everything that happened, who did it, and when. Written by the app with
+ * each action (lib/activityLog.ts); rules pin every entry to its real
+ * author and forbid edits/deletes.
  * Owner sees everything; a manager sees their clients only (no Team events).
  */
 export function AdminAuditLogPage() {

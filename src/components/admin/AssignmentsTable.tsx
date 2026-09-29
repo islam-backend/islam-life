@@ -1,11 +1,10 @@
-import { serverTimestamp, updateDoc } from 'firebase/firestore'
 import { Link } from 'react-router-dom'
 
 import { AssigneePicker } from '../tasks/AssigneePicker'
 import { PriorityPill } from '../tasks/PriorityPill'
 import { TagList } from '../tasks/TagList'
 import { StatusPill } from '../ui/StatusPill'
-import { taskDocRef } from '../../lib/firebase/refs'
+import { updateTaskLogged } from '../../lib/activityLog'
 import type { Member } from '../../types/member'
 import type { Task, TaskAssignee } from '../../types/task'
 import { originState } from '../../utils/taskOrigin'
@@ -25,10 +24,7 @@ const headerClass = 'text-[11.5px] font-semibold uppercase tracking-wide text-te
 
 export function AssignmentsTable({ tasks, members }: { tasks: Task[]; members: Member[] }) {
   async function setAssignees(task: Task, assignees: TaskAssignee[]) {
-    await updateDoc(taskDocRef(task.clientId, task.projectId, task.id), {
-      ...assigneeFields(assignees),
-      updatedAt: serverTimestamp(),
-    })
+    await updateTaskLogged(task, assigneeFields(assignees))
   }
 
   return (

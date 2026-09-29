@@ -30,8 +30,8 @@ function timeOf(ms: number): string {
 
 /**
  * Everything that happened that concerns me — status changes, messages,
- * mentions, files, assignments — grouped by day. Written server-side by
- * functions/activity.js (and notifications.js for assignments).
+ * mentions, files, assignments — grouped by day. Written by the app itself
+ * alongside each action (lib/activityLog.ts).
  */
 export function NotificationsPage() {
   const { notifications, loading, unreadCount, hasMore, loadMore, markRead, markAllRead } = useNotifications(50)

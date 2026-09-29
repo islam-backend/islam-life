@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth'
 import { createContext, type ReactNode, useEffect, useState } from 'react'
 
+import { logActivity, setActivityActor } from '../lib/activityLog'
 import { auth, db, googleProvider } from '../lib/firebase/app'
 import type { Member } from '../types/member'
 
@@ -43,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(nextUser)
       setAuthResolved(true)
       if (!nextUser) {
+        setActivityActor(null)
         setMember(null)
         setMemberResolved(true)
         setNotInvited(false)
@@ -55,11 +57,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMemberResolved(false)
     setNotInvited(false)
     let triedProvisioning = false
+    let justJoined = false
 
     return onSnapshot(doc(db, 'members', user.uid), async (snap) => {
       if (snap.exists()) {
         const data = { uid: snap.id, ...snap.data() } as Member
+        setActivityActor(data)
         setMember(data)
+        if (justJoined) {
+          justJoined = false
+          void logActivity([{ type: 'member.joined', memberUid: data.uid, targetName: data.displayName || data.email, to: data.role }])
+        }
         setMemberResolved(true)
 
         // Self-heal: a doc created by hand in the console (the one-time
@@ -93,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           })
+          justJoined = true
           // onSnapshot will re-fire on its own once this write lands.
         } catch {
           setNotInvited(true)

@@ -4,7 +4,9 @@ import { type ChangeEvent, type ClipboardEvent, type DragEvent, useEffect, useRe
 import { useAuth } from '../../hooks/useAuth'
 import { useTaskAttachments } from '../../hooks/useTaskAttachments'
 import { db } from '../../lib/firebase/app'
+import { logActivity, taskBase, taskWatchers } from '../../lib/activityLog'
 import { fileToProofImage } from '../../lib/image'
+import type { Task } from '../../types/task'
 
 function formatStamp(ts: unknown): string {
   const d = (ts as { toDate?: () => Date } | null)?.toDate?.()
@@ -18,6 +20,7 @@ function formatStamp(ts: unknown): string {
  * Paste (Ctrl+V), drag-drop, or pick a file.
  */
 export function TaskCompletionProof({
+  task,
   clientId,
   projectId,
   taskId,
@@ -25,6 +28,8 @@ export function TaskCompletionProof({
   canEdit,
   canDelete,
 }: {
+  /** For the activity log / notifications. */
+  task?: Task
   clientId: string
   projectId: string
   taskId: string
@@ -73,6 +78,9 @@ export function TaskCompletionProof({
           createdByName: member?.displayName || member?.email || 'Member',
         })
       }
+      if (task) {
+        void logActivity([{ ...taskBase(task), type: 'proof.added', recipients: taskWatchers(task) }])
+      }
     } catch (err) {
       setError((err as Error).message === 'too-large' ? 'الصورة كبيرة أوي — جرّب تقصّها' : 'الصورة مترفعتش — جرّب تاني')
     } finally {
@@ -103,6 +111,7 @@ export function TaskCompletionProof({
     if (!window.confirm('تمسح السكرين شوت دي؟')) return
     try {
       await deleteDoc(doc(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'attachments', id))
+      if (task) void logActivity([{ ...taskBase(task), type: 'proof.deleted' }])
       if (viewing === id) setViewing(null)
     } catch {
       setError('المسح منفعش — جرّب تاني')

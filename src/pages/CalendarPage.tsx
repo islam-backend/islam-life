@@ -1,4 +1,3 @@
-import { serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -10,7 +9,8 @@ import { StatusPill } from '../components/ui/StatusPill'
 import { useAuth } from '../hooks/useAuth'
 import { useCalendarTasks } from '../hooks/useCalendarTasks'
 import { useClientMeta } from '../hooks/useClientMeta'
-import { taskDocRef } from '../lib/firebase/refs'
+import { updateTaskLogged } from '../lib/activityLog'
+import type { Task } from '../types/task'
 import { isManagerRole, isOwnerRole } from '../utils/role'
 import { originState } from '../utils/taskOrigin'
 
@@ -44,11 +44,8 @@ export function CalendarPage() {
   const byDay = useMemo(() => tasksByDay(visibleTasks), [visibleTasks])
   const selectedGroups = selectedKey ? groupByClient(byDay.get(selectedKey) ?? []) : []
 
-  async function markDone(clientId: string, projectId: string, taskId: string) {
-    await updateDoc(taskDocRef(clientId, projectId, taskId), {
-      status: 'done',
-      updatedAt: serverTimestamp(),
-    })
+  async function markDone(task: Task) {
+    await updateTaskLogged(task, { status: 'done' })
   }
 
   return (
@@ -163,7 +160,7 @@ export function CalendarPage() {
                         <StatusPill status={t.status} />
                         {t.status !== 'done' && (
                           <button
-                            onClick={() => markDone(t.clientId, t.projectId, t.id)}
+                            onClick={() => markDone(t)}
                             title="تحويل لـ Done"
                             className="shrink-0 cursor-pointer rounded-md bg-green-tint px-2 py-1 text-[11px] font-semibold text-green-tint-text"
                           >

@@ -8,6 +8,7 @@ import { Select } from '../ui/Select'
 import { useAuth } from '../../hooks/useAuth'
 import type { ClientWithProjects } from '../../hooks/useClients'
 import { useInvites } from '../../hooks/useInvites'
+import { logActivity } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import type { AssignedProject, Member, MemberRole } from '../../types/member'
 import { isManagerRole, isOwnerRole } from '../../utils/role'
@@ -40,8 +41,15 @@ async function revokeInvite(email: string) {
   await deleteDoc(doc(db, 'invites', email))
 }
 
-async function removeMember(uid: string) {
-  await deleteDoc(doc(db, 'members', uid))
+/** Cancel from the UI — unlike the automatic cleanup once someone joins, this gets logged. */
+async function cancelInvite(email: string) {
+  await revokeInvite(email)
+  void logActivity([{ type: 'invite.revoked', targetName: email }])
+}
+
+async function removeMember(m: Member) {
+  await deleteDoc(doc(db, 'members', m.uid))
+  void logActivity([{ type: 'member.removed', memberUid: m.uid, targetName: m.displayName || m.email }])
 }
 
 function roleLabel(role: string | undefined): string {
@@ -129,6 +137,7 @@ export function TeamRoster({
         managedClientIds,
         invitedBy: me.uid,
       })
+      void logActivity([{ type: 'invite.created', targetName: trimmed.toLowerCase(), to: effectiveRole }])
       setJustInvited(trimmed.toLowerCase())
       setEmail('')
       setRole('member')
@@ -240,7 +249,7 @@ export function TeamRoster({
               )}
               {canRemoveThisMember && (
                 <button
-                  onClick={() => removeMember(m.uid)}
+                  onClick={() => removeMember(m)}
                   className="cursor-pointer text-[12px] font-medium text-text-faint hover:text-red"
                 >
                   Remove
@@ -277,7 +286,7 @@ export function TeamRoster({
                     {sharing === inv.email ? 'إخفاء' : 'رسالة الدعوة'}
                   </button>
                   <button
-                    onClick={() => revokeInvite(inv.email)}
+                    onClick={() => cancelInvite(inv.email)}
                     className="cursor-pointer text-[12px] font-medium text-text-faint hover:text-red"
                   >
                     Cancel

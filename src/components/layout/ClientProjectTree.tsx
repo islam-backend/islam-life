@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import type { ClientWithProjects } from '../../hooks/useClients'
+import { logActivity } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import { deleteClientCascade, deleteProjectCascade } from '../../lib/firebase/cascadeDelete'
 import type { Project } from '../../types/project'
@@ -377,7 +378,10 @@ export function ClientProjectTree({
         message={`"${deletingClient?.name}" and every one of its projects and tasks will be gone for good. This can't be undone.`}
         confirmLabel="Delete client"
         onConfirm={async () => {
-          if (deletingClient) await deleteClientCascade(deletingClient.id)
+          if (deletingClient) {
+            await deleteClientCascade(deletingClient.id)
+            void logActivity([{ type: 'client.deleted', clientId: deletingClient.id, clientName: deletingClient.name }])
+          }
           if (deletingClient?.id === activeClientId) navigate('/')
         }}
         onClose={() => setDeletingClient(null)}
@@ -389,7 +393,13 @@ export function ClientProjectTree({
         message={`"${deletingProject?.project.name}" and all of its tasks will be gone for good. This can't be undone.`}
         confirmLabel="Delete project"
         onConfirm={async () => {
-          if (deletingProject) await deleteProjectCascade(deletingProject.client.id, deletingProject.project.id)
+          if (deletingProject) {
+            const { client, project } = deletingProject
+            await deleteProjectCascade(client.id, project.id)
+            void logActivity([
+              { type: 'project.deleted', clientId: client.id, clientName: client.name, projectId: project.id, projectName: project.name },
+            ])
+          }
           if (deletingProject?.project.id === activeProjectId) navigate('/')
         }}
         onClose={() => setDeletingProject(null)}

@@ -4,6 +4,7 @@ import { type FormEvent, useState } from 'react'
 import { Button } from '../ui/Button'
 import { FormField } from '../ui/FormField'
 import { Modal } from '../ui/Modal'
+import { logActivity } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import { renameProject } from '../../lib/firebase/cascadeDelete'
 
@@ -35,9 +36,14 @@ export function NewProjectModal({
     if (!trimmed) return
     setSaving(true)
     if (editingProject) {
-      await renameProject(clientId, editingProject.id, trimmed)
+      if (trimmed !== editingProject.name) {
+        await renameProject(clientId, editingProject.id, trimmed)
+        void logActivity([
+          { type: 'project.renamed', clientId, clientName, projectId: editingProject.id, projectName: trimmed, from: editingProject.name, to: trimmed },
+        ])
+      }
     } else {
-      await addDoc(collection(db, 'clients', clientId, 'projects'), {
+      const ref = await addDoc(collection(db, 'clients', clientId, 'projects'), {
         name: trimmed,
         status: 'active',
         clientId,
@@ -45,6 +51,7 @@ export function NewProjectModal({
         totalHours: 0,
         createdAt: serverTimestamp(),
       })
+      void logActivity([{ type: 'project.created', clientId, clientName, projectId: ref.id, projectName: trimmed }])
     }
     setSaving(false)
     setName('')

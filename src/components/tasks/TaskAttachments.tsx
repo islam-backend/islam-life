@@ -5,7 +5,9 @@ import { useAuth } from '../../hooks/useAuth'
 import { useTaskAttachments } from '../../hooks/useTaskAttachments'
 import { db } from '../../lib/firebase/app'
 import { fileToDataUrl, fileToText, formatFileSize, isTextFile } from '../../lib/files'
+import { logActivity, taskBase, taskWatchers } from '../../lib/activityLog'
 import { fileToChatImage } from '../../lib/image'
+import type { Task } from '../../types/task'
 
 const MAX_FILE_BYTES = 700_000
 
@@ -62,12 +64,15 @@ function TrashIcon() {
 }
 
 export function TaskAttachments({
+  task,
   clientId,
   projectId,
   taskId,
   canEdit,
   canDelete,
 }: {
+  /** For the activity log / notifications. */
+  task?: Task
   clientId: string
   projectId: string
   taskId: string
@@ -129,6 +134,11 @@ export function TaskAttachments({
           createdByName: authorName,
         })
       }
+      if (task) {
+        void logActivity([
+          { ...taskBase(task), type: 'attachment.added', detail: file.name, recipients: taskWatchers(task) },
+        ])
+      }
     } catch (err) {
       setError((err as Error).message === 'too-large' ? 'الملف أكبر من 700 كيلوبايت' : 'الملف مترفعش — جرّب تاني')
     } finally {
@@ -140,6 +150,8 @@ export function TaskAttachments({
     if (!window.confirm('تمسح الملف ده؟')) return
     try {
       await deleteDoc(doc(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'attachments', id))
+      const name = attachments.find((a) => a.id === id)?.fileName ?? ''
+      if (task) void logActivity([{ ...taskBase(task), type: 'attachment.deleted', detail: name }])
     } catch {
       setError('المسح منفعش — جرّب تاني')
     }

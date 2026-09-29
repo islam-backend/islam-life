@@ -1,7 +1,7 @@
 /**
- * One activity event, as written by functions/activity.js into both
+ * One activity event, as written by lib/activityLog.ts into both
  * auditLog/{id} and members/{uid}/notifications/{id}. Legacy 'assigned'
- * notifications (functions/notifications.js) carry no actor fields.
+ * notifications carry no actor fields.
  */
 export interface ActivityEntry {
   id: string
@@ -81,7 +81,7 @@ export function describeActivity(e: ActivityEntry, forMe = false): { icon: strin
         text: `${who} غيّر حالة ${task} من ${e.from} لـ ${e.to}`,
       }
     case 'task.assigned':
-      return { icon: '👤', text: `${who} عيّن ${e.detail} على ${task}` }
+      return { icon: '👤', text: forMe ? `${who} عيّنك على ${task}` : `${who} عيّن ${e.detail} على ${task}` }
     case 'task.unassigned':
       return { icon: '👋', text: forMe ? `${who} شالك من ${task}` : `${who} شال ${e.detail} من ${task}` }
     case 'task.priority':
