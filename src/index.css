@@ -66,3 +66,47 @@ body {
   color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
+
+/*
+  Scrollbars — one thin, quiet style for every scrolling area: no arrow
+  buttons, transparent track, a rounded thumb that only gets brighter
+  when you reach for it. Chromium/Safari use the ::-webkit-* rules;
+  Firefox (which has no ::-webkit-scrollbar) gets the standard props.
+*/
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-thumb {
+  /* The transparent border insets the thumb, so it reads as ~4px wide
+     while the hit area stays a comfortable 10px. */
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--text-faint) 45%, transparent) padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  border-width: 2px;
+  background: color-mix(in oklab, var(--text-faint) 80%, transparent) padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--text-muted) padding-box;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--text-faint) 55%, transparent) transparent;
+  }
+}

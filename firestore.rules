@@ -77,11 +77,33 @@ service cloud.firestore {
     // ── Invites (allowlist) — the owner manages these from the app's
     // Admin → Team page. A manager can invite too, but only ever plain
     // members (never another manager or an owner).
+    // Every invite is stamped with its real inviter + their role — that's
+    // what scopes a manager's audit log to "their people" later on.
     match /invites/{email} {
-      allow read:           if isOwner() || isManager();
-      allow create, update: if isOwner()
-          || (isManager() && request.resource.data.role == 'member');
+      // The invitee may read their own invite on first sign-in, to copy
+      // invitedBy onto their new member doc (checked in members/ create).
+      allow read:           if isOwner() || isManager()
+          || (isSignedIn() && request.auth.token.email == email);
+      allow create, update: if (isOwner()
+          || (isManager() && request.resource.data.role == 'member'))
+          && request.resource.data.invitedBy == request.auth.uid
+          && request.resource.data.invitedByRole == roleOf();
       allow delete:         if isOwner() || isManager();
+    }
+
+    // ── Workspace setup marker ─────────────────────────────────
+    // setup/workspace existing = "this workspace already has an owner".
+    // Created exactly once: either together with the first owner's member
+    // doc (see the owner-claim rule under members/), or by an existing
+    // owner on a workspace that predates this marker. Never updated or
+    // deleted from a client — that's what keeps the owner claim closed.
+    match /setup/{docId} {
+      allow read: if isSignedIn();
+      allow create: if docId == 'workspace'
+          && isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && (isOwner()
+              || getAfter(/databases/$(database)/documents/members/$(request.auth.uid)).data.role == 'owner');
     }
 
     // ── Members ─────────────────────────────────────────────────
@@ -104,14 +126,32 @@ service cloud.firestore {
       // First-ever sign-in: a signed-in Google account may create ITS
       // OWN member doc, but only if its email is on the invite list,
       // and only ever as role 'member' — nobody can self-promote to
-      // owner this way. The owner's own doc is created once by hand
-      // in the Firestore console (they already have project access).
-      // This is the entire "invite-only" gate — no Cloud Function,
+      // owner this way (the owner comes from the one-time first-run
+      // claim below). This is the entire "invite-only" gate — no Cloud Function,
       // no Identity Platform / billing account needed.
       allow create: if isSignedIn() && request.auth.uid == uid
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.role == 'member'
           && exists(/databases/$(database)/documents/invites/$(request.auth.token.email))
+          // invitedBy / invitedByRole must be copied verbatim from the invite
+          // (absent on both is fine — an older invite).
+          && request.resource.data.get('invitedBy', null)
+              == get(/databases/$(database)/documents/invites/$(request.auth.token.email)).data.get('invitedBy', null)
+          && request.resource.data.get('invitedByRole', null)
+              == get(/databases/$(database)/documents/invites/$(request.auth.token.email)).data.get('invitedByRole', null)
+          && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'avatarUrl', 'totpEnrolled', 'assignedProjects', 'invitedBy', 'invitedByRole', 'createdAt', 'updatedAt']);
+
+      // First-run owner claim on a brand-new workspace: the very first
+      // account to sign in may create its own doc as 'owner' — but only
+      // while setup/workspace doesn't exist, and only in the same batch
+      // that creates it naming this uid. Once that doc exists (it can
+      // never be updated or deleted from a client) this path is closed
+      // for good, so exactly one account can ever claim a workspace.
+      allow create: if isSignedIn() && request.auth.uid == uid
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.role == 'owner'
+          && !exists(/databases/$(database)/documents/setup/workspace)
+          && getAfter(/databases/$(database)/documents/setup/workspace).data.ownerUid == request.auth.uid
           && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'avatarUrl', 'totpEnrolled', 'assignedProjects', 'createdAt', 'updatedAt']);
 
       // Self-service edit: a member may update their own profile
@@ -150,9 +190,13 @@ service cloud.firestore {
           allow create, delete: if canManageClient(clientId);
           // An assigned member may move the workflow status and set the
           // Notion-style fields (priority / tags / start date) — never
-          // reassign, rename, or change the due date.
+          // reassign, rename, or change the due date. Archiving/restoring is
+          // owner/manager only, so a member can't move a task into or out of
+          // 'archived', nor touch one that's archived.
           allow update: if canManageClient(clientId)
               || (isMember() && isAssignedToMe(resource.data)
+                  && resource.data.status != 'archived'
+                  && request.resource.data.status != 'archived'
                   && request.resource.data.diff(resource.data).affectedKeys()
                       .hasOnly(['status', 'priority', 'tags', 'startDate', 'updatedAt']));
 
@@ -208,16 +252,33 @@ service cloud.firestore {
     // ── Audit log — appended by the app with each action (lib/activityLog.ts).
     // Every entry is pinned to its real author (actorUid == you) and a
     // server timestamp; nobody can edit or delete one afterwards.
-    // Owner reads everything; a manager reads only entries for clients they
-    // manage. The manager branch backs a list query
-    // (where clientId == X, one per managed client), so it's written inline —
-    // no helper function (see the collection-group tasks rule for why).
+    //
+    // Each entry also carries who invited its author (actorInvitedBy) and
+    // that inviter's role (actorInviterRole: 'owner' / 'manager', or 'none'
+    // when the author is an owner) — both derived here from the author's own
+    // member doc, so they can't be faked. A member who joined before
+    // invitedBy existed counts as the owner's.
+    //
+    // Owner reads everything. A manager reads only "their people":
+    //   · their own actions
+    //   · actions by people THEY invited
+    //   · actions by people the OWNER invited — only if the owner turned on
+    //     auditSeesOwnerInvitees for them
+    // Each branch backs one list query in useAuditLog, so they're written
+    // inline on resource.data (see the collection-group tasks rule for why).
     match /auditLog/{entryId} {
       allow read: if isOwner()
-          || (isManager() && resource.data.clientId in memberDoc().data.managedClientIds);
+          || (isManager() && (
+              resource.data.actorUid == request.auth.uid
+              || resource.data.actorInvitedBy == request.auth.uid
+              || (resource.data.actorInviterRole == 'owner'
+                  && memberDoc().data.get('auditSeesOwnerInvitees', false) == true)));
       allow create: if isMember()
           && request.resource.data.actorUid == request.auth.uid
-          && request.resource.data.createdAt == request.time;
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.get('actorInvitedBy', null) == memberDoc().data.get('invitedBy', null)
+          && request.resource.data.get('actorInviterRole', null)
+              == (roleOf() == 'owner' ? 'none' : memberDoc().data.get('invitedByRole', 'owner'));
       allow update, delete: if false;
     }
 
@@ -238,7 +299,11 @@ service cloud.firestore {
       allow read: if isOwner()
           || managesDocClient(resource.data)
           || (isMember() && request.auth.uid in resource.data.assigneeUids);
+      // This match also covers every clients/*/projects/*/tasks/* doc, so it
+      // must carry the same archive guard or it'd be a way around it.
       allow update: if isMember() && isAssignedToMe(resource.data)
+          && resource.data.status != 'archived'
+          && request.resource.data.status != 'archived'
           && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['status', 'priority', 'tags', 'startDate', 'updatedAt']);
     }

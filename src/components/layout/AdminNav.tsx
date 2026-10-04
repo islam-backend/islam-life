@@ -22,11 +22,11 @@ function AssignmentsIcon() {
   )
 }
 
-function AuditIcon() {
+function ArchiveIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="2" y="3" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M3 6v6.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6M6.5 9h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -48,7 +48,7 @@ export function AdminNav({ isOwner }: { isOwner: boolean }) {
   const items = [
     { to: '/admin/team', label: 'Team', Icon: TeamIcon },
     { to: '/admin/assignments', label: 'All Assignments', Icon: AssignmentsIcon },
-    { to: '/admin/audit-log', label: 'Audit Log', Icon: AuditIcon },
+    { to: '/admin/archive', label: 'Archive', Icon: ArchiveIcon },
     // Design system is an owner-only surface.
     ...(isOwner ? [{ to: '/styleguide', label: 'Design system', Icon: SwatchIcon }] : []),
   ]

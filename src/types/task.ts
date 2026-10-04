@@ -1,4 +1,6 @@
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done'
+/** `archived` isn't a workflow stage — an archived task is hidden from every
+ * list, calendar and count, and only shows on the Archive page. */
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'archived'
 
 /** How urgent the task is — independent of workflow status. `null`/absent = "no priority". */
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'
@@ -35,4 +37,8 @@ export interface Task {
   createdAt?: unknown
   createdBy?: string
   updatedAt?: unknown
+  /** The status it had right before it was archived — "Restore" puts it back there. */
+  archivedFrom?: TaskStatus | null
+  archivedAt?: unknown | null
+  archivedBy?: string | null
 }

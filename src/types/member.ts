@@ -25,6 +25,14 @@ export interface Member {
    * over (create projects, create/assign/delete tasks, invite members).
    * Ignored for owner (sees everything) and plain members. */
   managedClientIds?: string[]
+  /** Who invited this person (uid) and that inviter's role at the time —
+   * copied from the invite when they first join, checked by firestore.rules.
+   * Absent on members who joined before this existed (treated as the owner's). */
+  invitedBy?: string
+  invitedByRole?: MemberRole
+  /** MANAGER only, set by the owner: may this manager also see the audit
+   * log of people the OWNER invited? (Their own invitees they always see.) */
+  auditSeesOwnerInvitees?: boolean
   createdAt?: unknown
   updatedAt?: unknown
 }

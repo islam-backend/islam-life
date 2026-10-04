@@ -23,9 +23,11 @@ interface InvitePayload {
   assignedProjects: AssignedProject[]
   managedClientIds: string[]
   invitedBy: string
+  /** The inviter's own role — firestore.rules checks it against their member doc. */
+  invitedByRole: string
 }
 
-async function sendInvite({ email, role, assignedProjects, managedClientIds, invitedBy }: InvitePayload) {
+async function sendInvite({ email, role, assignedProjects, managedClientIds, invitedBy, invitedByRole }: InvitePayload) {
   const normalized = email.trim().toLowerCase()
   await setDoc(doc(db, 'invites', normalized), {
     email: normalized,
@@ -34,6 +36,7 @@ async function sendInvite({ email, role, assignedProjects, managedClientIds, inv
     managedClientIds: role === 'manager' ? managedClientIds : [],
     invitedAt: serverTimestamp(),
     invitedBy,
+    invitedByRole,
   })
 }
 
@@ -136,6 +139,7 @@ export function TeamRoster({
         assignedProjects: projects,
         managedClientIds,
         invitedBy: me.uid,
+        invitedByRole: (me.role || '').trim().toLowerCase(),
       })
       void logActivity([{ type: 'invite.created', targetName: trimmed.toLowerCase(), to: effectiveRole }])
       setJustInvited(trimmed.toLowerCase())
@@ -228,6 +232,16 @@ export function TeamRoster({
                       {(m.assignedProjects || []).length === 1 ? 'project' : 'projects'}
                     </>
                   ) : null}
+                  {m.invitedBy && (
+                    <>
+                      {' '}
+                      &middot; invited by{' '}
+                      {(() => {
+                        const by = members.find((x) => x.uid === m.invitedBy)
+                        return by ? by.displayName || by.email : 'a former member'
+                      })()}
+                    </>
+                  )}
                 </span>
               </div>
               <span

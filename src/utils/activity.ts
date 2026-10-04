@@ -8,6 +8,10 @@ export interface ActivityEntry {
   type: string
   actorUid?: string | null
   actorName?: string
+  /** Who invited the actor, and that inviter's role ('none' when the actor
+   * is an owner). Drives what a manager may read — see firestore.rules. */
+  actorInvitedBy?: string | null
+  actorInviterRole?: string
   clientId?: string
   clientName?: string
   projectId?: string
@@ -22,6 +26,8 @@ export interface ActivityEntry {
   detail?: string
   /** comment.* — text / voice / image / file */
   kind?: string
+  /** Tie-breaker for entries written in the same batch (same createdAt). */
+  seq?: number
   createdAt?: { toMillis?: () => number; toDate?: () => Date } | null
 }
 
@@ -157,6 +163,12 @@ export function activityLink(e: ActivityEntry): string | null {
 
 export function millisOf(e: ActivityEntry): number {
   return e.createdAt?.toMillis?.() ?? 0
+}
+
+/** Newest first. Entries logged together share one server timestamp, so
+ * `seq` (their order within the batch) decides among them. */
+export function compareNewest(a: ActivityEntry, b: ActivityEntry): number {
+  return millisOf(b) - millisOf(a) || (b.seq ?? 0) - (a.seq ?? 0)
 }
 
 export function relativeTimeAr(ms: number): string {

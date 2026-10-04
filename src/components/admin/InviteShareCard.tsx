@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { getAppName } from '../../lib/firebase/config'
+
 /** The invite system is an allowlist — adding an email doesn't send the
  * person anything. This card gives the owner a ready-made link + message
  * to send them by hand (WhatsApp, email, wherever). */
@@ -15,7 +17,7 @@ export function InviteShareCard({ email }: { email: string }) {
   const [copied, setCopied] = useState(false)
 
   const message =
-    `اتضافت لفريق العمل على islam-life ✅\n` +
+    `اتضافت لفريق العمل على ${getAppName()} ✅\n` +
     `افتح اللينك ده وسجّل دخول بحساب Google بتاع الإيميل: ${email}\n` +
     `${APP_URL}`
 

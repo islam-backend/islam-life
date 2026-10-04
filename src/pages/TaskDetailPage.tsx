@@ -10,15 +10,18 @@ import { TaskCompletionProof } from '../components/tasks/TaskCompletionProof'
 import { TopBar } from '../components/layout/TopBar'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { StatusPill } from '../components/ui/StatusPill'
 import { useAuth } from '../hooks/useAuth'
 import { useMembers } from '../hooks/useMembers'
 import { useTaskDetail } from '../hooks/useTaskDetail'
 import { TaskChat } from '../components/tasks/TaskChat'
 import { logActivity, taskChangeEntries, updateTaskLogged } from '../lib/activityLog'
+import { archiveTasks, restoreTasks } from '../lib/firebase/archive'
 import { deleteTaskCascade } from '../lib/firebase/cascadeDelete'
 import type { Task, TaskAssignee, TaskPriority, TaskStatus } from '../types/task'
 import { assigneeFields } from '../utils/assignees'
 import { canManageClient } from '../utils/role'
+import { STATUS_LABEL, isArchived } from '../utils/taskStatus'
 import { readOrigin } from '../utils/taskOrigin'
 
 function toDateInputValue(dueDate: unknown): string {
@@ -65,7 +68,9 @@ export function TaskDetailPage() {
   const canManage = canManageClient(member, clientId)
 
   const assignedToMe = !!member && (task?.assigneeUids ?? []).includes(member.uid)
-  const canEdit = canManage || assignedToMe
+  const archived = !!task && isArchived(task)
+  // An archived task is read-only for members until someone restores it.
+  const canEdit = canManage || (assignedToMe && !archived)
 
   const creator = members.find((m) => m.uid === task?.createdBy)
 
@@ -132,6 +137,16 @@ export function TaskDetailPage() {
     close()
   }
 
+  async function handleArchive() {
+    if (!task || !member) return
+    await archiveTasks([task], member.uid)
+    close()
+  }
+
+  async function handleRestore() {
+    if (task) await restoreTasks([task])
+  }
+
   if (loading) {
     return <div className="flex flex-1 items-center justify-center text-[13px] text-text-faint">Loading…</div>
   }
@@ -176,6 +191,23 @@ export function TaskDetailPage() {
       />
 
       <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-7 overflow-y-auto p-8">
+        {archived && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-field px-4 py-3">
+            <p className="text-[12.5px] text-text-muted">
+              This task is archived — hidden from every list and the calendar
+              {task.archivedFrom ? ` (was ${STATUS_LABEL[task.archivedFrom] ?? task.archivedFrom})` : ''}.
+            </p>
+            {canManage && (
+              <button
+                onClick={handleRestore}
+                className="shrink-0 cursor-pointer text-[12.5px] font-semibold text-accent hover:underline"
+              >
+                Restore
+              </button>
+            )}
+          </div>
+        )}
+
         {canManage ? (
           <input
             // Remount on a remote rename so the field picks up the new title.
@@ -202,7 +234,11 @@ export function TaskDetailPage() {
           <AssigneePicker value={task.assignees ?? []} members={members} onChange={setAssignees} disabled={!canManage} />
 
           <span className="text-[12.5px] font-medium text-text-faint">Status</span>
-          <StatusSegmentedControl value={task.status} onChange={setStatus} />
+          {archived ? (
+            <StatusPill status={task.status} />
+          ) : (
+            <StatusSegmentedControl value={task.status} onChange={setStatus} />
+          )}
 
           <span className="text-[12.5px] font-medium text-text-faint">Priority</span>
           <PriorityControl value={task.priority} onChange={setPriority} disabled={!canEdit} />
@@ -280,7 +316,16 @@ export function TaskDetailPage() {
         </div>
 
         {canManage && (
-          <div className="flex justify-end border-t border-border pt-5">
+          <div className="flex justify-end gap-2 border-t border-border pt-5">
+            {archived ? (
+              <Button variant="ghost" onClick={handleRestore}>
+                Restore task
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={handleArchive}>
+                Archive task
+              </Button>
+            )}
             <Button variant="ghost" onClick={() => setConfirmDelete(true)} className="text-red">
               Delete task
             </Button>

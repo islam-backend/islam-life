@@ -1,6 +1,7 @@
-import type { TaskStatus } from '../types/task'
+import type { Task, TaskStatus } from '../types/task'
 
-/** Workflow order — "next stage" means the next entry here. */
+/** Workflow order — "next stage" means the next entry here. `archived` is
+ * deliberately not in it: it's a shelf, not a stage. */
 export const STATUS_ORDER: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done']
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -9,6 +10,11 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   in_progress: 'In Progress',
   in_review: 'In Review',
   done: 'Done',
+  archived: 'Archived',
+}
+
+export function isArchived(task: Pick<Task, 'status'>): boolean {
+  return task.status === 'archived'
 }
 
 export function nextStatus(status: TaskStatus): TaskStatus | null {

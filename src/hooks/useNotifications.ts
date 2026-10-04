@@ -11,7 +11,7 @@ import {
 import { useEffect, useState } from 'react'
 
 import { db } from '../lib/firebase/app'
-import type { ActivityEntry } from '../utils/activity'
+import { type ActivityEntry, compareNewest } from '../utils/activity'
 import { useAuth } from './useAuth'
 
 export interface AppNotification extends ActivityEntry {
@@ -36,7 +36,9 @@ export function useNotifications(initialMax = 50) {
       q,
       (snap) => {
         setNotifications(
-          snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AppNotification, 'id'>) })),
+          snap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as Omit<AppNotification, 'id'>) }))
+            .sort(compareNewest),
         )
         setLoading(false)
       },
