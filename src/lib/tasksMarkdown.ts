@@ -1,13 +1,6 @@
-import type { Task, TaskStatus } from '../types/task'
+import type { Task } from '../types/task'
 import { PRIORITY_META } from '../utils/priority'
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  backlog: 'Backlog',
-  todo: 'To Do',
-  in_progress: 'In Progress',
-  in_review: 'In Review',
-  done: 'Done',
-}
+import { STATUS_LABEL } from '../utils/taskStatus'
 
 function formatDate(ts: unknown): string | null {
   const d = ts instanceof Date ? ts : (ts as { toDate?: () => Date } | null)?.toDate?.()

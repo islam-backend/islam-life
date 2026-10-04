@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { db } from '../lib/firebase/app'
 import type { Member } from '../types/member'
 import type { Task } from '../types/task'
+import { isArchived } from '../utils/taskStatus'
 
 /**
  * Live tasks for one project. A plain member's query MUST filter by their
@@ -38,7 +39,8 @@ export function useProjectTasks(
     return onSnapshot(
       q,
       (snap) => {
-        setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task))
+        // Archived tasks live only on the Archive page.
+        setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task).filter((t) => !isArchived(t)))
         setLoading(false)
       },
       (err) => {

@@ -1,4 +1,5 @@
 import { useAuth } from '../hooks/useAuth'
+import { getAppName } from '../lib/firebase/config'
 
 function GoogleIcon() {
   return (
@@ -31,7 +32,7 @@ export function LoginPage() {
       <div className="flex w-[380px] flex-col items-center gap-6 rounded-xl border border-border bg-surface p-10 text-center">
         <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-accent text-lg">🚀</div>
         <div className="flex flex-col gap-1.5">
-          <h1 className="text-lg font-bold text-text">islam-life</h1>
+          <h1 className="text-lg font-bold text-text">{getAppName()}</h1>
           <p className="text-[13px] text-text-muted">Clients, projects and tasks — one place for the team.</p>
         </div>
 

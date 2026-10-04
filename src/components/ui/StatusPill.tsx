@@ -6,6 +6,7 @@ const config: Record<TaskStatus, { label: string; dot: string; bg: string; text:
   in_progress: { label: 'In Progress', dot: 'bg-amber', bg: 'bg-amber-tint', text: 'text-amber-tint-text' },
   in_review: { label: 'In Review', dot: 'bg-cyan', bg: 'bg-cyan-tint', text: 'text-cyan-tint-text' },
   done: { label: 'Done', dot: 'bg-green', bg: 'bg-green-tint', text: 'text-green-tint-text' },
+  archived: { label: 'Archived', dot: 'bg-text-faint', bg: 'bg-field', text: 'text-text-muted' },
 }
 
 const fallback = { label: 'Unknown', dot: 'bg-text-faint', bg: 'bg-field', text: 'text-text-muted' }

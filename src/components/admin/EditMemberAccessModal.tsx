@@ -28,6 +28,7 @@ export function EditMemberAccessModal({
   const [role, setRole] = useState<MemberRole>(member.role)
   const [projects, setProjects] = useState<AssignedProject[]>(member.assignedProjects || [])
   const [managedClientIds, setManagedClientIds] = useState<string[]>(member.managedClientIds || [])
+  const [seesOwnerInvitees, setSeesOwnerInvitees] = useState(member.auditSeesOwnerInvitees === true)
   const [saving, setSaving] = useState(false)
 
   const effectiveRole: MemberRole = canChangeRole ? role : member.role
@@ -39,6 +40,7 @@ export function EditMemberAccessModal({
         role: effectiveRole,
         assignedProjects: effectiveRole === 'member' ? projects : [],
         managedClientIds: effectiveRole === 'manager' ? managedClientIds : [],
+        auditSeesOwnerInvitees: effectiveRole === 'manager' && seesOwnerInvitees,
         updatedAt: serverTimestamp(),
       })
     } else {
@@ -58,7 +60,7 @@ export function EditMemberAccessModal({
       ? ids(effectiveRole === 'member' ? projects : []) !== ids(member.assignedProjects) ||
         [...(effectiveRole === 'manager' ? managedClientIds : [])].sort().join(',') !== [...(member.managedClientIds ?? [])].sort().join(',')
       : ids(projects) !== ids(member.assignedProjects)
-    if (accessChanged) {
+    if (accessChanged || (canChangeRole && seesOwnerInvitees !== (member.auditSeesOwnerInvitees === true))) {
       void logActivity([{ type: 'member.access', memberUid: member.uid, targetName: name, recipients }])
     }
     setSaving(false)
@@ -92,6 +94,23 @@ export function EditMemberAccessModal({
             <ProjectPicker clients={clients} selected={projects} onChange={setProjects} />
           </FormField>
         ) : null}
+
+        {effectiveRole === 'manager' && canChangeRole && (
+          <FormField label="Audit log">
+            <div className="flex flex-col gap-2 text-[12.5px] text-text-muted">
+              <p>They always see their own activity and the people they invited.</p>
+              <label className="flex cursor-pointer items-center gap-2 text-text">
+                <input
+                  type="checkbox"
+                  checked={seesOwnerInvitees}
+                  onChange={(e) => setSeesOwnerInvitees(e.target.checked)}
+                  className="h-4 w-4 cursor-pointer accent-accent"
+                />
+                Also see the people <b>you</b> invited
+              </label>
+            </div>
+          </FormField>
+        )}
 
         <div className="flex justify-end gap-2.5">
           <Button variant="ghost" onClick={onClose}>

@@ -3,11 +3,15 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { initializeFirestore } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
 
-import { firebaseConfig } from './config'
+import { getFirebaseConfig } from './config'
+
+// Imported only after main.tsx has resolved the config (dynamic import of
+// App), so getFirebaseConfig() is always ready here.
+const { appName: _appName, ...firebaseOptions } = getFirebaseConfig()
 
 export const app: FirebaseApp = getApps().length
   ? getApps()[0]
-  : initializeApp(firebaseConfig)
+  : initializeApp(firebaseOptions)
 
 export const auth = getAuth(app)
 

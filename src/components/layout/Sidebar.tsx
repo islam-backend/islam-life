@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useClients, type ClientWithProjects } from '../../hooks/useClients'
 import { useMyProjects } from '../../hooks/useMyProjects'
 import { useNotifications } from '../../hooks/useNotifications'
+import { getAppName } from '../../lib/firebase/config'
 import { ensureNotificationPermission, primeAudio } from '../../lib/notify'
 import { canManageClient, isManagerRole, isOwnerRole } from '../../utils/role'
 import { AdminNav } from './AdminNav'
@@ -78,7 +79,7 @@ function SignOutIcon() {
 
 export function Sidebar() {
   const { user, member, signOut } = useAuth()
-  const { unreadCount } = useNotifications(50)
+  const { unreadCount } = useNotifications(100)
   const isOwner = isOwnerRole(member?.role)
   const isManager = isManagerRole(member?.role)
   const isAdmin = isOwner || isManager
@@ -126,7 +127,7 @@ export function Sidebar() {
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border bg-sidebar">
       <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4">
         <div className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-accent text-[13px]">🚀</div>
-        <span className="text-sm font-semibold text-text">islam-life</span>
+        <span className="truncate text-sm font-semibold text-text">{getAppName()}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-4">
@@ -154,7 +155,7 @@ export function Sidebar() {
           }
         >
           <InboxIcon />
-          <span className="flex-1">Notifications</span>
+          <span className="flex-1">Notifications & Activity</span>
           {unreadCount > 0 && (
             <span className="rounded-full bg-accent px-1.5 text-[10.5px] font-bold leading-[16px] text-white">
               {unreadCount > 99 ? '99+' : unreadCount}

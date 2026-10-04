@@ -99,6 +99,7 @@ export function ProjectTasksPage() {
         tasks={filteredTasks}
         members={members}
         exportHeading={`${clientProject.clientName} — ${clientProject.projectName}`}
+        archiveBy={canManage ? member?.uid : undefined}
       />
 
       {canManage && (

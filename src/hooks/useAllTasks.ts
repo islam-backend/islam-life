@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { db } from '../lib/firebase/app'
 import type { Task } from '../types/task'
+import { isArchived } from '../utils/taskStatus'
 
 /**
  * Every task across every client/project — owner-only when unscoped (see
@@ -11,8 +12,12 @@ import type { Task } from '../types/task'
  * A manager passes their `managedClientIds` as `clientIds`: the query is
  * then filtered to `clientId in [...]` (Firestore `in` caps at 30, plenty
  * for a manager's client list) and the rules let a manager read those.
+ *
+ * Archived tasks are left out unless `archived=true`, which returns ONLY
+ * archived ones (the Archive page). Filtered here rather than with a
+ * `status` where-clause so no new composite indexes are needed.
  */
-export function useAllTasks(enabled = true, clientIds?: string[] | null) {
+export function useAllTasks(enabled = true, clientIds?: string[] | null, archived = false) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(enabled)
 
@@ -32,7 +37,9 @@ export function useAllTasks(enabled = true, clientIds?: string[] | null) {
     return onSnapshot(
       q,
       (snap) => {
-        setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task))
+        setTasks(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task).filter((t) => isArchived(t) === archived)
+        )
         setLoading(false)
       },
       (err) => {
@@ -40,7 +47,7 @@ export function useAllTasks(enabled = true, clientIds?: string[] | null) {
         setLoading(false)
       }
     )
-  }, [enabled, scopeKey])
+  }, [enabled, scopeKey, archived])
 
   return { tasks, loading }
 }

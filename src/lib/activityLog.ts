@@ -1,7 +1,9 @@
 import { collection, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore'
 
+import type { Member } from '../types/member'
 import type { Task } from '../types/task'
 import type { ActivityEntry } from '../utils/activity'
+import { isOwnerRole } from '../utils/role'
 import { STATUS_LABEL } from '../utils/taskStatus'
 import { db } from './firebase/app'
 import { taskDocRef } from './firebase/refs'
@@ -17,7 +19,10 @@ import { taskDocRef } from './firebase/refs'
 // Logging is best-effort: a failure here is reported to the console but
 // never undoes or blocks the action that already happened.
 
-type EntryFields = Omit<ActivityEntry, 'id' | 'actorUid' | 'actorName' | 'createdAt'>
+type EntryFields = Omit<
+  ActivityEntry,
+  'id' | 'actorUid' | 'actorName' | 'actorInvitedBy' | 'actorInviterRole' | 'seq' | 'createdAt'
+>
 
 export interface LogEntry extends EntryFields {
   /** Get a notification of this entry's own type. */
@@ -26,11 +31,27 @@ export interface LogEntry extends EntryFields {
   mentioned?: string[]
 }
 
-let actor: { actorUid: string; actorName: string } | null = null
+interface Actor {
+  actorUid: string
+  actorName: string
+  actorInvitedBy: string | null
+  actorInviterRole: string
+}
 
-/** Called by AuthProvider whenever the signed-in member changes. */
-export function setActivityActor(member: { uid: string; displayName?: string; email?: string } | null) {
-  actor = member ? { actorUid: member.uid, actorName: member.displayName || member.email || 'Someone' } : null
+let actor: Actor | null = null
+
+/** Called by AuthProvider whenever the signed-in member changes. The
+ * inviter fields must match exactly what firestore.rules derives from the
+ * member doc, or the entry is rejected. */
+export function setActivityActor(member: Pick<Member, 'uid' | 'displayName' | 'email' | 'role' | 'invitedBy' | 'invitedByRole'> | null) {
+  actor = member
+    ? {
+        actorUid: member.uid,
+        actorName: member.displayName || member.email || 'Someone',
+        actorInvitedBy: member.invitedBy ?? null,
+        actorInviterRole: isOwnerRole(member.role) ? 'none' : (member.invitedByRole ?? 'owner'),
+      }
+    : null
 }
 
 /** Firestore rejects `undefined` field values — drop them. */
@@ -46,8 +67,12 @@ export async function logActivity(entries: LogEntry[]) {
     const others = (uids: (string | null | undefined)[]) =>
       [...new Set(uids)].filter((uid): uid is string => !!uid && uid !== me.actorUid)
 
-    for (const { recipients = [], mentioned = [], ...entry } of entries) {
-      const data = clean({ ...entry, ...me, createdAt: serverTimestamp() })
+    // Every entry in one batch gets the SAME server timestamp, so Firestore
+    // alone can't tell which came first. `seq` (client clock + position)
+    // breaks those ties — see compareNewest() in utils/activity.ts.
+    const base = Date.now() * 1000
+    for (const [i, { recipients = [], mentioned = [], ...entry }] of entries.entries()) {
+      const data = clean({ ...entry, ...me, seq: base + i, createdAt: serverTimestamp() })
       batch.set(doc(collection(db, 'auditLog')), data)
 
       const mentionUids = others(mentioned)

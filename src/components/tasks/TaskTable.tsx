@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { archiveTasks } from '../../lib/firebase/archive'
 import { moveTasksToStatus } from '../../lib/firebase/bulkStatus'
 import { downloadMarkdown, markdownFileName, tasksToAiPrompt, tasksToMarkdown } from '../../lib/tasksMarkdown'
 import type { Member } from '../../types/member'
@@ -41,15 +42,18 @@ function Checkbox({
  *
  * `exportHeading` (e.g. "Client — Project") turns on selection. Remount
  * (key) per project so the selection doesn't carry over.
+ * `archiveBy` (the acting owner/manager's uid) adds "Archive" to the bar.
  */
 export function TaskTable({
   tasks,
   members = [],
   exportHeading,
+  archiveBy,
 }: {
   tasks: Task[]
   members?: Member[]
   exportHeading?: string
+  archiveBy?: string
 }) {
   const location = useLocation()
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -57,6 +61,32 @@ export function TaskTable({
   const [error, setError] = useState<string | null>(null)
   const [moving, setMoving] = useState(false)
   const [confirmGroup, setConfirmGroup] = useState<TaskStatus | null>(null)
+  const [confirmArchive, setConfirmArchive] = useState(false)
+  // Collapsed status groups — remembered per project, across sessions.
+  const collapseKey = `task-table:collapsed:${location.pathname}`
+  const [collapsed, setCollapsedState] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(collapseKey) ?? '[]') as string[])
+    } catch {
+      return new Set()
+    }
+  })
+
+  function setCollapsed(next: Set<string>) {
+    setCollapsedState(next)
+    try {
+      localStorage.setItem(collapseKey, JSON.stringify([...next]))
+    } catch {
+      /* storage blocked — just won't persist */
+    }
+  }
+
+  function toggleCollapsed(status: string) {
+    const next = new Set(collapsed)
+    if (next.has(status)) next.delete(status)
+    else next.add(status)
+    setCollapsed(next)
+  }
 
   // Only count tasks still visible under the current filters, in table order.
   // Older docs can carry a status outside the known five — give those their
@@ -66,6 +96,7 @@ export function TaskTable({
     .map((status) => ({ status, tasks: tasks.filter((t) => t.status === status) }))
     .filter((g) => g.tasks.length > 0)
   const ordered = groups.flatMap((g) => g.tasks)
+  const anyCollapsed = groups.some((g) => collapsed.has(g.status))
   const selectedTasks = ordered.filter((t) => selected.has(t.id))
 
   useEffect(() => {
@@ -119,6 +150,23 @@ export function TaskTable({
     }
   }
 
+  async function archive(list: Task[]) {
+    if (!archiveBy) return
+    setMoving(true)
+    setError(null)
+    try {
+      await archiveTasks(list, archiveBy)
+      toggle(
+        list.map((t) => t.id),
+        false
+      )
+    } catch {
+      setError('الأرشفة منفعتش — جرّب تاني')
+    } finally {
+      setMoving(false)
+    }
+  }
+
   if (tasks.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-[13px] text-text-faint">
@@ -150,6 +198,11 @@ export function TaskTable({
               </option>
             ))}
           </Select>
+          {archiveBy && (
+            <button type="button" disabled={moving} onClick={() => setConfirmArchive(true)} className={barButtonClass}>
+              Archive
+            </button>
+          )}
           <span className="mx-1 h-4 w-px bg-border" />
           <button type="button" onClick={() => copy('md')} className={barButtonClass}>
             {copied === 'md' ? 'Copied ✓' : 'Copy MD'}
@@ -197,7 +250,13 @@ export function TaskTable({
           <span className={headerClass}>Priority</span>
           <span className={headerClass}>Status</span>
           <span className={headerClass}>Due</span>
-          <span />
+          <button
+            type="button"
+            onClick={() => setCollapsed(anyCollapsed ? new Set() : new Set(groups.map((g) => g.status)))}
+            className="cursor-pointer justify-self-end whitespace-nowrap text-[11.5px] font-medium text-text-faint hover:text-text"
+          >
+            {anyCollapsed ? 'Expand all' : 'Collapse all'}
+          </button>
         </div>
       </div>
 
@@ -205,19 +264,47 @@ export function TaskTable({
         const ids = g.tasks.map((t) => t.id)
         const picked = ids.filter((id) => selected.has(id)).length
         const next = nextStatus(g.status)
+        const isCollapsed = collapsed.has(g.status)
+        const label = STATUS_LABEL[g.status] ?? g.status
         return (
-          <section key={g.status} className="flex flex-col gap-2.5">
+          <section key={g.status} className="group flex flex-col gap-2.5">
             <div className="mt-2 flex items-center gap-3">
               {selectable && (
                 <Checkbox
                   checked={picked === ids.length}
                   indeterminate={picked > 0 && picked < ids.length}
                   onChange={() => toggle(ids, picked !== ids.length)}
-                  label={`Select all ${STATUS_LABEL[g.status] ?? g.status} tasks`}
+                  label={`Select all ${label} tasks`}
                 />
               )}
-              <StatusPill status={g.status} />
-              <span className="text-[12px] text-text-faint">{g.tasks.length}</span>
+              <button
+                type="button"
+                onClick={() => toggleCollapsed(g.status)}
+                aria-expanded={!isCollapsed}
+                aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${label}`}
+                className="flex cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1.5 hover:bg-field"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  className={`text-text-faint transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+                >
+                  <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <StatusPill status={g.status} />
+                <span className="text-[12px] text-text-faint">{g.tasks.length}</span>
+              </button>
+              {groups.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setCollapsed(new Set(groups.map((x) => x.status).filter((s) => s !== g.status)))}
+                  className="rounded-md px-1.5 py-0.5 text-[11.5px] text-text-faint opacity-0 hover:bg-field hover:text-text group-hover:opacity-100 focus:opacity-100"
+                >
+                  Only this
+                </button>
+              )}
               {next && (
                 <button
                   type="button"
@@ -229,7 +316,7 @@ export function TaskTable({
                 </button>
               )}
             </div>
-            {g.tasks.map((task) => (
+            {!isCollapsed && g.tasks.map((task) => (
               <div key={task.id} className="flex items-center gap-3">
                 {selectable && (
                   <Checkbox
@@ -257,6 +344,16 @@ export function TaskTable({
         danger={false}
         onConfirm={() => (confirmGroup && confirmTarget ? move(confirmTasks, confirmTarget) : undefined)}
         onClose={() => setConfirmGroup(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmArchive}
+        title={`Archive ${selectedTasks.length} task${selectedTasks.length === 1 ? '' : 's'}?`}
+        message="They'll disappear from every list, the calendar and My Tasks. You can restore them anytime from the Archive page."
+        confirmLabel="Archive"
+        danger={false}
+        onConfirm={() => archive(selectedTasks)}
+        onClose={() => setConfirmArchive(false)}
       />
     </div>
   )
