@@ -83,6 +83,17 @@ function makeWaveBars(seed: string, count = 32): number[] {
   })
 }
 
+const SPEEDS = [1, 1.5, 2]
+
+function loadSpeed(): number {
+  try {
+    const v = Number(localStorage.getItem('chat-voice-speed'))
+    return SPEEDS.includes(v) ? v : 1
+  } catch {
+    return 1
+  }
+}
+
 function VoiceMessage({
   audioUrl,
   audioDuration,
@@ -94,6 +105,8 @@ function VoiceMessage({
 }) {
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
+  // Remembered across messages, so "2x" stays on for the whole thread.
+  const [speed, setSpeed] = useState(loadSpeed)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const bars = useMemo(() => makeWaveBars(audioUrl), [audioUrl])
@@ -104,6 +117,7 @@ function VoiceMessage({
   function toggle() {
     if (!audioRef.current) {
       audioRef.current = new Audio(audioUrl)
+      audioRef.current.playbackRate = speed
       audioRef.current.ontimeupdate = () => setCurrentTime(audioRef.current?.currentTime ?? 0)
       audioRef.current.onended = () => {
         setPlaying(false)
@@ -123,6 +137,17 @@ function VoiceMessage({
     const a = audioRef.current
     return () => { a?.pause() }
   }, [])
+
+  function cycleSpeed() {
+    const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]
+    setSpeed(next)
+    if (audioRef.current) audioRef.current.playbackRate = next
+    try {
+      localStorage.setItem('chat-voice-speed', String(next))
+    } catch {
+      /* ignore */
+    }
+  }
 
   const accentColor = mine ? 'bg-white' : 'bg-accent'
   const dimColor = mine ? 'bg-white/35' : 'bg-border'
@@ -151,6 +176,14 @@ function VoiceMessage({
       <span className={`shrink-0 text-[11px] tabular-nums ${mine ? 'text-white/70' : 'text-text-faint'}`}>
         {formatDuration(playing ? currentTime : totalSecs)}
       </span>
+
+      <button
+        onClick={cycleSpeed}
+        title="سرعة التشغيل"
+        className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums transition-colors ${btnBg}`}
+      >
+        {speed}x
+      </button>
     </div>
   )
 }
