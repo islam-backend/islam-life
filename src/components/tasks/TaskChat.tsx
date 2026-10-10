@@ -9,7 +9,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type ClipboardEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
 import { useMembers } from '../../hooks/useMembers'
@@ -27,6 +27,8 @@ import { MentionTextInput, nameOf } from './MentionTextInput'
 import { MessageText } from './MessageText'
 
 const MAX_FILE_BYTES = 700_000
+/** A voice segment is cut here so its base64 stays well under Firestore's 1 MiB doc cap. */
+const SEGMENT_BYTES = 500_000
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🙏', '👀', '✅', '😮']
 
 function formatTime(ts: unknown): string {
@@ -181,7 +183,9 @@ export function TaskChat({
   const [recording, setRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
+  const finishingRef = useRef(false)
+  const queueRef = useRef<Promise<void>>(Promise.resolve())
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const recordingTimeRef = useRef(0)
 
@@ -246,6 +250,7 @@ export function TaskChat({
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
       mediaRecorderRef.current?.stop()
+      streamRef.current?.getTracks().forEach((t) => t.stop())
     }
   }, [])
 
@@ -330,10 +335,24 @@ export function TaskChat({
     }
   }
 
-  async function handleFile(e: ChangeEvent<HTMLInputElement>) {
+  function handleFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
-    if (!file || !user) return
+    if (file) void sendFile(file)
+  }
+
+  /** Ctrl+V with an image (screenshot / copied picture) or file on the
+   * clipboard uploads it straight away. Plain-text pastes are left alone. */
+  function handlePaste(e: ClipboardEvent<HTMLDivElement>) {
+    if (sending || recording) return
+    const file = e.clipboardData.files[0]
+    if (!file) return
+    e.preventDefault()
+    void sendFile(file)
+  }
+
+  async function sendFile(file: File) {
+    if (!user) return
     primeAudio()
     setSending(true)
     setError(null)
@@ -365,44 +384,69 @@ export function TaskChat({
     }
   }
 
+  /** A message lives inside one Firestore doc, so a recording is cut into
+   * segments of ~SEGMENT_BYTES, each posted as its own voice message while
+   * recording continues — no time limit. */
+  function beginSegment() {
+    const stream = streamRef.current
+    if (!stream) return
+    const recorder = new MediaRecorder(stream, { audioBitsPerSecond: 24_000 })
+    const chunks: Blob[] = []
+    let bytes = 0
+    let rotate = false
+    const startedAt = Date.now()
+
+    recorder.ondataavailable = (ev) => {
+      if (ev.data.size === 0) return
+      chunks.push(ev.data)
+      bytes += ev.data.size
+      if (bytes >= SEGMENT_BYTES && recorder.state === 'recording' && !finishingRef.current) {
+        rotate = true
+        recorder.stop()
+      }
+    }
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+      const duration = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+      if (rotate) beginSegment()
+      else {
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+      }
+      if (blob.size > 0) queueRef.current = queueRef.current.then(() => postVoice(blob, duration))
+      if (!rotate) queueRef.current = queueRef.current.then(() => setSending(false))
+    }
+    mediaRecorderRef.current = recorder
+    recorder.start(1000)
+  }
+
+  function postVoice(blob: Blob, duration: number): Promise<void> {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        try {
+          await postComment({ text: '', audioUrl: reader.result as string, audioDuration: duration })
+        } catch {
+          setError('الصوت مترفعش — جرّب تاني')
+        }
+        resolve()
+      }
+      reader.onerror = () => resolve()
+      reader.readAsDataURL(blob)
+    })
+  }
+
   async function startRecording() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
-      audioChunksRef.current = []
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data)
-      }
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        const duration = recordingTimeRef.current
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        if (blob.size > MAX_FILE_BYTES) {
-          setError('التسجيل طويل أوي — جرّب أقصر')
-          setSending(false)
-          return
-        }
-        const reader = new FileReader()
-        reader.onload = async () => {
-          try {
-            await postComment({ text: '', audioUrl: reader.result as string, audioDuration: duration })
-          } catch {
-            setError('الصوت مترفعش — جرّب تاني')
-          } finally {
-            setSending(false)
-          }
-        }
-        reader.readAsDataURL(blob)
-      }
-      mediaRecorderRef.current = recorder
-      recorder.start()
+      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true })
+      finishingRef.current = false
+      beginSegment()
       setRecording(true)
       recordingTimeRef.current = 0
       setRecordingTime(0)
       recordingTimerRef.current = setInterval(() => {
         recordingTimeRef.current += 1
         setRecordingTime(recordingTimeRef.current)
-        if (recordingTimeRef.current >= 60) stopRecording()
       }, 1000)
     } catch {
       setError('مقدرناش نوصل للميكروفون')
@@ -414,11 +458,12 @@ export function TaskChat({
       clearInterval(recordingTimerRef.current)
       recordingTimerRef.current = null
     }
+    finishingRef.current = true
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       setSending(true)
       mediaRecorderRef.current.stop()
-      mediaRecorderRef.current = null
     }
+    mediaRecorderRef.current = null
     setRecording(false)
     setRecordingTime(0)
     recordingTimeRef.current = 0
@@ -429,11 +474,15 @@ export function TaskChat({
       clearInterval(recordingTimerRef.current)
       recordingTimerRef.current = null
     }
+    finishingRef.current = true
     if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.ondataavailable = null
       mediaRecorderRef.current.onstop = null
       if (mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop()
       mediaRecorderRef.current = null
     }
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
     setRecording(false)
     setRecordingTime(0)
     recordingTimeRef.current = 0
@@ -448,7 +497,7 @@ export function TaskChat({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" onPaste={handlePaste}>
       <span className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">
         Chat {comments.length > 0 && `· ${comments.length}`}
       </span>
