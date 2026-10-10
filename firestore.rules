@@ -219,6 +219,11 @@ service cloud.firestore {
                 && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
                 && resource.data.authorUid == request.auth.uid
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt']);
+            // Any assigned member may react to ANY message — only the
+            // `reactions` map may change.
+            allow update: if isMember()
+                && isAssignedToMe(get(/databases/$(database)/documents/clients/$(clientId)/projects/$(projectId)/tasks/$(taskId)).data)
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
           }
 
           match /attachments/{attachmentId} {
