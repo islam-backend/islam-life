@@ -16,6 +16,8 @@ export interface TaskComment {
   audioDuration?: number
   /** uids of team members @-mentioned in `text`. */
   mentions?: string[]
+  /** emoji → uids of the members who reacted with it. */
+  reactions?: Record<string, string[]>
   createdAt?: unknown
   /** Set when the owner edits the message. */
   editedAt?: unknown

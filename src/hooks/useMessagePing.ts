@@ -99,6 +99,47 @@ export function useMessagePing() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner, myUid])
 
+  // ── Anyone: pinged when someone reacts to my message ──────────
+  // Reactions edit an existing comment, which the comment listeners above
+  // ignore — so listen to the notification the reactor wrote for me instead.
+  useEffect(() => {
+    if (!myUid) return
+    const q = query(
+      collection(db, 'members', myUid, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    )
+    return onSnapshot(
+      q,
+      (snap) => {
+        snap.docChanges().forEach((ch) => {
+          if (ch.type !== 'added') return
+          const n = ch.doc.data() as {
+            type?: string
+            actorName?: string
+            to?: string
+            detail?: string
+            taskId?: string
+            clientId?: string
+            projectId?: string
+            createdAt?: { toMillis?: () => number }
+          }
+          if (n.type !== 'comment.reaction' || seen.current.has(ch.doc.id)) return
+          seen.current.add(ch.doc.id)
+          const ts = n.createdAt?.toMillis?.() ?? 0
+          if (ts && ts < startedAt.current) return
+          const url =
+            n.clientId && n.projectId && n.taskId
+              ? `/clients/${n.clientId}/projects/${n.projectId}/tasks/${n.taskId}#chat`
+              : undefined
+          playPing()
+          showMessageNotification(`${n.to || '👍'} ${n.actorName || 'حد'} تفاعل على رسالتك`, n.detail || '', true, url)
+        })
+      },
+      (err) => console.error('useMessagePing (reactions):', err.message)
+    )
+  }, [myUid])
+
   // ── Anyone: pinged when a task is newly assigned to me ────────
   const knownTaskIds = useRef<Set<string>>(new Set())
   const baselineSet = useRef(false)

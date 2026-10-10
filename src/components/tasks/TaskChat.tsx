@@ -1,4 +1,14 @@
-import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
+import {
+  FieldPath,
+  addDoc,
+  arrayRemove,
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  updateDoc,
+} from 'firebase/firestore'
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
@@ -9,6 +19,7 @@ import { db } from '../../lib/firebase/app'
 import { fileToDataUrl, isTextFile, fileToText } from '../../lib/files'
 import { fileToChatImage } from '../../lib/image'
 import { primeAudio } from '../../lib/notify'
+import type { TaskComment } from '../../types/comment'
 import type { Task } from '../../types/task'
 import { canManageClient } from '../../utils/role'
 import { Avatar } from '../ui/Avatar'
@@ -16,6 +27,7 @@ import { MentionTextInput, nameOf } from './MentionTextInput'
 import { MessageText } from './MessageText'
 
 const MAX_FILE_BYTES = 700_000
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🙏', '👀', '✅', '😮']
 
 function formatTime(ts: unknown): string {
   const d = (ts as { toDate?: () => Date } | null)?.toDate?.()
@@ -186,6 +198,35 @@ export function TaskChat({
     }
   }
 
+  async function toggleReaction(c: TaskComment, emoji: string) {
+    if (!user) return
+    const has = !!c.reactions?.[emoji]?.includes(user.uid)
+    try {
+      await updateDoc(
+        commentRef(c.id),
+        new FieldPath('reactions', emoji),
+        has ? arrayRemove(user.uid) : arrayUnion(user.uid)
+      )
+    } catch {
+      setError('الريأكشن منفعش — جرّب تاني')
+      return
+    }
+    // Tell the message's author (not for un-reacting or reacting to yourself).
+    if (!has && task && c.authorUid !== user.uid) {
+      const preview = c.text.trim() || (c.audioUrl ? '🎤 رسالة صوتية' : c.imageUrl ? '📷 صورة' : c.fileName || '📎 ملف')
+      void logActivity([
+        {
+          ...taskBase(task),
+          type: 'comment.reaction',
+          to: emoji,
+          detail: preview.length > 140 ? `${preview.slice(0, 140)}…` : preview,
+          commentId: c.id,
+          recipients: [c.authorUid],
+        },
+      ])
+    }
+  }
+
   async function saveEdit(id: string) {
     const trimmed = editText.trim()
     setEditingId(null)
@@ -209,6 +250,16 @@ export function TaskChat({
   }, [])
 
   const authorName = member?.displayName || member?.email || 'Member'
+
+  // @-mention menu: only the people assigned to this task (not me, not the
+  // rest of the team). Without a task in hand, fall back to everyone.
+  const mentionable = useMemo(
+    () =>
+      task
+        ? members.filter((m) => task.assigneeUids?.includes(m.uid) && m.uid !== user?.uid)
+        : members,
+    [members, task, user?.uid]
+  )
 
   function resolveMentions(body: string): string[] {
     return members
@@ -486,8 +537,64 @@ export function TaskChat({
                     </div>
                   )}
 
-                  {!editing && (mine || canManage) && (
-                    <div className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                  {/* Reaction chips — always visible once someone reacted */}
+                  {!editing && Object.values(c.reactions ?? {}).some((u) => u.length > 0) && (
+                    <div className={`flex flex-wrap gap-1 ${mine ? 'justify-end' : ''}`}>
+                      {Object.entries(c.reactions ?? {})
+                        .filter(([, uids]) => uids.length > 0)
+                        .map(([emoji, uids]) => {
+                          const reacted = !!user && uids.includes(user.uid)
+                          const names = uids
+                            .map((u) => (u === user?.uid ? 'أنا' : members.find((m) => m.uid === u)?.displayName || 'حد'))
+                            .join('، ')
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleReaction(c, emoji)}
+                              title={names}
+                              className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[12px] ${
+                                reacted
+                                  ? 'border-accent bg-accent-tint text-accent-tint-text'
+                                  : 'border-border bg-surface text-text-muted hover:bg-field'
+                              }`}
+                            >
+                              <span>{emoji}</span>
+                              <span className="text-[11px] font-semibold tabular-nums">{uids.length}</span>
+                            </button>
+                          )
+                        })}
+                    </div>
+                  )}
+
+                  {!editing && (
+                    <div className="flex items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      <div className="group/react relative">
+                        <button
+                          type="button"
+                          title="ريأكشن"
+                          className="text-[12px] leading-none text-text-faint hover:text-text"
+                        >
+                          😊+
+                        </button>
+                        <div
+                          className={`absolute bottom-full z-10 hidden pb-1 group-focus-within/react:block group-hover/react:block ${
+                            mine ? 'right-0' : 'left-0'
+                          }`}
+                        >
+                          <div className="flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg">
+                            {REACTION_EMOJIS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => toggleReaction(c, emoji)}
+                                className="rounded-full px-1 text-[16px] transition-transform hover:scale-125"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                       {mine && c.text && (
                         <button
                           onClick={() => {
@@ -628,7 +735,7 @@ export function TaskChat({
               setText(v)
               if (addedUid) setMentionUids((prev) => (prev.includes(addedUid) ? prev : [...prev, addedUid]))
             }}
-            members={members}
+            members={mentionable}
             disabled={sending}
             placeholder="اكتب رسالة… (@ لمنشن حد)"
           />

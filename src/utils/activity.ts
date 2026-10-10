@@ -106,6 +106,11 @@ export function describeActivity(e: ActivityEntry, forMe = false): { icon: strin
     }
     case 'comment.mention':
       return { icon: '📣', text: forMe ? `${who} عمل لك منشن في ${task}` : `${who} عمل منشن في ${task}` }
+    case 'comment.reaction':
+      return {
+        icon: e.to || '👍',
+        text: forMe ? `${who} تفاعل ${e.to || ''} على رسالتك في ${task}` : `${who} تفاعل ${e.to || ''} على رسالة في ${task}`,
+      }
     case 'attachment.added':
       return { icon: '📎', text: `${who} رفع ملف «${e.detail}» على ${task}` }
     case 'attachment.deleted':
@@ -145,6 +150,64 @@ export function describeActivity(e: ActivityEntry, forMe = false): { icon: strin
       return { icon: '✉️', text: `${who} لغى دعوة ${e.targetName}` }
     default:
       return { icon: '•', text: `${who} · ${e.type}` }
+  }
+}
+
+/** Before → after, formatted for display, for events that change a value. */
+export function changeOf(e: ActivityEntry): { label: string; from: string; to: string } | null {
+  const prio = (v?: string) => PRIORITY_AR[v ?? ''] ?? v ?? ''
+  const role = (v?: string) => ROLE_AR[v ?? ''] ?? v ?? ''
+  const from = e.from ?? ''
+  const to = e.to ?? ''
+  switch (e.type) {
+    case 'task.renamed':
+      return { label: 'الاسم', from, to }
+    case 'task.status':
+      return { label: 'الحالة', from, to }
+    case 'task.priority':
+      return { label: 'الأولوية', from: prio(from), to: prio(to) }
+    case 'task.due_date':
+      return { label: 'ميعاد التسليم', from: dateAr(from), to: dateAr(to) }
+    case 'task.start_date':
+      return { label: 'ميعاد البداية', from: dateAr(from), to: dateAr(to) }
+    case 'task.tags':
+      return { label: 'التاجز', from: from || 'بدون', to: to || 'بدون' }
+    case 'client.renamed':
+    case 'project.renamed':
+      return { label: 'الاسم', from, to }
+    case 'member.role':
+      return { label: 'الدور', from: role(from), to: role(to) }
+    default:
+      return null
+  }
+}
+
+/** Short sentence for the Audit Log — the before/after is shown separately
+ * as chips, so it isn't repeated here. */
+export function auditHeadline(e: ActivityEntry): string {
+  const who = e.actorName || 'حد'
+  const task = `«${e.taskTitle || 'تاسك'}»`
+  switch (e.type) {
+    case 'task.renamed':
+      return `${who} غيّر اسم التاسك`
+    case 'task.status':
+      return `${who} غيّر حالة ${task}`
+    case 'task.priority':
+      return `${who} غيّر أولوية ${task}`
+    case 'task.due_date':
+      return `${who} غيّر ميعاد تسليم ${task}`
+    case 'task.start_date':
+      return `${who} غيّر ميعاد بداية ${task}`
+    case 'task.tags':
+      return `${who} غيّر تاجز ${task}`
+    case 'client.renamed':
+      return `${who} غيّر اسم العميل`
+    case 'project.renamed':
+      return `${who} غيّر اسم المشروع`
+    case 'member.role':
+      return `${who} غيّر دور ${e.targetName}`
+    default:
+      return describeActivity(e).text
   }
 }
 
