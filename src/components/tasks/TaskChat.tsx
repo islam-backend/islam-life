@@ -9,7 +9,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { type ChangeEvent, type ClipboardEvent, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type ClipboardEvent, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
 import { useMembers } from '../../hooks/useMembers'
@@ -94,20 +94,62 @@ function loadSpeed(): number {
   }
 }
 
+// One shared speed for every voice message: changing it on any of them
+// updates all the others live (and is remembered in this browser).
+let voiceSpeed = loadSpeed()
+const speedListeners = new Set<() => void>()
+
+function setVoiceSpeed(v: number) {
+  voiceSpeed = v
+  try {
+    localStorage.setItem('chat-voice-speed', String(v))
+  } catch {
+    /* ignore */
+  }
+  speedListeners.forEach((l) => l())
+}
+
+function useVoiceSpeed(): number {
+  return useSyncExternalStore(
+    (cb) => {
+      speedListeners.add(cb)
+      return () => {
+        speedListeners.delete(cb)
+      }
+    },
+    () => voiceSpeed
+  )
+}
+
+/** Only one voice message plays at a time — starting one stops the other. */
+let stopCurrentVoice: (() => void) | null = null
+
 function VoiceMessage({
   audioUrl,
   audioDuration,
   mine,
+  autoPlay = false,
+  onAutoPlayStarted,
+  onEnded,
 }: {
   audioUrl: string
   audioDuration?: number
   mine: boolean
+  /** Start playing as soon as this becomes true (previous voice finished). */
+  autoPlay?: boolean
+  onAutoPlayStarted?: () => void
+  /** Fired when playback reaches the end on its own. */
+  onEnded?: () => void
 }) {
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  // Remembered across messages, so "2x" stays on for the whole thread.
-  const [speed, setSpeed] = useState(loadSpeed)
+  const speed = useVoiceSpeed()
   const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // Follow the shared speed, including while this message is playing.
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = speed
+  }, [speed])
 
   const bars = useMemo(() => makeWaveBars(audioUrl), [audioUrl])
   const totalSecs = audioDuration ?? 0
@@ -122,22 +164,46 @@ function VoiceMessage({
       a.onended = () => {
         setPlaying(false)
         setCurrentTime(0)
+        if (stopCurrentVoice === stopMe.current) stopCurrentVoice = null
+        onEndedRef.current?.()
       }
       audioRef.current = a
     }
     return audioRef.current
   }
 
-  function toggle() {
+  function play() {
     const a = ensureAudio()
+    if (stopCurrentVoice && stopCurrentVoice !== stopMe.current) stopCurrentVoice()
+    stopCurrentVoice = stopMe.current
+    a.playbackRate = voiceSpeed
+    void a.play()
+    setPlaying(true)
+  }
+
+  function toggle() {
     if (playing) {
-      a.pause()
+      audioRef.current?.pause()
       setPlaying(false)
     } else {
-      void a.play()
-      setPlaying(true)
+      play()
     }
   }
+
+  // Latest callbacks / stop handle, readable from the audio element's events.
+  const onEndedRef = useRef(onEnded)
+  onEndedRef.current = onEnded
+  const stopMe = useRef<() => void>(() => {
+    audioRef.current?.pause()
+    setPlaying(false)
+  })
+
+  useEffect(() => {
+    if (!autoPlay) return
+    onAutoPlayStarted?.()
+    play()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay])
 
   /** Jump to a fraction (0–1) of the recording. */
   function seekTo(ratio: number) {
@@ -169,20 +235,15 @@ function VoiceMessage({
   }
 
   useEffect(() => {
+    const me = stopMe.current
     return () => {
       audioRef.current?.pause()
+      if (stopCurrentVoice === me) stopCurrentVoice = null
     }
   }, [])
 
   function cycleSpeed() {
-    const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]
-    setSpeed(next)
-    if (audioRef.current) audioRef.current.playbackRate = next
-    try {
-      localStorage.setItem('chat-voice-speed', String(next))
-    } catch {
-      /* ignore */
-    }
+    setVoiceSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])
   }
 
   const accentColor = mine ? 'bg-white' : 'bg-accent'
@@ -261,6 +322,9 @@ export function TaskChat({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [pickerFor, setPickerFor] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(null)
+  /** Voice message that should start playing by itself (chained playback). */
+  const [autoPlayId, setAutoPlayId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -655,6 +719,7 @@ export function TaskChat({
                     <div className="relative max-w-full">
                     <div
                       dir="auto"
+                      onClick={() => setActiveId((cur) => (cur === c.id ? null : c.id))}
                       title={grouped ? formatTime(c.createdAt) : undefined}
                       className={`rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
                         mine ? 'bg-accent text-white' : 'bg-surface text-text'
@@ -669,7 +734,18 @@ export function TaskChat({
                         />
                       )}
                       {c.audioUrl && (
-                        <VoiceMessage audioUrl={c.audioUrl} audioDuration={c.audioDuration} mine={mine} />
+                        <VoiceMessage
+                          audioUrl={c.audioUrl}
+                          audioDuration={c.audioDuration}
+                          mine={mine}
+                          autoPlay={autoPlayId === c.id}
+                          onAutoPlayStarted={() => setAutoPlayId(null)}
+                          onEnded={() => {
+                            // Chain into the voice message right after this one.
+                            const next = comments[i + 1]
+                            if (next?.audioUrl) setAutoPlayId(next.id)
+                          }}
+                        />
                       )}
                       {c.fileUrl && !c.imageUrl && !c.audioUrl && (
                         <a
@@ -689,48 +765,49 @@ export function TaskChat({
                       {c.text && <MessageText text={c.text} mentionNames={mentionNamesFor(c.mentions)} />}
                     </div>
 
-                    {/* Floating toolbar — takes no space, only shows on hover */}
-                    <div
-                      className={`absolute -top-3 z-10 items-center gap-2 rounded-full border border-border bg-surface px-2 py-0.5 shadow-md ${
-                        pickerFor === c.id ? 'flex' : 'hidden group-hover:flex'
-                      } ${mine ? 'left-0' : 'right-0'}`}
-                    >
-                      <div className="relative">
-                        <button
-                          type="button"
-                          title="ريأكشن"
-                          onClick={() => setPickerFor((cur) => (cur === c.id ? null : c.id))}
-                          className="text-[13px] leading-none"
-                        >
-                          😊
-                        </button>
-                        {pickerFor === c.id && (
-                          <div className={`absolute bottom-full z-20 pb-1 ${mine ? 'left-0' : 'right-0'}`}>
-                            <div className="flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg">
-                              {REACTION_EMOJIS.map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  type="button"
-                                  onClick={() => {
-                                    setPickerFor(null)
-                                    void toggleReaction(c, emoji)
-                                  }}
-                                  className="rounded-full px-1 text-[16px] transition-transform hover:scale-125"
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                    {/* Emoji row — in flow under the bubble, so it can never be clipped */}
+                    {pickerFor === c.id && (
+                      <div className={`mt-1 flex ${mine ? 'justify-end' : ''}`}>
+                        <div className="flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-sm">
+                          {REACTION_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => {
+                                setPickerFor(null)
+                                void toggleReaction(c, emoji)
+                              }}
+                              className="rounded-full px-1 text-[16px] transition-transform hover:scale-125"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
                       </div>
+                    )}
+
+                    {/* Actions — beside the bubble (never over a neighbour), hover or tap */}
+                    <div
+                      dir="ltr"
+                      className={`absolute top-1 items-center gap-1.5 whitespace-nowrap ${
+                        activeId === c.id || pickerFor === c.id ? 'flex' : 'hidden group-hover:flex'
+                      } ${mine ? 'right-full mr-2' : 'left-full ml-2'}`}
+                    >
+                      <button
+                        type="button"
+                        title="ريأكشن"
+                        onClick={() => setPickerFor((cur) => (cur === c.id ? null : c.id))}
+                        className="rounded-full border border-border bg-surface px-1.5 py-0.5 text-[13px] leading-none shadow-sm hover:bg-field"
+                      >
+                        😊
+                      </button>
                       {mine && c.text && (
                         <button
                           onClick={() => {
                             setEditingId(c.id)
                             setEditText(c.text)
                           }}
-                          className="text-[10.5px] font-medium text-text-faint hover:text-text"
+                          className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10.5px] font-medium text-text-muted shadow-sm hover:text-text"
                         >
                           تعديل
                         </button>
@@ -738,7 +815,7 @@ export function TaskChat({
                       {canManage && (
                         <button
                           onClick={() => deleteComment(c.id)}
-                          className="text-[10.5px] font-medium text-text-faint hover:text-red"
+                          className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10.5px] font-medium text-text-muted shadow-sm hover:text-red"
                         >
                           مسح
                         </button>
