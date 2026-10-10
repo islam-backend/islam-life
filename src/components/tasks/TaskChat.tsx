@@ -9,7 +9,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { type ChangeEvent, type ClipboardEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type ClipboardEvent, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
 import { useMembers } from '../../hooks/useMembers'
@@ -114,28 +114,64 @@ function VoiceMessage({
   const progress = totalSecs > 0 ? currentTime / totalSecs : 0
   const playedCount = Math.floor(progress * bars.length)
 
-  function toggle() {
+  function ensureAudio(): HTMLAudioElement {
     if (!audioRef.current) {
-      audioRef.current = new Audio(audioUrl)
-      audioRef.current.playbackRate = speed
-      audioRef.current.ontimeupdate = () => setCurrentTime(audioRef.current?.currentTime ?? 0)
-      audioRef.current.onended = () => {
+      const a = new Audio(audioUrl)
+      a.playbackRate = speed
+      a.ontimeupdate = () => setCurrentTime(a.currentTime)
+      a.onended = () => {
         setPlaying(false)
         setCurrentTime(0)
       }
+      audioRef.current = a
     }
+    return audioRef.current
+  }
+
+  function toggle() {
+    const a = ensureAudio()
     if (playing) {
-      audioRef.current.pause()
+      a.pause()
       setPlaying(false)
     } else {
-      void audioRef.current.play()
+      void a.play()
       setPlaying(true)
     }
   }
 
+  /** Jump to a fraction (0–1) of the recording. */
+  function seekTo(ratio: number) {
+    const a = ensureAudio()
+    if (a.readyState < 1) {
+      a.addEventListener('loadedmetadata', () => seekTo(ratio), { once: true })
+      return
+    }
+    const apply = () => {
+      const dur = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : totalSecs
+      if (!dur) return
+      a.currentTime = Math.min(Math.max(0, ratio * dur), Math.max(0, dur - 0.05))
+      setCurrentTime(a.currentTime)
+    }
+    // MediaRecorder webm files report duration = Infinity and aren't
+    // seekable until the browser has scanned to the end once.
+    if (a.duration === Infinity) {
+      a.addEventListener('timeupdate', apply, { once: true })
+      a.currentTime = 1e101
+      return
+    }
+    apply()
+  }
+
+  function seekFromPointer(e: PointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0) return
+    seekTo(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)))
+  }
+
   useEffect(() => {
-    const a = audioRef.current
-    return () => { a?.pause() }
+    return () => {
+      audioRef.current?.pause()
+    }
   }, [])
 
   function cycleSpeed() {
@@ -162,8 +198,19 @@ function VoiceMessage({
         {playing ? <PauseIcon /> : <PlayIcon />}
       </button>
 
-      {/* Waveform bars */}
-      <div className="flex flex-1 items-center gap-[2.5px]" style={{ height: 28 }}>
+      {/* Waveform bars — click or drag to jump to a point */}
+      <div
+        dir="ltr"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          seekFromPointer(e)
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons === 1) seekFromPointer(e)
+        }}
+        className="flex flex-1 cursor-pointer touch-none items-center gap-[2.5px]"
+        style={{ height: 28 }}
+      >
         {bars.map((h, i) => (
           <div
             key={i}
@@ -174,7 +221,7 @@ function VoiceMessage({
       </div>
 
       <span className={`shrink-0 text-[11px] tabular-nums ${mine ? 'text-white/70' : 'text-text-faint'}`}>
-        {formatDuration(playing ? currentTime : totalSecs)}
+        {formatDuration(playing || currentTime > 0 ? currentTime : totalSecs)}
       </span>
 
       <button
