@@ -45,7 +45,7 @@
   --color-cyan-tint-text: var(--cyan-tint-text);
 
   --font-sans:
-    system-ui, -apple-system, 'Segoe UI', sans-serif;
+    system-ui, -apple-system, 'Segoe UI', 'Noto Sans Arabic', Tahoma, sans-serif;
 }
 
 * {

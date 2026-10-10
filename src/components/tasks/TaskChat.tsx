@@ -43,6 +43,10 @@ function formatTime(ts: unknown): string {
         d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
+function msOf(ts: unknown): number {
+  return (ts as { toMillis?: () => number } | null)?.toMillis?.() ?? Date.now()
+}
+
 function formatDuration(secs: number): string {
   const m = Math.floor(secs / 60)
   const s = Math.floor(secs % 60)
@@ -176,6 +180,7 @@ export function TaskChat({
   const [zoomed, setZoomed] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [pickerFor, setPickerFor] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -508,22 +513,38 @@ export function TaskChat({
         ) : comments.length === 0 ? (
           <p className="text-[12.5px] text-text-faint">مفيش رسائل لسه — ابدأ الكلام.</p>
         ) : (
-          comments.map((c) => {
+          comments.map((c, i) => {
             const mine = c.authorUid === user?.uid
             const editing = editingId === c.id
+            // WhatsApp-style: a message from the same person within 5 minutes
+            // of the previous one stacks under it — no repeated avatar / name.
+            const prev = comments[i - 1]
+            const grouped =
+              !!prev &&
+              prev.authorUid === c.authorUid &&
+              msOf(c.createdAt) - msOf(prev.createdAt) < 5 * 60_000
             return (
-              <div key={c.id} className={`group flex gap-2.5 ${mine ? 'flex-row-reverse' : ''}`}>
-                <Avatar
-                  name={c.authorName}
-                  imageUrl={members.find((m) => m.uid === c.authorUid)?.avatarUrl}
-                  size={26}
-                  colorClass={mine ? 'bg-avatar-a' : 'bg-avatar-b'}
-                />
+              <div
+                key={c.id}
+                className={`group flex gap-2.5 ${mine ? 'flex-row-reverse' : ''} ${grouped ? '-mt-2' : ''}`}
+              >
+                {grouped ? (
+                  <span className="w-[26px] shrink-0" />
+                ) : (
+                  <Avatar
+                    name={c.authorName}
+                    imageUrl={members.find((m) => m.uid === c.authorUid)?.avatarUrl}
+                    size={26}
+                    colorClass={mine ? 'bg-avatar-a' : 'bg-avatar-b'}
+                  />
+                )}
                 <div className={`flex max-w-[78%] flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
-                  <span className="text-[11px] text-text-faint">
-                    {mine ? 'أنا' : c.authorName} · {formatTime(c.createdAt)}
-                    {c.editedAt ? ' · اتعدّلت' : ''}
-                  </span>
+                  {!grouped && (
+                    <span className="text-[11px] text-text-faint">
+                      {mine ? 'أنا' : c.authorName} · {formatTime(c.createdAt)}
+                      {c.editedAt ? ' · اتعدّلت' : ''}
+                    </span>
+                  )}
 
                   {editing ? (
                     <div className="flex w-full flex-col gap-1.5">
@@ -551,7 +572,10 @@ export function TaskChat({
                       </div>
                     </div>
                   ) : (
+                    <div className="relative max-w-full">
                     <div
+                      dir="auto"
+                      title={grouped ? formatTime(c.createdAt) : undefined}
                       className={`rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
                         mine ? 'bg-accent text-white' : 'bg-surface text-text'
                       }`}
@@ -584,6 +608,67 @@ export function TaskChat({
                       )}
                       {c.text && <MessageText text={c.text} mentionNames={mentionNamesFor(c.mentions)} />}
                     </div>
+
+                    {/* Floating toolbar — takes no space, only shows on hover */}
+                    <div
+                      className={`absolute -top-3 z-10 items-center gap-2 rounded-full border border-border bg-surface px-2 py-0.5 shadow-md ${
+                        pickerFor === c.id ? 'flex' : 'hidden group-hover:flex'
+                      } ${mine ? 'left-0' : 'right-0'}`}
+                    >
+                      <div className="relative">
+                        <button
+                          type="button"
+                          title="ريأكشن"
+                          onClick={() => setPickerFor((cur) => (cur === c.id ? null : c.id))}
+                          className="text-[13px] leading-none"
+                        >
+                          😊
+                        </button>
+                        {pickerFor === c.id && (
+                          <div className={`absolute bottom-full z-20 pb-1 ${mine ? 'left-0' : 'right-0'}`}>
+                            <div className="flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg">
+                              {REACTION_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => {
+                                    setPickerFor(null)
+                                    void toggleReaction(c, emoji)
+                                  }}
+                                  className="rounded-full px-1 text-[16px] transition-transform hover:scale-125"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {mine && c.text && (
+                        <button
+                          onClick={() => {
+                            setEditingId(c.id)
+                            setEditText(c.text)
+                          }}
+                          className="text-[10.5px] font-medium text-text-faint hover:text-text"
+                        >
+                          تعديل
+                        </button>
+                      )}
+                      {canManage && (
+                        <button
+                          onClick={() => deleteComment(c.id)}
+                          className="text-[10.5px] font-medium text-text-faint hover:text-red"
+                        >
+                          مسح
+                        </button>
+                      )}
+                    </div>
+                    </div>
+                  )}
+
+                  {grouped && !!c.editedAt && !editing && (
+                    <span className="text-[10.5px] text-text-faint">اتعدّلت</span>
                   )}
 
                   {/* Reaction chips — always visible once someone reacted */}
@@ -612,57 +697,6 @@ export function TaskChat({
                             </button>
                           )
                         })}
-                    </div>
-                  )}
-
-                  {!editing && (
-                    <div className="flex items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                      <div className="group/react relative">
-                        <button
-                          type="button"
-                          title="ريأكشن"
-                          className="text-[12px] leading-none text-text-faint hover:text-text"
-                        >
-                          😊+
-                        </button>
-                        <div
-                          className={`absolute bottom-full z-10 hidden pb-1 group-focus-within/react:block group-hover/react:block ${
-                            mine ? 'right-0' : 'left-0'
-                          }`}
-                        >
-                          <div className="flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg">
-                            {REACTION_EMOJIS.map((emoji) => (
-                              <button
-                                key={emoji}
-                                type="button"
-                                onClick={() => toggleReaction(c, emoji)}
-                                className="rounded-full px-1 text-[16px] transition-transform hover:scale-125"
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      {mine && c.text && (
-                        <button
-                          onClick={() => {
-                            setEditingId(c.id)
-                            setEditText(c.text)
-                          }}
-                          className="text-[10.5px] font-medium text-text-faint hover:text-text"
-                        >
-                          تعديل
-                        </button>
-                      )}
-                      {canManage && (
-                        <button
-                          onClick={() => deleteComment(c.id)}
-                          className="text-[10.5px] font-medium text-text-faint hover:text-red"
-                        >
-                          مسح
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>

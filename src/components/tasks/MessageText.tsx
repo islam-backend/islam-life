@@ -4,7 +4,7 @@ import { Fragment } from 'react'
 export function MessageText({ text, mentionNames }: { text: string; mentionNames: string[] }) {
   if (!text) return null
   if (mentionNames.length === 0) {
-    return <span className="block whitespace-pre-wrap break-words">{text}</span>
+    return <span dir="auto" className="block whitespace-pre-wrap break-words [unicode-bidi:plaintext]">{text}</span>
   }
 
   // longest name first so "@Omar Wael" wins over "@Omar"
@@ -14,7 +14,7 @@ export function MessageText({ text, mentionNames }: { text: string; mentionNames
   const isMention = new Set(names.map((n) => `@${n}`))
 
   return (
-    <span dir="auto" className="block whitespace-pre-wrap break-words">
+    <span dir="auto" className="block whitespace-pre-wrap break-words [unicode-bidi:plaintext]">
       {text.split(re).map((part, i) =>
         isMention.has(part) ? (
           <span key={i} className="font-semibold underline underline-offset-2">
