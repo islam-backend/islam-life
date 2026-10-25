@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
+import { ProjectTabs } from '../components/layout/ProjectTabs'
 import { FilterBar } from '../components/layout/FilterBar'
 import { TopBar } from '../components/layout/TopBar'
 import { Button } from '../components/ui/Button'
@@ -18,12 +19,15 @@ import {
   matchesStatusFilter,
   matchesTagFilter,
 } from '../utils/taskFilters'
-import { canManageClient } from '../utils/role'
+import { canCreateOwnTask, canManageClient } from '../utils/role'
 
 export function ProjectTasksPage() {
   const { clientId = '', projectId = '' } = useParams()
   const { member } = useAuth()
   const canManage = canManageClient(member, clientId)
+  // A member the owner/manager allowed to add tasks for themselves.
+  const canAddOwn = !canManage && canCreateOwnTask(member, projectId)
+  const canAddTask = canManage || canAddOwn
 
   // Everyone (owner, manager, member) can read the client + project docs,
   // so fetch the breadcrumb names directly by id — uniform, and correct
@@ -80,13 +84,14 @@ export function ProjectTasksPage() {
       <TopBar
         crumbs={[{ label: clientProject.clientName }, { label: clientProject.projectName }]}
         actions={
-          canManage ? (
+          canAddTask ? (
             <Button variant="primary" onClick={() => setShowNewTask(true)}>
               New Task
             </Button>
           ) : undefined
         }
       />
+      <ProjectTabs clientId={clientId} projectId={projectId} />
       <FilterBar
         filters={filters}
         onChange={setFilters}
@@ -102,7 +107,7 @@ export function ProjectTasksPage() {
         archiveBy={canManage ? member?.uid : undefined}
       />
 
-      {canManage && (
+      {canAddTask && (
         <NewTaskModal
           open={showNewTask}
           onClose={() => setShowNewTask(false)}
@@ -112,6 +117,7 @@ export function ProjectTasksPage() {
           projectName={clientProject.projectName}
           members={members}
           taskCount={tasks.length}
+          selfOnly={canAddOwn}
         />
       )}
     </>

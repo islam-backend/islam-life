@@ -11,6 +11,7 @@ import { CalendarPage } from './pages/CalendarPage'
 import { EmptyProjectState } from './pages/EmptyProjectState'
 import { LoginPage } from './pages/LoginPage'
 import { MyTasksPage } from './pages/MyTasksPage'
+import { ProjectNotesPage } from './pages/ProjectNotesPage'
 import { ProjectTasksPage } from './pages/ProjectTasksPage'
 import { StyleguidePage } from './pages/StyleguidePage'
 import { TaskDetailPage } from './pages/TaskDetailPage'
@@ -37,6 +38,7 @@ function Gate() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/my-tasks" element={<MyTasksPage />} />
         <Route path="/clients/:clientId/projects/:projectId" element={<ProjectTasksPage />} />
+        <Route path="/clients/:clientId/projects/:projectId/notes" element={<ProjectNotesPage />} />
         {/* Its own full page, not an overlay on the task list — a direct link
             (from Admin → All Assignments, say) opens the same real page. */}
         <Route path="/clients/:clientId/projects/:projectId/tasks/:taskId" element={<TaskDetailPage />} />

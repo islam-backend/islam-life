@@ -21,6 +21,12 @@ export interface Member {
    * by the owner, anytime, independent of individual task assignment.
    * Owner ignores this entirely (sees everything). */
   assignedProjects?: AssignedProject[]
+  /** Same ids as `assignedProjects`, flat — the security rules can't search a
+   * list of maps, so they check this one. Always written together with it. */
+  assignedProjectIds?: string[]
+  /** MEMBER only, granted by the owner/manager: may create tasks for
+   * themselves (assigned to them alone) inside their assigned projects. */
+  canCreateOwnTasks?: boolean
   /** MANAGER only — the clients this manager has full, owner-like control
    * over (create projects, create/assign/delete tasks, invite members).
    * Ignored for owner (sees everything) and plain members. */

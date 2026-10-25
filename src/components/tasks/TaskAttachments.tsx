@@ -1,5 +1,5 @@
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { type ChangeEvent, useRef, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '../../hooks/useAuth'
 import { useTaskAttachments } from '../../hooks/useTaskAttachments'
@@ -7,36 +7,10 @@ import { db } from '../../lib/firebase/app'
 import { fileToDataUrl, fileToText, formatFileSize, isTextFile } from '../../lib/files'
 import { logActivity, taskBase, taskWatchers } from '../../lib/activityLog'
 import { fileToChatImage } from '../../lib/image'
+import { renderMarkdown } from '../../lib/markdown'
 import type { Task } from '../../types/task'
 
 const MAX_FILE_BYTES = 700_000
-
-// Minimal markdown-to-HTML renderer (no external library needed).
-function renderMarkdown(md: string): string {
-  const escHtml = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  const inlineMd = (html: string) =>
-    html
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`(.+?)`/g, '<code class="bg-field px-1 rounded text-[0.9em]">$1</code>')
-  const lines = md.split('\n')
-  const out: string[] = []
-  let inList = false
-  for (const line of lines) {
-    const isList = /^[-*] /.test(line)
-    if (isList && !inList) { out.push('<ul class="list-disc pl-5 space-y-0.5">'); inList = true }
-    if (!isList && inList) { out.push('</ul>'); inList = false }
-    if (line.startsWith('### ')) out.push(`<h3 class="text-[14px] font-bold mt-3">${inlineMd(escHtml(line.slice(4)))}</h3>`)
-    else if (line.startsWith('## ')) out.push(`<h2 class="text-[15px] font-bold mt-4">${inlineMd(escHtml(line.slice(3)))}</h2>`)
-    else if (line.startsWith('# ')) out.push(`<h1 class="text-[17px] font-bold mt-4">${inlineMd(escHtml(line.slice(2)))}</h1>`)
-    else if (isList) out.push(`<li>${inlineMd(escHtml(line.slice(2)))}</li>`)
-    else if (line === '') out.push('<div class="h-2"></div>')
-    else out.push(`<p>${inlineMd(escHtml(line))}</p>`)
-  }
-  if (inList) out.push('</ul>')
-  return out.join('\n')
-}
 
 function fileIcon(fileType: string, fileName: string): string {
   if (fileType.startsWith('image/')) return '🖼️'
@@ -45,6 +19,14 @@ function fileIcon(fileType: string, fileName: string): string {
   if (fileName.endsWith('.md') || fileName.endsWith('.markdown')) return '📝'
   if (fileName.endsWith('.json') || fileName.endsWith('.yaml') || fileName.endsWith('.yml')) return '🗂️'
   return '📎'
+}
+
+/** Pasted screenshots all arrive as "image.png" — give each a unique name. */
+function nameClipboardFile(file: File): File {
+  if (!/^image\.\w+$/i.test(file.name)) return file
+  const ext = file.name.split('.').pop()
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  return new File([file], `pasted-${stamp}.${ext}`, { type: file.type })
 }
 
 function PlusIcon() {
@@ -90,12 +72,21 @@ export function TaskAttachments({
 
   const authorName = member?.displayName || member?.email || 'Member'
 
-  async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+  function handleUpload(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (!file || !user) return
+    void uploadFiles(files)
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (!user || files.length === 0) return
     setUploading(true)
     setError(null)
+    for (const file of files) await uploadOne(file, user)
+    setUploading(false)
+  }
+
+  async function uploadOne(file: File, user: { uid: string }) {
     try {
       const coll = collection(db, 'clients', clientId, 'projects', projectId, 'tasks', taskId, 'attachments')
       if (file.type.startsWith('image/')) {
@@ -141,8 +132,6 @@ export function TaskAttachments({
       }
     } catch (err) {
       setError((err as Error).message === 'too-large' ? 'الملف أكبر من 700 كيلوبايت' : 'الملف مترفعش — جرّب تاني')
-    } finally {
-      setUploading(false)
     }
   }
 
@@ -157,6 +146,25 @@ export function TaskAttachments({
     }
   }
 
+  // Ctrl+V anywhere on the page drops clipboard files (screenshots, copied
+  // files) straight in — unless the cursor is in a text field, where paste
+  // should keep meaning "paste text" (the chat has its own image paste).
+  const uploadRef = useRef(uploadFiles)
+  uploadRef.current = uploadFiles
+  const onPaste = useCallback((e: ClipboardEvent) => {
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    const files = Array.from(e.clipboardData?.files ?? []).map(nameClipboardFile)
+    if (files.length === 0) return
+    e.preventDefault()
+    void uploadRef.current(files)
+  }, [])
+  useEffect(() => {
+    if (!canEdit) return
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [canEdit, onPaste])
+
   const isMdFile = (name: string) => name.endsWith('.md') || name.endsWith('.markdown')
 
   return (
@@ -167,7 +175,7 @@ export function TaskAttachments({
         </span>
         {canEdit && (
           <>
-            <input ref={fileInputRef} type="file" accept="*/*" onChange={handleUpload} className="hidden" />
+            <input ref={fileInputRef} type="file" accept="*/*" multiple onChange={handleUpload} className="hidden" />
             <button
               type="button"
               disabled={uploading}
@@ -186,7 +194,7 @@ export function TaskAttachments({
       {loading ? (
         <p className="text-[12.5px] text-text-faint">Loading…</p>
       ) : attachments.length === 0 ? (
-        <p className="text-[12.5px] text-text-faint">مفيش ملفات متحطة لسه.</p>
+        <p className="text-[12.5px] text-text-faint">مفيش ملفات متحطة لسه.{canEdit && ' اضغط Ctrl+V عشان تلصق صورة أو ملف.'}</p>
       ) : (
         <div className="flex flex-col gap-2">
           {attachments.map((a) => {

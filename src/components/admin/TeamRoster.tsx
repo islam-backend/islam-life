@@ -113,6 +113,7 @@ export function TeamRoster({
       const patch: Record<string, unknown> = {
         role: inv.role,
         assignedProjects: wantProjects,
+        assignedProjectIds: wantProjects.map((x) => x.projectId),
         updatedAt: serverTimestamp(),
       }
       // Only touch managedClientIds for a manager invite — writing it (even

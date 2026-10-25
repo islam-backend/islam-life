@@ -71,6 +71,12 @@ export function TaskDetailPage() {
   const archived = !!task && isArchived(task)
   // An archived task is read-only for members until someone restores it.
   const canEdit = canManage || (assignedToMe && !archived)
+  // A member who created this task for themselves (allowed by the owner) can
+  // also rename it and change its description / due date.
+  const isOwnTask =
+    !!member && member.canCreateOwnTasks === true && task?.createdBy === member.uid &&
+    (task?.assigneeUids ?? []).length === 1 && assignedToMe
+  const canEditFields = canManage || (isOwnTask && !archived)
 
   const creator = members.find((m) => m.uid === task?.createdBy)
 
@@ -208,7 +214,7 @@ export function TaskDetailPage() {
           </div>
         )}
 
-        {canManage ? (
+        {canEditFields ? (
           <input
             // Remount on a remote rename so the field picks up the new title.
             key={task.title}
@@ -258,7 +264,7 @@ export function TaskDetailPage() {
           <span className="text-[12.5px] font-medium text-text-faint">Due date</span>
           <input
             type="date"
-            disabled={!canManage}
+            disabled={!canEditFields}
             defaultValue={toDateInputValue(task.dueDate)}
             onChange={(e) => setDueDate(e.target.value)}
             className="w-fit rounded-lg border border-border bg-field px-3 py-1.5 text-[13px] text-text outline-none focus:border-accent disabled:opacity-60"
@@ -276,7 +282,7 @@ export function TaskDetailPage() {
           <span className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Description</span>
           <textarea
             dir="auto"
-            disabled={!canManage}
+            disabled={!canEditFields}
             defaultValue={task.description}
             onChange={(e) => setDescription(e.target.value)}
             onBlur={saveDescription}
