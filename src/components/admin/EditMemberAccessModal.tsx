@@ -29,6 +29,7 @@ export function EditMemberAccessModal({
   const [projects, setProjects] = useState<AssignedProject[]>(member.assignedProjects || [])
   const [managedClientIds, setManagedClientIds] = useState<string[]>(member.managedClientIds || [])
   const [seesOwnerInvitees, setSeesOwnerInvitees] = useState(member.auditSeesOwnerInvitees === true)
+  const [canCreateOwn, setCanCreateOwn] = useState(member.canCreateOwnTasks === true)
   const [saving, setSaving] = useState(false)
 
   const effectiveRole: MemberRole = canChangeRole ? role : member.role
@@ -39,6 +40,8 @@ export function EditMemberAccessModal({
       await updateDoc(doc(db, 'members', member.uid), {
         role: effectiveRole,
         assignedProjects: effectiveRole === 'member' ? projects : [],
+        assignedProjectIds: effectiveRole === 'member' ? projects.map((p) => p.projectId) : [],
+        canCreateOwnTasks: effectiveRole === 'member' && canCreateOwn,
         managedClientIds: effectiveRole === 'manager' ? managedClientIds : [],
         auditSeesOwnerInvitees: effectiveRole === 'manager' && seesOwnerInvitees,
         updatedAt: serverTimestamp(),
@@ -47,6 +50,8 @@ export function EditMemberAccessModal({
       // Manager: rules only allow an `assignedProjects`-only update.
       await updateDoc(doc(db, 'members', member.uid), {
         assignedProjects: projects,
+        assignedProjectIds: projects.map((p) => p.projectId),
+        canCreateOwnTasks: canCreateOwn,
         updatedAt: serverTimestamp(),
       })
     }
@@ -90,9 +95,22 @@ export function EditMemberAccessModal({
             <ClientPicker clients={clients} selected={managedClientIds} onChange={setManagedClientIds} />
           </FormField>
         ) : effectiveRole === 'member' ? (
-          <FormField label="Projects they can see">
-            <ProjectPicker clients={clients} selected={projects} onChange={setProjects} />
-          </FormField>
+          <>
+            <FormField label="Projects they can see">
+              <ProjectPicker clients={clients} selected={projects} onChange={setProjects} />
+            </FormField>
+            <FormField label="Own tasks">
+              <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-text">
+                <input
+                  type="checkbox"
+                  checked={canCreateOwn}
+                  onChange={(e) => setCanCreateOwn(e.target.checked)}
+                  className="h-4 w-4 cursor-pointer accent-accent"
+                />
+                Can add tasks for themselves in these projects
+              </label>
+            </FormField>
+          </>
         ) : null}
 
         {effectiveRole === 'manager' && canChangeRole && (

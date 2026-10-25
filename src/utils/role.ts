@@ -34,3 +34,20 @@ export function canManageClient(
   if (isOwnerRole(member.role)) return true
   return isManagerRole(member.role) && !!clientId && (member.managedClientIds ?? []).includes(clientId)
 }
+
+/**
+ * A plain member the owner/manager allowed to create tasks for themselves —
+ * only inside a project they were given access to. Mirrors the task `create`
+ * rule in firestore.rules.
+ */
+export function canCreateOwnTask(
+  member: { role?: string; canCreateOwnTasks?: boolean; assignedProjectIds?: string[] } | null | undefined,
+  projectId: string | undefined | null
+): boolean {
+  if (!member || !projectId) return false
+  return (
+    (member.role || '').trim().toLowerCase() === 'member' &&
+    member.canCreateOwnTasks === true &&
+    (member.assignedProjectIds ?? []).includes(projectId)
+  )
+}

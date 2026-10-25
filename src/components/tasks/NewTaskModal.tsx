@@ -7,7 +7,7 @@ import { logActivity, taskChangeEntries } from '../../lib/activityLog'
 import { db } from '../../lib/firebase/app'
 import type { Member } from '../../types/member'
 import type { Task, TaskAssignee, TaskPriority } from '../../types/task'
-import { assigneeFields } from '../../utils/assignees'
+import { assigneeFields, memberToAssignee } from '../../utils/assignees'
 import { Button } from '../ui/Button'
 import { FormField } from '../ui/FormField'
 import { Modal } from '../ui/Modal'
@@ -27,6 +27,7 @@ export function NewTaskModal({
   projectName,
   members,
   taskCount,
+  selfOnly = false,
 }: {
   open: boolean
   onClose: () => void
@@ -36,8 +37,10 @@ export function NewTaskModal({
   projectName: string
   members: Member[]
   taskCount: number
+  /** A member adding a task for themselves: assigned to them alone, no picker. */
+  selfOnly?: boolean
 }) {
-  const { user } = useAuth()
+  const { user, member } = useAuth()
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
   const [assignees, setAssignees] = useState<TaskAssignee[]>([])
@@ -66,7 +69,7 @@ export function NewTaskModal({
       title: trimmed,
       description: '',
       status: 'todo',
-      ...assigneeFields(assignees),
+      ...assigneeFields(selfOnly && member ? [memberToAssignee(member)] : assignees),
       priority,
       tags,
       startDate: startDate ? new Date(startDate) : null,
@@ -110,9 +113,13 @@ export function NewTaskModal({
           />
         </FormField>
 
-        <FormField label="Assignees">
-          <AssigneePicker value={assignees} members={members} onChange={setAssignees} />
-        </FormField>
+        {selfOnly ? (
+          <p className="-mt-2 text-[12.5px] text-text-muted">التاسك دي هتتحط عليك إنت بس.</p>
+        ) : (
+          <FormField label="Assignees">
+            <AssigneePicker value={assignees} members={members} onChange={setAssignees} />
+          </FormField>
+        )}
 
         <div className="flex flex-wrap items-start gap-4">
           <FormField label="Priority">

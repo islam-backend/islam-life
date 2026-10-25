@@ -69,6 +69,16 @@ service cloud.firestore {
           && data.clientId in memberDoc().data.managedClientIds;
     }
 
+    // A plain member the owner/manager allowed to add tasks for themselves
+    // (members/{uid}.canCreateOwnTasks), inside the projects they were given
+    // (assignedProjectIds — flat, since rules can't search a list of maps).
+    function canCreateOwnTaskIn(projectId) {
+      return isMember()
+          && roleOf() == 'member'
+          && memberDoc().data.get('canCreateOwnTasks', false) == true
+          && projectId in memberDoc().data.get('assignedProjectIds', []);
+    }
+
     function isAssignedToMe(taskData) {
       return taskData.assigneeUids is list
           && request.auth.uid in taskData.assigneeUids;
@@ -120,7 +130,7 @@ service cloud.firestore {
       // changed, so re-writing an unchanged role still passes.
       allow update: if isManager()
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['assignedProjects', 'updatedAt'])
+              .hasOnly(['assignedProjects', 'assignedProjectIds', 'canCreateOwnTasks', 'updatedAt'])
           && request.resource.data.role == resource.data.role;
 
       // First-ever sign-in: a signed-in Google account may create ITS
@@ -173,6 +183,13 @@ service cloud.firestore {
         allow read:  if isMember();
         allow write: if canManageClient(clientId);
 
+        // Project notes: everyone who can see the project reads them;
+        // owner / managing manager write.
+        match /notes/{noteId} {
+          allow read:  if isMember();
+          allow write: if canManageClient(clientId);
+        }
+
         match /tasks/{taskId} {
           // Owner + managing manager: full access. Member: read + status-only
           // update on their own tasks.
@@ -188,6 +205,23 @@ service cloud.firestore {
           allow read:   if canManageClient(clientId)
               || (isMember() && request.auth.uid in resource.data.assigneeUids);
           allow create, delete: if canManageClient(clientId);
+          // ...or a member with the own-tasks grant: only into a project they
+          // were given, in their own name, assigned to nobody but themselves.
+          allow create: if canCreateOwnTaskIn(projectId)
+              && request.resource.data.createdBy == request.auth.uid
+              && request.resource.data.assigneeUids == [request.auth.uid]
+              && request.resource.data.clientId == clientId
+              && request.resource.data.projectId == projectId
+              && request.resource.data.status != 'archived';
+          // ...and may fully edit (but not reassign or archive) the tasks they
+          // created for themselves.
+          allow update: if canCreateOwnTaskIn(projectId)
+              && resource.data.get('createdBy', null) == request.auth.uid
+              && resource.data.assigneeUids == [request.auth.uid]
+              && resource.data.status != 'archived'
+              && request.resource.data.status != 'archived'
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['title', 'description', 'status', 'priority', 'tags', 'startDate', 'dueDate', 'updatedAt']);
           // An assigned member may move the workflow status and set the
           // Notion-style fields (priority / tags / start date) — never
           // reassign, rename, or change the due date. Archiving/restoring is
