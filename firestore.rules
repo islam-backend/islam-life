@@ -184,10 +184,21 @@ service cloud.firestore {
         allow write: if canManageClient(clientId);
 
         // Project notes: everyone who can see the project reads them;
-        // owner / managing manager write.
+        // owner / managing manager write everything. Any member may add a
+        // note in their own name and edit / delete their OWN notes (never
+        // pin, never touch authorship).
         match /notes/{noteId} {
           allow read:  if isMember();
           allow write: if canManageClient(clientId);
+          allow create: if isMember()
+              && request.resource.data.createdBy == request.auth.uid
+              && request.resource.data.pinned == false;
+          allow update: if isMember()
+              && resource.data.get('createdBy', null) == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['title', 'content', 'section', 'updatedAt', 'updatedByName']);
+          allow delete: if isMember()
+              && resource.data.get('createdBy', null) == request.auth.uid;
         }
 
         match /tasks/{taskId} {

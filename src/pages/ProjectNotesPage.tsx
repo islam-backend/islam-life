@@ -87,11 +87,9 @@ export function ProjectNotesPage() {
           { label: 'Notes' },
         ]}
         actions={
-          canManage ? (
-            <Button variant="primary" onClick={createNote} disabled={creating}>
-              New Note
-            </Button>
-          ) : undefined
+          <Button variant="primary" onClick={createNote} disabled={creating}>
+            New Note
+          </Button>
         }
       />
       <ProjectTabs clientId={clientId} projectId={projectId} noteCount={notes.length} />
@@ -114,7 +112,7 @@ export function ProjectNotesPage() {
               <p className="p-3 text-[12.5px] text-text-faint">Loading…</p>
             ) : visible.length === 0 ? (
               <p className="p-3 text-[12.5px] text-text-faint">
-                مفيش نوتس هنا لسه.{canManage && ' دوس New Note وابدأ.'}
+                مفيش نوتس هنا لسه. دوس New Note وابدأ.
               </p>
             ) : (
               visible.map((n) => {
@@ -155,6 +153,7 @@ export function ProjectNotesPage() {
               clientId={clientId}
               projectId={projectId}
               canManage={canManage}
+              canEdit={canManage || selected.createdBy === member?.uid}
               authorName={member?.displayName || member?.email || 'Member'}
               onDeleted={() => setSelectedId(null)}
             />
@@ -188,19 +187,23 @@ function NoteEditor({
   clientId,
   projectId,
   canManage,
+  canEdit,
   authorName,
   onDeleted,
 }: {
   note: ProjectNote
   clientId: string
   projectId: string
+  /** Owner / managing manager — may also pin. */
   canManage: boolean
+  /** Manager, or the member who wrote this note. */
+  canEdit: boolean
   authorName: string
   onDeleted: () => void
 }) {
   const [title, setTitle] = useState(note.title)
   const [content, setContent] = useState(note.content)
-  const [preview, setPreview] = useState(!canManage)
+  const [preview, setPreview] = useState(!canEdit)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const ref = doc(db, 'clients', clientId, 'projects', projectId, 'notes', note.id)
@@ -228,7 +231,7 @@ function NoteEditor({
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-5 p-8">
       <div className="flex items-start justify-between gap-3">
-        {canManage ? (
+        {canEdit ? (
           <input
             dir="auto"
             value={title}
@@ -243,16 +246,18 @@ function NoteEditor({
             {note.title}
           </h1>
         )}
-        {canManage && (
+        {canEdit && (
           <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              title={note.pinned ? 'Unpin' : 'Pin'}
-              onClick={() => patch({ pinned: !note.pinned })}
-              className={`cursor-pointer rounded-md px-2 py-1 text-[13px] hover:bg-field ${note.pinned ? '' : 'opacity-40 hover:opacity-100'}`}
-            >
-              📌
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                title={note.pinned ? 'Unpin' : 'Pin'}
+                onClick={() => patch({ pinned: !note.pinned })}
+                className={`cursor-pointer rounded-md px-2 py-1 text-[13px] hover:bg-field ${note.pinned ? '' : 'opacity-40 hover:opacity-100'}`}
+              >
+                📌
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
@@ -265,7 +270,7 @@ function NoteEditor({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {canManage ? (
+        {canEdit ? (
           NOTE_SECTIONS.map((s) => (
             <button
               key={s.value}
@@ -287,7 +292,7 @@ function NoteEditor({
         </span>
       </div>
 
-      {canManage && (
+      {canEdit && (
         <div className="flex w-fit gap-0.5 rounded-lg bg-field p-0.5 text-[12px] font-medium">
           {[
             { id: false, label: 'Write' },
