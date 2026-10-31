@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
 import { Avatar } from '../ui/Avatar'
@@ -7,7 +7,12 @@ import { useClients, type ClientWithProjects } from '../../hooks/useClients'
 import { useMyProjects } from '../../hooks/useMyProjects'
 import { useNotifications } from '../../hooks/useNotifications'
 import { getAppName } from '../../lib/firebase/config'
-import { ensureNotificationPermission, primeAudio } from '../../lib/notify'
+import {
+  ensureNotificationPermission,
+  getNotificationPermissionState,
+  type NotificationPermissionState,
+  primeAudio,
+} from '../../lib/notify'
 import { canManageClient, isManagerRole, isOwnerRole } from '../../utils/role'
 import { AdminNav } from './AdminNav'
 import { ClientProjectTree } from './ClientProjectTree'
@@ -44,17 +49,18 @@ function InboxIcon() {
 }
 
 function NotificationsToggle() {
-  const [state, setState] = useState<NotificationPermission | 'unsupported'>(
-    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
-  )
+  const [state, setState] = useState<NotificationPermissionState>('default')
+  useEffect(() => {
+    void getNotificationPermissionState().then(setState)
+  }, [])
   if (state === 'unsupported' || state === 'granted') return null
 
   return (
     <button
       onClick={async () => {
         primeAudio()
-        const ok = await ensureNotificationPermission()
-        setState(ok ? 'granted' : Notification.permission)
+        await ensureNotificationPermission()
+        setState(await getNotificationPermissionState())
       }}
       className="mx-2 mb-1 flex items-center gap-2 rounded-md border border-accent/40 bg-accent-tint/40 px-2 py-1.5 text-[12px] font-medium text-text-muted hover:text-text"
     >
@@ -77,7 +83,14 @@ function SignOutIcon() {
   )
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  /** Mobile-only: whether the drawer is open. Ignored at `md` and up, where
+   * the sidebar is always visible in the flex layout instead. */
+  mobileOpen: boolean
+  onClose: () => void
+}
+
+export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user, member, signOut } = useAuth()
   const { unreadCount } = useNotifications(100)
   const isOwner = isOwnerRole(member?.role)
@@ -124,11 +137,21 @@ export function Sidebar() {
   if (!member) return null
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border bg-sidebar">
-      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4">
-        <div className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-accent text-[13px]">🚀</div>
-        <span className="truncate text-sm font-semibold text-text">{getAppName()}</span>
-      </div>
+    <>
+      {/* Backdrop — mobile only, closes the drawer on tap outside it. */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={onClose} />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex h-full w-72 shrink-0 flex-col border-r border-border bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:translate-x-0 md:transition-none ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4">
+          <div className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-accent text-[13px]">🚀</div>
+          <span className="truncate text-sm font-semibold text-text">{getAppName()}</span>
+        </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-4">
         <NavLink
@@ -208,5 +231,6 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   )
 }

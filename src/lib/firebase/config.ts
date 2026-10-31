@@ -20,11 +20,27 @@ export interface FirebaseWebConfig {
   measurementId?: string
   /** Not part of Firebase's config — the workspace's display name. */
   appName?: string
+  /** Not part of Firebase's config — the push-relay Worker's URL (see
+   * worker/push-relay). Omit to leave real push (app fully closed) off;
+   * the in-app/in-background notifications work either way. */
+  pushRelayUrl?: string
+  /** Shared secret sent as `X-App-Secret` to the push-relay Worker. Not a
+   * real secret (it ships in the client bundle) — just enough to keep the
+   * endpoint from being spammed by strangers who find the URL. */
+  pushRelaySecret?: string
 }
 
 const LOCAL_KEY = 'firebase-web-config'
 const REQUIRED = ['apiKey', 'authDomain', 'projectId', 'appId'] as const
-const KNOWN = [...REQUIRED, 'storageBucket', 'messagingSenderId', 'measurementId', 'appName'] as const
+const KNOWN = [
+  ...REQUIRED,
+  'storageBucket',
+  'messagingSenderId',
+  'measurementId',
+  'appName',
+  'pushRelayUrl',
+  'pushRelaySecret',
+] as const
 
 let current: FirebaseWebConfig | null = null
 

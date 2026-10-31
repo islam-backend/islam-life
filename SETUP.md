@@ -56,3 +56,9 @@ If you didn't enable Storage, the deploy step fails. Enable Storage first, or ru
 ## Switching projects
 
 Open the app with `?setup` at the end of the URL to clear a config saved in the browser. A deployed `public/firebase-config.json` always takes priority over a browser-saved config.
+
+## 4. Mobile app (optional)
+
+The web app also builds as a native Android app via Capacitor — see `android/`. It needs its own Google Sign-In setup (Firebase Console → Add app → Android, package `com.islamlife.taskmanager`, debug SHA-1 from `keytool`) and its own `google-services.json` in `android/app/`.
+
+Real push notifications — delivered even while the app is fully closed — need one more small piece, since this project intentionally avoids Firebase Cloud Functions (Spark plan, no Blaze billing account). See `worker/push-relay/README.md` for the (optional, ~5 minute) Cloudflare Worker setup. Without it, the app still notifies while open or backgrounded — just not once Android has killed the process.

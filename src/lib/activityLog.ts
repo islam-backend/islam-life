@@ -2,11 +2,12 @@ import { collection, doc, serverTimestamp, updateDoc, writeBatch } from 'firebas
 
 import type { Member } from '../types/member'
 import type { Task } from '../types/task'
-import type { ActivityEntry } from '../utils/activity'
+import { activityLink, type ActivityEntry, describeActivity } from '../utils/activity'
 import { isOwnerRole } from '../utils/role'
 import { STATUS_LABEL } from '../utils/taskStatus'
 import { db } from './firebase/app'
 import { taskDocRef } from './firebase/refs'
+import { notifyPush } from './push'
 
 // ── Activity log, written from the browser ─────────────────────────
 // Each action that changes data calls logActivity() right after its own
@@ -76,8 +77,14 @@ export async function logActivity(entries: LogEntry[]) {
       batch.set(doc(collection(db, 'auditLog')), data)
 
       const mentionUids = others(mentioned)
-      const notify = (uid: string, extra: object = {}) =>
-        batch.set(doc(collection(db, 'members', uid, 'notifications')), { ...data, ...extra, read: false })
+      const notify = (uid: string, extra: object = {}) => {
+        const entry = { ...data, ...extra, id: '' } as ActivityEntry
+        batch.set(doc(collection(db, 'members', uid, 'notifications')), { ...entry, read: false })
+        // Real push (app backgrounded/closed) — best-effort, see lib/push.ts.
+        // The entry itself already carries everything describeActivity/
+        // activityLink need; `forMe: true` phrases it for this recipient.
+        notifyPush([uid], me.actorName, describeActivity(entry, true).text, activityLink(entry) ?? undefined)
+      }
       for (const uid of mentionUids) notify(uid, { type: 'comment.mention' })
       for (const uid of others(recipients).filter((u) => !mentionUids.includes(u))) notify(uid)
     }

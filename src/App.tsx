@@ -1,8 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from './components/layout/AppShell'
+import { BiometricLockScreen } from './components/auth/BiometricLockScreen'
 import { AuthProvider } from './context/AuthProvider'
 import { useAuth } from './hooks/useAuth'
+import { useBiometricGate } from './hooks/useBiometricGate'
 import { AdminAllAssignmentsPage } from './pages/AdminAllAssignmentsPage'
 import { ActivityCenterPage } from './pages/ActivityCenterPage'
 import { AdminTeamPage } from './pages/AdminTeamPage'
@@ -19,6 +21,7 @@ import { isAdminRole, isOwnerRole } from './utils/role'
 
 function Gate() {
   const { user, member, loading } = useAuth()
+  const { locked, unlock } = useBiometricGate(Boolean(user))
 
   if (loading) {
     return <div className="flex min-h-full items-center justify-center bg-bg text-text-muted">Loading…</div>
@@ -26,6 +29,10 @@ function Gate() {
 
   if (!user || !member) {
     return <LoginPage />
+  }
+
+  if (locked) {
+    return <BiometricLockScreen onUnlocked={unlock} />
   }
 
   const ownerOnly = (el: React.ReactElement) => (isOwnerRole(member.role) ? el : <Navigate to="/" replace />)

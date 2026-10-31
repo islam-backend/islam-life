@@ -1,7 +1,10 @@
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication'
 import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import {
+  GoogleAuthProvider,
   type User,
   onAuthStateChanged,
+  signInWithCredential,
   signInWithPopup,
   signOut as firebaseSignOut,
 } from 'firebase/auth'
@@ -9,8 +12,31 @@ import { createContext, type ReactNode, useEffect, useState } from 'react'
 
 import { logActivity, setActivityActor } from '../lib/activityLog'
 import { auth, db, googleProvider } from '../lib/firebase/app'
+import { getBiometryStatus, isNativePlatform, setBiometricLockEnabled } from '../lib/biometric'
 import type { Member } from '../types/member'
 import { isOwnerRole } from '../utils/role'
+
+/**
+ * Google's own sign-in blocks embedded WebViews (the Capacitor shell counts
+ * as one — error "disallowed_useragent"). On native we get an ID token from
+ * the native Google account picker instead, then hand it to the exact same
+ * Firebase JS SDK session everything else in the app already relies on.
+ * `skipNativeAuth` (see capacitor.config.ts) stops the plugin from *also*
+ * signing in to a second, native-only Firebase Auth instance we never read.
+ */
+async function signInWithGoogleNative(): Promise<void> {
+  const result = await FirebaseAuthentication.signInWithGoogle()
+  const idToken = result.credential?.idToken
+  if (!idToken) throw new Error('Google sign-in was cancelled or returned no ID token.')
+  const credential = GoogleAuthProvider.credential(idToken, result.credential?.accessToken)
+  await signInWithCredential(auth, credential)
+
+  // First sign-in on the device: if the phone has fingerprint/face auth set
+  // up, turn on the quick-unlock lock screen so Google sign-in isn't needed
+  // again until the person explicitly signs out.
+  const biometry = await getBiometryStatus()
+  if (biometry?.isAvailable) await setBiometricLockEnabled(true)
+}
 
 interface AuthContextValue {
   user: User | null
@@ -199,9 +225,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading: !authResolved || !memberResolved,
     notInvited,
     signInWithGoogle: async () => {
-      await signInWithPopup(auth, googleProvider)
+      if (isNativePlatform()) {
+        await signInWithGoogleNative()
+      } else {
+        await signInWithPopup(auth, googleProvider)
+      }
     },
-    signOut: () => firebaseSignOut(auth),
+    signOut: async () => {
+      await setBiometricLockEnabled(false)
+      await firebaseSignOut(auth)
+    },
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -43,3 +43,23 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Android (Capacitor) — build output and machine-specific files
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+# Tied to one Firebase project's Android app registration (package name +
+# SHA-1 + OAuth client) — same reasoning as firebase-config.json above:
+# each deployment gets its own, so it isn't baked into the repo.
+android/app/google-services.json
+*.apk
+*.aab
+
+# Cloudflare Worker (push-relay) local state — secrets live in Cloudflare,
+# never in the repo. See worker/push-relay/README.md.
+worker/push-relay/.wrangler/
+worker/push-relay/.dev.vars
