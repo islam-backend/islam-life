@@ -5,5 +5,7 @@
   "projectId": "islam-life-e126e",
   "storageBucket": "islam-life-e126e.firebasestorage.app",
   "messagingSenderId": "603554211024",
-  "appId": "1:603554211024:web:dc19cbe391dbc9c1c7aad5"
+  "appId": "1:603554211024:web:dc19cbe391dbc9c1c7aad5",
+  "pushRelayUrl": "https://islamlife-push-relay.islam-walied96.workers.dev",
+  "pushRelaySecret": "d5d80201e7d44ff5766e1260bc920fc16288827a950edfe785a5d7ab2724314b"
 }
